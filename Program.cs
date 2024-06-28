@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using BinanceLive.Strategies;
 using BinanceLive.Tools;
 using RestSharp;
+using Newtonsoft.Json;
+using System.Globalization;
 
 namespace BinanceLive
 {
@@ -45,18 +47,42 @@ namespace BinanceLive
 
             while (true)
             {
+                var currentPrices = await FetchCurrentPrices(client, symbols);
                 await runner.RunStrategiesAsync(smaExpansionStrategy, fvgStrategy, macdDivergenceStrategy);
 
-                // Log active trades and wallet balance at the end of each cycle
-                Console.WriteLine("---- Cycle Completed ----");                
-                var currentPrices = await runner.GetCurrentPricesAsync();
                 orderManager.CheckAndCloseTrades(currentPrices);
+
+                Console.WriteLine("---- Cycle Completed ----");
                 orderManager.PrintActiveTrades(currentPrices);
                 orderManager.PrintWalletBalance();
 
                 var delay = TimeTools.GetTimeSpanFromInterval(interval);
                 await Task.Delay(delay);
             }
+        }
+
+        static async Task<Dictionary<string, decimal>> FetchCurrentPrices(RestClient client, List<string> symbols)
+        {
+            var prices = new Dictionary<string, decimal>();
+
+            foreach (var symbol in symbols)
+            {
+                var request = new RestRequest("/api/v3/ticker/price", Method.Get);
+                request.AddParameter("symbol", symbol);
+                var response = await client.ExecuteAsync<Dictionary<string, string>>(request);
+
+                if (response.IsSuccessful)
+                {
+                    var priceData = JsonConvert.DeserializeObject<Dictionary<string, string>>(response.Content);
+                    prices[symbol] = decimal.Parse(priceData["price"], CultureInfo.InvariantCulture);
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to fetch price for {symbol}: {response.ErrorMessage}");
+                }
+            }
+
+            return prices;
         }
     }
 }
