@@ -39,4 +39,18 @@ public class Trade
         var profit = CalculateProfit(closingPrice);
         return profit / InitialMargin;
     }
+
+    public decimal CurrentValue(decimal currentPrice)
+    {
+        decimal value = Quantity * currentPrice;
+
+        if (IsLong)
+        {
+            return value;
+        }
+        else // For short positions
+        {
+            return -value; // Make it negative for short positions
+        }
+    }
 }

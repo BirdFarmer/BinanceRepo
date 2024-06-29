@@ -48,7 +48,7 @@ namespace BinanceLive
             while (true)
             {
                 var currentPrices = await FetchCurrentPrices(client, symbols);
-                await runner.RunStrategiesAsync(smaExpansionStrategy, fvgStrategy, macdDivergenceStrategy);
+                await runner.RunStrategiesAsync(smaExpansionStrategy); //, fvgStrategy, macdDivergenceStrategy);
 
                 orderManager.CheckAndCloseTrades(currentPrices);
 

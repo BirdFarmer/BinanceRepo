@@ -53,7 +53,6 @@ public class OrderManager
             }
         }
     }
-    
     public void PrintActiveTrades(Dictionary<string, decimal> currentPrices)
     {
         Console.WriteLine("Active Trades:");
@@ -61,13 +60,14 @@ public class OrderManager
 
         foreach (var trade in _activeTrades.Values)
         {
-            decimal currentValue = trade.Quantity * currentPrices[trade.Symbol];
+            decimal currentValue = trade.Quantity * trade.CurrentValue(currentPrices[trade.Symbol]);
             totalValue += currentValue;
-            Console.WriteLine($"{trade.Symbol}: Entry Price: {trade.EntryPrice:F8}, Current Price: {currentPrices[trade.Symbol]:F8}, Take Profit: {trade.TakeProfitPrice:F8}, Stop Loss: {trade.StopLossPrice:F8}, Current Value: {currentValue:F2} USDT, Direction: {(trade.IsLong ? "Long" : "Short")}");
+            Console.WriteLine($"{trade.Symbol}: Entry Price: {trade.EntryPrice:F8}, Current Price: {currentPrices[trade.Symbol]:F8}, Take Profit: {trade.TakeProfitPrice:F8}, Stop Loss: {trade.StopLossPrice:F8}, Current Value: {trade.CurrentValue(currentPrices[trade.Symbol]):F2} USDT, Direction: {(trade.IsLong ? "Long" : "Short")}");
         }
 
         Console.WriteLine($"Total Value of Active Trades: {totalValue:F2} USDT");
     }
+
 
     public void PrintWalletBalance()
     {
