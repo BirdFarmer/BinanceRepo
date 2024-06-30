@@ -26,7 +26,7 @@ namespace BinanceLive
             var client = new RestClient("https://api.binance.com");
             Console.WriteLine("RestClient initialized.");
 
-            var symbols = new List<string> 
+            var symbols = new List<string>
             {
                 "BTCUSDT", "ETHUSDT", "TIAUSDT", "SUIUSDT", "XRPUSDT", "BCHUSDT", "AVAXUSDT", "MATICUSDT", "RNDRUSDT", 
                 "DOGEUSDT", "HBARUSDT", "SEIUSDT", "STORJUSDT", "EOSUSDT", "FETUSDT", "SHIBUSDT", "THETAUSDT", "PEPEUSDT", 
@@ -36,7 +36,7 @@ namespace BinanceLive
             var interval = args.Length > 0 ? args[0] : "1m";
             Console.WriteLine($"Interval: {interval}");
 
-            var wallet = new Wallet(200);
+            var wallet = new Wallet(1000);
             var orderManager = new OrderManager(wallet);
 
             var runner = new StrategyRunner(client, apiKey, symbols, interval, wallet, orderManager);

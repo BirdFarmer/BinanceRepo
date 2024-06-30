@@ -64,9 +64,13 @@ public class SMAExpansionStrategy : StrategyBase
                 if (sma200.Count >= 200)
                 {
                     int index = sma200.Count - 1;
-
                     int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansion(sma14, sma50, sma100, sma200, index);
-  
+
+                    // Fetch current price from Binance
+                    decimal currentPrice = await GetCurrentPriceFromBinance(symbol);
+
+                    // Call TrackExpansion with currentPrice
+                    TrackExpansion(symbol, currentPrice, expansionResult);
                     PrintRecentExpansions(symbol);
                 }
             }
@@ -89,6 +93,7 @@ public class SMAExpansionStrategy : StrategyBase
 
     private void UpdateRecentExpansions(string symbol, int expansionResult)
     {
+        Console.WriteLine($"Recent Expansions for {symbol}: {string.Join(", ", expansionResult)}");
         lock (recentExpansions)
         {
             if (!recentExpansions.ContainsKey(symbol))
@@ -97,6 +102,7 @@ public class SMAExpansionStrategy : StrategyBase
             }
 
             recentExpansions[symbol].Enqueue(expansionResult);
+            
             if (recentExpansions[symbol].Count > ExpansionWindowSize)
             {
                 recentExpansions[symbol].Dequeue(); // Remove oldest expansion result
@@ -129,11 +135,11 @@ public class SMAExpansionStrategy : StrategyBase
                 var recentExpansionResults = recentExpansions[symbol];
                 bool allLongExpansions = recentExpansionResults.All(r => r == 1);
                 bool allShortExpansions = recentExpansionResults.All(r => r == -1);
-
+/*
                 Console.WriteLine($"Checking trade conditions for {symbol}:");
                 Console.WriteLine($"All long expansions: {allLongExpansions}");
                 Console.WriteLine($"All short expansions: {allShortExpansions}");
-
+*/
                 if (allLongExpansions)
                 {
                     OrderManager.PlaceShortOrder(symbol, currentPrice);
@@ -159,5 +165,27 @@ public class SMAExpansionStrategy : StrategyBase
         request.AddHeader("Accept", "application/json");
 
         return request;
+    }
+
+    private async Task<decimal> GetCurrentPriceFromBinance(string symbol)
+    {
+        var request = CreateRequest("/api/v3/ticker/price");
+        request.AddParameter("symbol", symbol, ParameterType.QueryString);
+
+        var response = await Client.ExecuteGetAsync(request);
+
+        if (response.IsSuccessful)
+        {
+            var ticker = JsonConvert.DeserializeObject<dynamic>(response.Content);
+            decimal price = ticker.price;
+            return price;
+        }
+        else
+        {
+            Console.WriteLine($"Error fetching current price for {symbol}: {response.ErrorMessage}");
+            Console.WriteLine($"Status Code: {response.StatusCode}");
+            Console.WriteLine($"Content: {response.Content}");
+            return 0; // or handle error appropriately
+        }
     }
 }
