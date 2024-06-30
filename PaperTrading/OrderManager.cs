@@ -20,11 +20,18 @@ public class OrderManager
 
     private void PlaceOrder(string symbol, decimal price, bool isLong)
     {
-        decimal quantity = _wallet.Balance * 0.10m / price;
+        decimal marginPerTrade = 20; // Margin per trade in USDT
+        decimal quantity = marginPerTrade / price;
 
-        if (_activeTrades.Count >= 5)
+        if (_activeTrades.Count >= 9)
         {
-            Console.WriteLine("Cannot place more than 5 trades at a time.");
+            Console.WriteLine("Cannot place more than 9 trades at a time.");
+            return;
+        }
+
+        if (_activeTrades.ContainsKey(symbol))
+        {
+            Console.WriteLine($"Coin {symbol} is already in an active trade. Will not add to it.");
             return;
         }
 
@@ -53,6 +60,7 @@ public class OrderManager
             }
         }
     }
+
     public void PrintActiveTrades(Dictionary<string, decimal> currentPrices)
     {
         Console.WriteLine("Active Trades:");
@@ -61,16 +69,15 @@ public class OrderManager
         foreach (var trade in _activeTrades.Values)
         {
             decimal currentValue = trade.Quantity * trade.CurrentValue(currentPrices[trade.Symbol]);
-            totalValue += currentValue;
-            Console.WriteLine($"{trade.Symbol}: Entry Price: {trade.EntryPrice:F8}, Current Price: {currentPrices[trade.Symbol]:F8}, Take Profit: {trade.TakeProfitPrice:F8}, Stop Loss: {trade.StopLossPrice:F8}, Current Value: {trade.CurrentValue(currentPrices[trade.Symbol]):F2} USDT, Direction: {(trade.IsLong ? "Long" : "Short")}");
+            totalValue += trade.CurrentValue(currentPrices[trade.Symbol]);//currentValue;
+            Console.WriteLine($"\n{trade.Symbol}: Initial Margin: {trade.InitialMargin:F2}, \nEntry Price: {trade.EntryPrice:F8}, Current Price: {currentPrices[trade.Symbol]:F8}, \nTake Profit: {trade.TakeProfitPrice:F8}, Stop Loss: {trade.StopLossPrice:F8}, \nValue Of Trade: {trade.CurrentValue(currentPrices[trade.Symbol]):F2} USDT, Realized Return: {trade.CalculateRealizedReturn(currentPrices[trade.Symbol]):F2}%, \nDirection: {(trade.IsLong ? "Long" : "Short")}\n");
         }
 
         Console.WriteLine($"Total Value of Active Trades: {totalValue:F2} USDT");
     }
 
-
     public void PrintWalletBalance()
     {
-        Console.WriteLine($"Wallet Balance: {_wallet.Balance}");
+        Console.WriteLine($"Wallet Balance: {_wallet.Balance:F2} USDT");
     }
 }

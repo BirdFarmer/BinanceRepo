@@ -6,8 +6,8 @@ public class Trade
     public decimal Quantity { get; private set; }
     public bool IsLong { get; private set; }
     public decimal InitialMargin => EntryPrice * Quantity / Leverage;
-    public decimal TakeProfitPrice => IsLong ? EntryPrice * 1.01m : EntryPrice * 0.99m;
-    public decimal StopLossPrice => IsLong ? EntryPrice * 0.995m : EntryPrice * 1.005m;
+    public decimal TakeProfitPrice => IsLong ? EntryPrice * 1.005m : EntryPrice * 0.995m;
+    public decimal StopLossPrice => IsLong ? EntryPrice * 0.9975m : EntryPrice * 1.0025m;
 
     public Trade(string symbol, decimal entryPrice, decimal leverage, decimal quantity, bool isLong)
     {
@@ -42,7 +42,7 @@ public class Trade
 
     public decimal CurrentValue(decimal currentPrice)
     {
-        decimal value = Quantity * currentPrice;
+        decimal value = CalculateProfit(currentPrice);//Quantity * currentPrice;
 
         if (IsLong)
         {
