@@ -9,7 +9,7 @@ using System.Linq;
 using System.Threading.Tasks;
 public class SMAExpansionStrategy : StrategyBase
 {
-    private const int ExpansionWindowSize = 4;  // Number of consecutive expansions to track
+    private const int ExpansionWindowSize = 2;  // Number of consecutive expansions to track
     private Dictionary<string, Queue<int>> recentExpansions = new Dictionary<string, Queue<int>>();
 
     public SMAExpansionStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
@@ -71,7 +71,8 @@ public class SMAExpansionStrategy : StrategyBase
 
                     // Call TrackExpansion with currentPrice
                     TrackExpansion(symbol, currentPrice, expansionResult);
-                    PrintRecentExpansions(symbol);
+                    //PrintRecentExpansions(symbol);
+                    
                 }
             }
         }
@@ -93,7 +94,6 @@ public class SMAExpansionStrategy : StrategyBase
 
     private void UpdateRecentExpansions(string symbol, int expansionResult)
     {
-        Console.WriteLine($"Recent Expansions for {symbol}: {string.Join(", ", expansionResult)}");
         lock (recentExpansions)
         {
             if (!recentExpansions.ContainsKey(symbol))
@@ -142,17 +142,17 @@ public class SMAExpansionStrategy : StrategyBase
 */
                 if (allLongExpansions)
                 {
-                    OrderManager.PlaceShortOrder(symbol, currentPrice);
-                    Console.WriteLine($"******SMA Expansion Strategy***************************");
-                    Console.WriteLine($"Reversal Signal: Go SHORT on {symbol} @ {currentPrice}.");
-                    Console.WriteLine($"*******************************************************");
+                    OrderManager.PlaceLongOrder(symbol, currentPrice, "SMAExpansion");
+                    //Console.WriteLine($"******SMA Expansion Strategy***************************");
+                    //Console.WriteLine($"Reversal Signal: Go LONG on {symbol} @ {currentPrice}.");
+                    //Console.WriteLine($"*******************************************************");
                 }
                 else if (allShortExpansions)
                 {                    
-                    OrderManager.PlaceLongOrder(symbol, currentPrice);
-                    Console.WriteLine($"******SMA Expansion Strategy***************************");
-                    Console.WriteLine($"Reversal Signal: Go LONG on {symbol} @ {currentPrice}.");
-                    Console.WriteLine($"*******************************************************");
+                    OrderManager.PlaceShortOrder(symbol, currentPrice, "SMAExpansion");
+                    //Console.WriteLine($"******SMA Expansion Strategy***************************");
+                    //Console.WriteLine($"Reversal Signal: Go SHORT on {symbol} @ {currentPrice}.");
+                    //Console.WriteLine($"*******************************************************");
                 }
             }
         }
