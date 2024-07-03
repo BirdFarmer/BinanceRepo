@@ -10,7 +10,10 @@ public class Wallet
 
     public bool CanPlaceTrade(Trade trade)
     {
-        if (Balance >= trade.Quantity * trade.EntryPrice)
+        decimal requiredBalance = (trade.Quantity * trade.EntryPrice) / trade.Leverage;
+        Console.WriteLine($"Wallet: {Balance:F2}, Required: {requiredBalance:F1}, Quantity: {trade.Quantity:F2}, EntryPrice: {trade.EntryPrice}" );
+
+        if (Balance >= requiredBalance)
         {
             return true;
         }
@@ -21,11 +24,12 @@ public class Wallet
         }
     }
 
+
     public bool PlaceTrade(Trade trade)
     {
         if (CanPlaceTrade(trade))
         {
-            Balance -= trade.Quantity * trade.EntryPrice;
+            Balance -= trade.Quantity * trade.EntryPrice / trade.Leverage;
             Console.WriteLine($"Successfully placed trade for {trade.Symbol}.");
             return true;
         }
@@ -38,7 +42,8 @@ public class Wallet
 
     public void AddFunds(decimal amount)
     {
+        Console.Beep();
         Balance += amount;
-        Console.WriteLine($"Funds added: {amount}. New Balance: {Balance}");
+        Console.WriteLine($"Funds added: {amount:F2}. New Balance: {Balance:F2}");
     }
 }

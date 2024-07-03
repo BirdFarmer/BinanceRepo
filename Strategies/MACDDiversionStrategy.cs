@@ -46,12 +46,12 @@ namespace BinanceLive.Strategies
                         {
                             if (divergence == 1)
                             {
-                                OrderManager.PlaceLongOrder(symbol, klines.Last().Close);
+                                OrderManager.PlaceLongOrder(symbol, klines.Last().Close, "MAC-D");
                                 LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
                             else if (divergence == -1)
                             {
-                                OrderManager.PlaceShortOrder(symbol, klines.Last().Close);
+                                OrderManager.PlaceShortOrder(symbol, klines.Last().Close, "MAC-D");
                                 LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
                         }
@@ -140,7 +140,7 @@ namespace BinanceLive.Strategies
             Console.WriteLine($"******MACD Divergence Strategy******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
             Console.WriteLine($"************************************************");
-            Console.Beep();
+            //Console.Beep();
         }
 
         private void HandleErrorResponse(string symbol, RestResponse response)

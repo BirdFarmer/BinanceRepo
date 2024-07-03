@@ -34,7 +34,7 @@ public class FVGStrategy : StrategyBase
                         var lastGap = fairValueGaps.Last();
                         if (klines.Last().Low < lastGap.Low && klines.Last().High > lastGap.High)
                         {
-                            OrderManager.PlaceLongOrder(symbol, klines.Last().Close);
+                            OrderManager.PlaceLongOrder(symbol, klines.Last().Close, "FVG");
                             LogTradeSignal("LONG", symbol, klines.Last().Close, lastGap.Low);
                         }
                     }
@@ -124,7 +124,7 @@ public class FVGStrategy : StrategyBase
         Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
         Console.WriteLine($"Stop Loss below {stopLoss}");
         Console.WriteLine($"*********************************************");
-        Console.Beep();
+        //Console.Beep();
     }
 
     private void HandleErrorResponse(string symbol, RestResponse response)

@@ -1,56 +1,46 @@
 public class Trade
 {
-    public string Symbol { get; private set; }
-    public decimal EntryPrice { get; private set; }
-    public decimal Leverage { get; private set; }
-    public decimal Quantity { get; private set; }
-    public bool IsLong { get; private set; }
-    public decimal InitialMargin => EntryPrice * Quantity / Leverage;
-    public decimal TakeProfitPrice => IsLong ? EntryPrice * 1.005m : EntryPrice * 0.995m;
-    public decimal StopLossPrice => IsLong ? EntryPrice * 0.9975m : EntryPrice * 1.0025m;
+    public string Symbol { get; }
+    public decimal EntryPrice { get; }
+    public decimal TakeProfitPrice { get; }
+    public decimal StopLossPrice { get; }
+    public decimal Quantity { get; }
+    public bool IsLong { get; }
+    public decimal Leverage { get; }
 
-    public Trade(string symbol, decimal entryPrice, decimal leverage, decimal quantity, bool isLong)
+    public Trade(string symbol, decimal entryPrice, decimal takeProfitPrice, decimal stopLossPrice, decimal quantity, bool isLong, decimal leverage)
     {
         Symbol = symbol;
         EntryPrice = entryPrice;
-        Leverage = leverage;
+        TakeProfitPrice = takeProfitPrice;
+        StopLossPrice = stopLossPrice;
         Quantity = quantity;
         IsLong = isLong;
-    }
-
-    public decimal CalculateProfit(decimal closingPrice)
-    {
-        var priceDifference = IsLong ? closingPrice - EntryPrice : EntryPrice - closingPrice;
-        return priceDifference * Quantity * Leverage;
-    }
-
-    public bool IsStoppedOut(decimal currentPrice)
-    {
-        return IsLong ? currentPrice <= StopLossPrice : currentPrice >= StopLossPrice;
-    }
-
-    public bool IsTakeProfitHit(decimal currentPrice)
-    {
-        return IsLong ? currentPrice >= TakeProfitPrice : currentPrice <= TakeProfitPrice;
-    }
-
-    public decimal CalculateRealizedReturn(decimal closingPrice)
-    {
-        var profit = CalculateProfit(closingPrice);
-        return profit / InitialMargin;
+        Leverage = leverage;
     }
 
     public decimal CurrentValue(decimal currentPrice)
     {
-        decimal value = CalculateProfit(currentPrice);//Quantity * currentPrice;
+        return Quantity * currentPrice;
+    }
 
-        if (IsLong)
-        {
-            return value;
-        }
-        else // For short positions
-        {
-            return -value; // Make it negative for short positions
-        }
+    public decimal InitialMargin => Quantity * EntryPrice / Leverage;
+
+    public bool IsTakeProfitHit(decimal currentPrice)
+    {
+        
+        //Console.WriteLine($"{Symbol} LONG:{IsLong}, price: {currentPrice:F5} compared to TP: {TakeProfitPrice:F5} ");
+        return IsLong ? currentPrice >= TakeProfitPrice : currentPrice <= TakeProfitPrice;
+    }
+
+    public bool IsStoppedOut(decimal currentPrice)
+    {
+        //Console.WriteLine($"{Symbol} LONG:{IsLong}, price: {currentPrice:F5} compared to SL: {StopLossPrice:F5} ");
+        return IsLong ? currentPrice <= StopLossPrice : currentPrice >= StopLossPrice;
+    }
+
+    public decimal CalculateRealizedReturn(decimal closingPrice)
+    {
+        return ((closingPrice - EntryPrice) / EntryPrice) * (IsLong ? 1 : -1) * Leverage;
     }
 }

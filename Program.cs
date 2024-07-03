@@ -1,5 +1,4 @@
-﻿// Program.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using BinanceLive.Strategies;
@@ -7,6 +6,7 @@ using BinanceLive.Tools;
 using RestSharp;
 using Newtonsoft.Json;
 using System.Globalization;
+using Serilog;
 
 namespace BinanceLive
 {
@@ -14,6 +14,10 @@ namespace BinanceLive
     {
         static async Task Main(string[] args)
         {
+            Log.Logger = new LoggerConfiguration()
+                .WriteTo.File("program.log")
+                .CreateLogger();
+
             var apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
             var apiSecret = Environment.GetEnvironmentVariable("BINANCE_API_SECRET");
 
@@ -28,16 +32,19 @@ namespace BinanceLive
 
             var symbols = new List<string>
             {
-                "BTCUSDT", "ETHUSDT", "TIAUSDT", "SUIUSDT", "XRPUSDT", "BCHUSDT", "AVAXUSDT", "MATICUSDT", "RNDRUSDT", 
-                "DOGEUSDT", "HBARUSDT", "SEIUSDT", "STORJUSDT", "EOSUSDT", "FETUSDT", "SHIBUSDT", "THETAUSDT", "PEPEUSDT", 
+                "BTCUSDT", "ETHUSDT", "TIAUSDT", "SUIUSDT", "XRPUSDT", "BCHUSDT", "AVAXUSDT", "MATICUSDT", "RNDRUSDT",
+                "DOGEUSDT", "HBARUSDT", "SEIUSDT", "STORJUSDT", "EOSUSDT", "FETUSDT", "SHIBUSDT", "THETAUSDT", "PEPEUSDT",
                 "ARUSDT", "LINKUSDT", "FTMUSDT", "ATOMUSDT", "TRBUSDT", "SUSHIUSDT", "BNBUSDT", "ORDIUSDT"
             };
 
             var interval = args.Length > 0 ? args[0] : "1m";
+            var leverage = args.Length > 1 ? decimal.Parse(args[1]) : 10; // Default leverage is 10
+
             Console.WriteLine($"Interval: {interval}");
+            Console.WriteLine($"Leverage: {leverage}x");
 
             var wallet = new Wallet(1000);
-            var orderManager = new OrderManager(wallet);
+            var orderManager = new OrderManager(wallet, leverage);
 
             var runner = new StrategyRunner(client, apiKey, symbols, interval, wallet, orderManager);
 
@@ -45,16 +52,25 @@ namespace BinanceLive
             var fvgStrategy = new FVGStrategy(client, apiKey, orderManager, wallet);
             var macdDivergenceStrategy = new MACDDivergenceStrategy(client, apiKey, orderManager, wallet);
 
+            // Timestamp for when the first loop starts
+            var startTime = DateTime.Now;
+
             while (true)
             {
                 var currentPrices = await FetchCurrentPrices(client, symbols);
-                await runner.RunStrategiesAsync(smaExpansionStrategy); //, fvgStrategy, macdDivergenceStrategy);
-
-                orderManager.CheckAndCloseTrades(currentPrices);
+                await runner.RunStrategiesAsync(smaExpansionStrategy, macdDivergenceStrategy); //, fvgStrategy, macdDivergenceStrategy);                
 
                 Console.WriteLine("---- Cycle Completed ----");
-                orderManager.PrintActiveTrades(currentPrices);
-                orderManager.PrintWalletBalance();
+                if(currentPrices != null && orderManager != null)
+                {
+                    orderManager.CheckAndCloseTrades(currentPrices);                    
+                    orderManager.PrintActiveTrades(currentPrices);
+                    orderManager.PrintWalletBalance();
+                }
+                
+                // Print out time elapsed since the first loop
+                var elapsedTime = DateTime.Now - startTime;
+                Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
 
                 var delay = TimeTools.GetTimeSpanFromInterval(interval);
                 await Task.Delay(delay);
