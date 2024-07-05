@@ -1,4 +1,5 @@
 
+
 public class Wallet
 {
     public decimal Balance { get; private set; }
@@ -45,5 +46,10 @@ public class Wallet
         Console.Beep();
         Balance += amount;
         Console.WriteLine($"Funds added: {amount:F2}. New Balance: {Balance:F2}");
+    }
+
+    internal decimal GetBalance()
+    {
+        return Balance;
     }
 }

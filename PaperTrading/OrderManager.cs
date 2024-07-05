@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using OfficeOpenXml;
 using Serilog;
 
 public class OrderManager
@@ -12,12 +14,22 @@ public class OrderManager
     public decimal profitOfClosed = 0;
     public decimal longs = 0;
     public decimal shorts = 0;
-    string signal = "";
+    private List<TradeRecord> tradeRecords = new List<TradeRecord>();
 
-    public OrderManager(Wallet wallet, decimal leverage)
+    private readonly string _excelFilePath;
+
+    public OrderManager(Wallet wallet, decimal leverage, string excelFilePath)
     {
         _wallet = wallet;
         _leverage = leverage;
+        _excelFilePath = excelFilePath;
+    }
+
+    private decimal CalculateQuantity(decimal price)
+    {
+        decimal marginPerTrade = 20; // Fixed margin per trade in USDT
+        decimal quantity = (marginPerTrade * _leverage) / price;
+        return quantity;
     }
 
     public void PlaceLongOrder(string symbol, decimal price, string signalIn)
@@ -32,18 +44,15 @@ public class OrderManager
 
     private void PlaceOrder(string symbol, decimal price, bool isLong, string signalIn)
     {
-        decimal marginPerTrade = 20; // Margin per trade in USDT
-        decimal quantity = (marginPerTrade * _leverage) / price;
+        decimal quantity = CalculateQuantity(price);
 
         if (_activeTrades.Count >= 25)
         {
-            Log.Warning("Cannot place more than 25 trades at a time.");
             return;
         }
 
         if (_activeTrades.ContainsKey(symbol))
         {
-            Log.Warning($"Coin {symbol} is already in an active trade. Will not add to it.");
             return;
         }
 
@@ -68,16 +77,9 @@ public class OrderManager
             if (trade.IsLong) longs++;
             else shorts++;
             noOfTrades++;
-            LogTradePlacement(symbol, price, isLong, signalIn);
             _activeTrades[symbol] = trade;
+            RecordTrade(symbol, price, 0, isLong, quantity, signalIn, 0); // Initial record, exit price, and profit will be updated later
         }
-    }
-
-    private void LogTradePlacement(string symbol, decimal price, bool isLong, string signalIn)
-    {
-        string direction = isLong ? "Long" : "Short";
-        Log.Information("Placed {Direction} Order: Symbol: {Symbol}, Price: {Price}, Signal: {Signal}",
-                        direction, symbol, price, signalIn);
     }
 
     public void CheckAndCloseTrades(Dictionary<string, decimal> currentPrices)
@@ -86,14 +88,14 @@ public class OrderManager
         {
             if (currentPrices != null && trade != null &&
                 currentPrices.ContainsKey(trade.Symbol) &&
-                (trade.IsTakeProfitHit(currentPrices[trade.Symbol]) || trade.IsStoppedOut(currentPrices[trade.Symbol])))
+                ShouldCloseTrade(trade, currentPrices[trade.Symbol]))
             {
                 var closingPrice = currentPrices[trade.Symbol];
                 var realizedReturn = trade.CalculateRealizedReturn(closingPrice);
-                Log.Information("Trade for {Symbol} closed at price {Price}. Realized return: {Return:P2}", 
-                                trade.Symbol, closingPrice, realizedReturn);
+                var profit = trade.IsLong
+                    ? (trade.Quantity * (closingPrice - trade.EntryPrice)) + trade.InitialMargin
+                    : (trade.Quantity * (trade.EntryPrice - closingPrice)) + trade.InitialMargin;
 
-                // Update wallet balance based on leveraged return
                 if (trade.IsLong)
                 {
                     _wallet.AddFunds((trade.Quantity * (closingPrice - trade.EntryPrice)) + trade.InitialMargin);
@@ -104,15 +106,47 @@ public class OrderManager
                 }
 
                 _activeTrades.Remove(trade.Symbol);
+
+                RecordTrade(trade.Symbol, trade.EntryPrice, closingPrice, trade.IsLong, trade.Quantity, "Closed", profit - trade.InitialMargin);
+
                 Console.WriteLine($"Trade for {trade.Symbol} closed.");
                 Console.WriteLine($"Realized Return for {trade.Symbol}: {realizedReturn:P2}");
             }
         }
     }
 
+    private bool ShouldCloseTrade(Trade trade, decimal currentPrice)
+    {
+        if (trade.IsLong)
+        {
+            return currentPrice >= trade.TakeProfitPrice || currentPrice <= trade.StopLossPrice;
+        }
+        else
+        {
+            return currentPrice <= trade.TakeProfitPrice || currentPrice >= trade.StopLossPrice;
+        }
+    }
+
+    private void RecordTrade(string symbol, decimal entryPrice, decimal exitPrice, bool isLong, decimal quantity, string signal, decimal profit)
+    {
+        var record = new TradeRecord
+        {
+            Symbol = symbol,
+            EntryPrice = entryPrice,
+            ExitPrice = exitPrice,
+            IsLong = isLong,
+            Quantity = quantity,
+            Signal = signal,
+            Profit = profit,
+            Timestamp = DateTime.Now
+        };
+        tradeRecords.Add(record);
+    }
+
     public void PrintActiveTrades(Dictionary<string, decimal> currentPrices)
     {
         Console.WriteLine("Active Trades:");
+        string logOutput = "Active Trades:\n";
 
         foreach (var trade in _activeTrades.Values)
         {
@@ -127,21 +161,33 @@ public class OrderManager
             Console.WriteLine($"{trade.Symbol}: Initial Margin: {trade.InitialMargin:F2} USDT, Quantity: {trade.Quantity:F8},");
             Console.WriteLine($"Entry Price: {trade.EntryPrice:F8}, Current Price: {currentPrices[trade.Symbol]:F8},");
             Console.WriteLine($"Take Profit: {trade.TakeProfitPrice:F8}, Stop Loss: {trade.StopLossPrice:F8},");
+            logOutput += $"{trade.Symbol}: Initial Margin: {trade.InitialMargin:F2} USDT, Quantity: {trade.Quantity:F8},\n";
+            logOutput += $"Entry Price: {trade.EntryPrice:F8}, Current Price: {currentPrices[trade.Symbol]:F8},\n";
+            logOutput += $"Take Profit: {trade.TakeProfitPrice:F8}, Stop Loss: {trade.StopLossPrice:F8},\n";
 
             if (trade.IsLong)
             {
                 decimal valueOfTrade = currentValue - entryValue;
                 Console.WriteLine($"Value Of Trade: {valueOfTrade:F2} USDT, Realized Return: {realizedReturn:F2}%,");
+                logOutput += $"Value Of Trade: {valueOfTrade:F2} USDT, Realized Return: {realizedReturn:F2}%,\n";
             }
             else // SHORT trade
             {
                 decimal valueOfTrade = entryValue - currentValue;
-                // Switch it around for SHORT
                 realizedReturn = ((initialValue - currentValue) / initialValue) * 100;
                 Console.WriteLine($"Value Of Trade: {valueOfTrade:F2} USDT, Realized Return: {realizedReturn:F2}%,");
+                logOutput += $"Value Of Trade: {valueOfTrade:F2} USDT, Realized Return: {realizedReturn:F2}%,\n";
+            }
+
+            var tradeRecord = tradeRecords.FirstOrDefault(record => record.Symbol == trade.Symbol && record.EntryPrice == trade.EntryPrice);
+            if (tradeRecord != null)
+            {
+                Console.WriteLine($"Signal: {tradeRecord.Signal}");
+                logOutput += $"Signal: {tradeRecord.Signal}\n";
             }
 
             Console.WriteLine($"Direction: {(trade.IsLong ? "Long" : "Short")}, Leverage: {leverageMultiplier}x\n");
+            logOutput += $"Direction: {(trade.IsLong ? "Long" : "Short")}, Leverage: {leverageMultiplier}x\n\n";
         }
 
         decimal totalValue = _activeTrades.Values.Sum(trade =>
@@ -161,17 +207,55 @@ public class OrderManager
             }
         });
 
-        // Adding the active trades initial
-        decimal totalActiveValue = totalValue + (_activeTrades.Count * 20);
-        Log.Information("Total Value of Active Trades: {TotalValue:F2} USDT, Profit of Closed Trades: {ProfitOfClosed}, Longs: {Longs}, Shorts: {Shorts}, Number of Trades: {NoOfTrades}",
-                        totalActiveValue, profitOfClosed, longs, shorts, noOfTrades);
-
-        Console.WriteLine($"Total Value of Active Trades: {totalActiveValue:F2} USDT");
+        string totalOutput = $"Total Value of Active Trades: {totalValue + (_activeTrades.Count * 20)} USDT \nProfit of Closed Trades: {profitOfClosed}\nLongs: {longs}\nShorts: {shorts}";
+        Console.WriteLine(totalOutput);
+        Log.Information(logOutput);
+        Log.Information(totalOutput);
+        Log.Information($"Number of trades: {noOfTrades}");
     }
 
     public void PrintWalletBalance()
     {
-        Console.WriteLine($"Wallet Balance: {_wallet.Balance:F2}");
-        Log.Information("Wallet Balance: {Balance:F2}", _wallet.Balance);
+        Console.WriteLine($"Wallet Balance: {_wallet.GetBalance():F2} USDT");
+    }
+public void WriteTradesToExcel(string filePath)
+    {
+        try
+        {
+            using (var package = new ExcelPackage())
+            {
+                var worksheet = package.Workbook.Worksheets.Add("Trades");
+
+                worksheet.Cells[1, 1].Value = "Symbol";
+                worksheet.Cells[1, 2].Value = "EntryPrice";
+                worksheet.Cells[1, 3].Value = "ExitPrice";
+                worksheet.Cells[1, 4].Value = "IsLong";
+                worksheet.Cells[1, 5].Value = "Quantity";
+                worksheet.Cells[1, 6].Value = "Signal";
+                worksheet.Cells[1, 7].Value = "Profit";
+                worksheet.Cells[1, 8].Value = "Timestamp";
+
+                for (int i = 0; i < tradeRecords.Count; i++)
+                {
+                    var record = tradeRecords[i];
+                    worksheet.Cells[i + 2, 1].Value = record.Symbol;
+                    worksheet.Cells[i + 2, 2].Value = record.EntryPrice;
+                    worksheet.Cells[i + 2, 3].Value = record.ExitPrice;
+                    worksheet.Cells[i + 2, 4].Value = record.IsLong;
+                    worksheet.Cells[i + 2, 5].Value = record.Quantity;
+                    worksheet.Cells[i + 2, 6].Value = record.Signal;
+                    worksheet.Cells[i + 2, 7].Value = record.Profit;
+                    worksheet.Cells[i + 2, 8].Value = record.Timestamp;
+                    worksheet.Cells[i + 2, 8].Style.Numberformat.Format = "yyyy-mm-dd hh:mm:ss"; // Format the timestamp column
+                }
+
+                package.SaveAs(new FileInfo(filePath));
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to write trades to Excel file: {ex.Message}");
+            Log.Error($"Failed to write trades to Excel file: {ex.Message}");
+        }
     }
 }
