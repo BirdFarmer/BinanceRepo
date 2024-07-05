@@ -32,15 +32,23 @@ public class FVGStrategy : StrategyBase
                     if (fairValueGaps.Any())
                     {
                         var lastGap = fairValueGaps.Last();
+
+                        // Check for Long
                         if (klines.Last().Low < lastGap.Low && klines.Last().High > lastGap.High)
                         {
                             OrderManager.PlaceLongOrder(symbol, klines.Last().Close, "FVG");
-                            LogTradeSignal("LONG", symbol, klines.Last().Close, lastGap.Low);
+                            LogTradeSignal("LONG", symbol, klines.Last().Close);
+                        }
+                        // Check for Short
+                        else if (klines.Last().High > lastGap.High && klines.Last().Low < lastGap.Low)
+                        {
+                            OrderManager.PlaceShortOrder(symbol, klines.Last().Close, "FVG");
+                            LogTradeSignal("SHORT", symbol, klines.Last().Close);
                         }
                     }
                     else
                     {
-                        //Console.WriteLine($"No Fair Value Gaps identified for {symbol}.");
+                        // Console.WriteLine($"No Fair Value Gaps identified for {symbol}.");
                     }
                 }
                 else
@@ -118,13 +126,13 @@ public class FVGStrategy : StrategyBase
         return fairValueGaps;
     }
 
-    private void LogTradeSignal(string direction, string symbol, decimal price, decimal stopLoss)
+    private void LogTradeSignal(string direction, string symbol, decimal price)
     {
         Console.WriteLine($"******FVG Strategy***************************");
         Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
-        Console.WriteLine($"Stop Loss below {stopLoss}");
+        // Console.WriteLine($"Stop Loss below {stopLoss}");
         Console.WriteLine($"*********************************************");
-        //Console.Beep();
+        // Console.Beep();
     }
 
     private void HandleErrorResponse(string symbol, RestResponse response)

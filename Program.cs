@@ -7,6 +7,7 @@ using RestSharp;
 using Newtonsoft.Json;
 using System.Globalization;
 using Serilog;
+using OfficeOpenXml;
 
 namespace BinanceLive
 {
@@ -44,7 +45,10 @@ namespace BinanceLive
             Console.WriteLine($"Leverage: {leverage}x");
 
             var wallet = new Wallet(1000);
-            var orderManager = new OrderManager(wallet, leverage);
+            var orderManager = new OrderManager(wallet, leverage, "trades.xlsx");
+
+            var tradeRecords = new List<TradeRecord>();
+            var tradeRecorder = new TradeRecorder(tradeRecords);
 
             var runner = new StrategyRunner(client, apiKey, symbols, interval, wallet, orderManager);
 
@@ -58,19 +62,22 @@ namespace BinanceLive
             while (true)
             {
                 var currentPrices = await FetchCurrentPrices(client, symbols);
-                await runner.RunStrategiesAsync(smaExpansionStrategy, macdDivergenceStrategy); //, fvgStrategy, macdDivergenceStrategy);                
+                await runner.RunStrategiesAsync(smaExpansionStrategy, macdDivergenceStrategy);//smaExpansionStrategy, macdDivergenceStrategy, fvgStrategy
 
                 Console.WriteLine("---- Cycle Completed ----");
-                if(currentPrices != null && orderManager != null)
+                if (currentPrices != null && orderManager != null)
                 {
-                    orderManager.CheckAndCloseTrades(currentPrices);                    
+                    orderManager.CheckAndCloseTrades(currentPrices);
                     orderManager.PrintActiveTrades(currentPrices);
                     orderManager.PrintWalletBalance();
                 }
-                
+
                 // Print out time elapsed since the first loop
                 var elapsedTime = DateTime.Now - startTime;
                 Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
+
+                // Save trades to files after each cycle
+                orderManager.WriteTradesToExcel("trades.xlsx");
 
                 var delay = TimeTools.GetTimeSpanFromInterval(interval);
                 await Task.Delay(delay);
