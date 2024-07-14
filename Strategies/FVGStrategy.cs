@@ -27,28 +27,28 @@ public class FVGStrategy : StrategyBase
 
                 if (klines != null && klines.Count > 0)
                 {
-                    var fairValueGaps = IdentifyFairValueGaps(klines);
+                    var fairValueGaps = IdentifyFairValueGaps(klines, symbol);
 
                     if (fairValueGaps.Any())
                     {
                         var lastGap = fairValueGaps.Last();
 
-                        // Check for Long
-                        if (klines.Last().Low < lastGap.Low && klines.Last().High > lastGap.High)
+                        // Check for Long: coming from above into the FVG
+                        if (klines.Last().Close < lastGap.High && klines.Last().Close > lastGap.Low)
                         {
                             OrderManager.PlaceLongOrder(symbol, klines.Last().Close, "FVG");
                             LogTradeSignal("LONG", symbol, klines.Last().Close);
                         }
-                        // Check for Short
-                        else if (klines.Last().High > lastGap.High && klines.Last().Low < lastGap.Low)
+                        // Check for Short: coming from below into the FVG
+                        else if (klines.Last().Close > lastGap.Low && klines.Last().Close < lastGap.High)
                         {
                             OrderManager.PlaceShortOrder(symbol, klines.Last().Close, "FVG");
                             LogTradeSignal("SHORT", symbol, klines.Last().Close);
                         }
                     }
-                    else
+                    else    
                     {
-                        // Console.WriteLine($"No Fair Value Gaps identified for {symbol}.");
+                        Console.WriteLine($"No Fair Value Gaps identified for {symbol}.");
                     }
                 }
                 else
@@ -106,10 +106,10 @@ public class FVGStrategy : StrategyBase
             return null;
         }
     }
-
-    private List<Kline> IdentifyFairValueGaps(List<Kline> klines)
+    private List<Kline> IdentifyFairValueGaps(List<Kline> klines, string symbol)
     {
         var fairValueGaps = new List<Kline>();
+        Kline? lastIdentifiedGap = null;
 
         for (int i = 2; i < klines.Count; i++)
         {
@@ -119,7 +119,13 @@ public class FVGStrategy : StrategyBase
 
             if (current.Low > previous.High && previous.Low > beforePrevious.High)
             {
-                fairValueGaps.Add(previous);
+                // Check if the current gap is distinct
+                if (lastIdentifiedGap == null || previous.Low > lastIdentifiedGap.High)
+                {
+                    fairValueGaps.Add(previous);
+                    lastIdentifiedGap = previous;
+                    Console.WriteLine($"Identified FVG for {symbol} at index {i-1} with High: {previous.High} and Low: {previous.Low}");
+                }
             }
         }
 
@@ -130,9 +136,7 @@ public class FVGStrategy : StrategyBase
     {
         Console.WriteLine($"******FVG Strategy***************************");
         Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
-        // Console.WriteLine($"Stop Loss below {stopLoss}");
         Console.WriteLine($"*********************************************");
-        // Console.Beep();
     }
 
     private void HandleErrorResponse(string symbol, RestResponse response)

@@ -149,7 +149,7 @@ public class SMAExpansionStrategy : StrategyBase
                 }
                 else if (allShortExpansions)
                 {                    
-                    OrderManager.PlaceShortOrder(symbol, currentPrice, "SMAExpansion");
+                    //OrderManager.PlaceShortOrder(symbol, currentPrice, "SMAExpansion");
                     //Console.WriteLine($"******SMA Expansion Strategy***************************");
                     //Console.WriteLine($"Reversal Signal: Go SHORT on {symbol} @ {currentPrice}.");
                     //Console.WriteLine($"*******************************************************");
