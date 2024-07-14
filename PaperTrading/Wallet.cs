@@ -1,4 +1,4 @@
-
+using System;
 
 public class Wallet
 {
@@ -12,19 +12,10 @@ public class Wallet
     public bool CanPlaceTrade(Trade trade)
     {
         decimal requiredBalance = (trade.Quantity * trade.EntryPrice) / trade.Leverage;
-        Console.WriteLine($"Wallet: {Balance:F2}, Required: {requiredBalance:F1}, Quantity: {trade.Quantity:F2}, EntryPrice: {trade.EntryPrice}" );
+        Console.WriteLine($"Wallet: {Balance:F2}, Required: {requiredBalance:F1}, Quantity: {trade.Quantity:F2}, EntryPrice: {trade.EntryPrice}");
 
-        if (Balance >= requiredBalance)
-        {
-            return true;
-        }
-        else
-        {
-            Console.WriteLine($"Insufficient balance to place trade for {trade.Symbol}.");
-            return false;
-        }
+        return Balance >= requiredBalance;
     }
-
 
     public bool PlaceTrade(Trade trade)
     {
@@ -48,7 +39,7 @@ public class Wallet
         Console.WriteLine($"Funds added: {amount:F2}. New Balance: {Balance:F2}");
     }
 
-    internal decimal GetBalance()
+    public decimal GetBalance()
     {
         return Balance;
     }

@@ -45,10 +45,7 @@ namespace BinanceLive
             Console.WriteLine($"Leverage: {leverage}x");
 
             var wallet = new Wallet(1000);
-            var orderManager = new OrderManager(wallet, leverage, "trades.xlsx");
-
-            var tradeRecords = new List<TradeRecord>();
-            var tradeRecorder = new TradeRecorder(tradeRecords);
+            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter());
 
             var runner = new StrategyRunner(client, apiKey, symbols, interval, wallet, orderManager);
 
@@ -75,10 +72,7 @@ namespace BinanceLive
                 // Print out time elapsed since the first loop
                 var elapsedTime = DateTime.Now - startTime;
                 Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
-
-                // Save trades to files after each cycle
-                orderManager.WriteTradesToExcel("trades.xlsx");
-
+                
                 var delay = TimeTools.GetTimeSpanFromInterval(interval);
                 await Task.Delay(delay);
             }
