@@ -3,6 +3,7 @@ namespace BinanceLive.Models
 {
     public class Kline
     {
+        public string Symbol { get; set; } // Add the Symbol property
         public long OpenTime { get; set; }
         public decimal Open { get; set; }
         public decimal High { get; set; }

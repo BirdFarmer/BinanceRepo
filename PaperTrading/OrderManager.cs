@@ -2,24 +2,39 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BinanceTestnet.Enums;
+using BinanceLive.Models;
 
 public class OrderManager
 {
     private readonly Wallet _wallet;
     private readonly Dictionary<int, Trade> _activeTrades = new Dictionary<int, Trade>();
-    private readonly decimal _leverage;
+    public decimal _leverage;
+    public string _interval;
     private readonly ExcelWriter _excelWriter;
+    private readonly OperationMode _operationMode;
     public decimal noOfTrades = 0;
     public decimal profitOfClosed = 0;
     public decimal longs = 0;
     public decimal shorts = 0;
     private int _nextTradeId = 1;
-
-    public OrderManager(Wallet wallet, decimal leverage, ExcelWriter excelWriter)
+    private readonly decimal _takeProfit; 
+    private readonly SelectedTradeDirection _tradeDirection;
+    private SelectedTradingStrategy _tradingStrategy;
+    
+    public OrderManager(Wallet wallet, decimal leverage, ExcelWriter excelWriter, OperationMode operationMode, 
+                        string interval, string fileName, decimal takeProfit, 
+                        SelectedTradeDirection tradeDirection, SelectedTradingStrategy tradingStrategy)
     {
         _wallet = wallet;
         _leverage = leverage;
         _excelWriter = excelWriter;
+        _operationMode = operationMode;
+        _interval = interval;
+        _takeProfit = takeProfit; 
+        _excelWriter.Initialize(fileName);
+        _tradeDirection = tradeDirection;
+        _tradingStrategy = tradingStrategy;
     }
 
     private decimal CalculateQuantity(decimal price)
@@ -36,11 +51,20 @@ public class OrderManager
 
     public void PlaceShortOrder(string symbol, decimal price, string signal)
     {
+        
         PlaceOrder(symbol, price, false, signal);
     }
 
     private void PlaceOrder(string symbol, decimal price, bool isLong, string signal)
-    {
+    {            
+        // Check if the trade direction matches the user's choice
+        if ((_tradeDirection == SelectedTradeDirection.OnlyLongs && !isLong) ||
+            (_tradeDirection == SelectedTradeDirection.OnlyShorts && isLong))
+        {
+            //Console.WriteLine($"Skipping trade for {symbol} because it does not match the trade direction preference.");
+            return;
+        }
+
         decimal quantity = CalculateQuantity(price);
 
         if (_activeTrades.Count >= 25)
@@ -58,16 +82,16 @@ public class OrderManager
 
         if (isLong)
         {
-            takeProfitPrice = price * 1.015m; // 1.5% take profit above entry price
-            stopLossPrice = price * 0.9925m; // 0.75% stop loss below entry price
+            takeProfitPrice = price * (1 + (_takeProfit / 100)); // Use dynamic take profit
+            stopLossPrice = price * (1 - (_takeProfit / 200)); // Stop loss is half of take profit
         }
         else
         {
-            takeProfitPrice = price * 0.9925m; // 0.75% take profit below entry price
-            stopLossPrice = price * 1.015m; // 1.5% stop loss above entry price
+            takeProfitPrice = price * (1 - (_takeProfit / 100)); // Use dynamic take profit
+            stopLossPrice = price * (1 + (_takeProfit / 200)); // Stop loss is half of take profit
         }
 
-        var trade = new Trade(_nextTradeId++, symbol, price, takeProfitPrice, stopLossPrice, quantity, isLong, _leverage, signal);
+        var trade = new Trade(_nextTradeId++, symbol, price, takeProfitPrice, stopLossPrice, quantity, isLong, _leverage, signal, _interval);
 
         if (_wallet.PlaceTrade(trade))
         {
@@ -93,14 +117,14 @@ public class OrderManager
                     ? (trade.Quantity * (closingPrice - trade.EntryPrice)) + trade.InitialMargin
                     : (trade.Quantity * (trade.EntryPrice - closingPrice)) + trade.InitialMargin;
 
+                Console.WriteLine($"Trade for {trade.Symbol} closed.");
+                Console.WriteLine($"Realized Return for {trade.Symbol}: {trade.Profit:P2}");
                 _wallet.AddFunds(profit);
                 profitOfClosed += profit;
                 _activeTrades.Remove(trade.Id);
 
-                Console.WriteLine($"Trade for {trade.Symbol} closed.");
-                Console.WriteLine($"Realized Return for {trade.Symbol}: {trade.Profit:P2}");
-
-                _excelWriter.WriteClosedTradeToExcel(trade); // Write the closed trade to the Excel file
+                _excelWriter.WriteClosedTradeToExcel(trade);
+                
             }
         }
     }
@@ -144,5 +168,48 @@ public class OrderManager
     public void PrintWalletBalance()
     {
         Console.WriteLine($"Wallet Balance: {_wallet.GetBalance():F2} USDT");
+    }
+
+    // Method to run backtesting with historical data
+    public void RunBacktest(List<Kline> historicalData)
+    {
+        if (_operationMode != OperationMode.Backtest) return;
+
+        var currentPrices = new Dictionary<string, decimal>();
+
+        foreach (var kline in historicalData)
+        {
+            currentPrices["SYMBOL"] = kline.Close; // Replace "SYMBOL" with actual symbol if necessary
+
+            // Here you would call your strategy methods to place orders based on historical data
+            // For example: strategy.CheckForTradeOpportunities(currentPrices);
+
+            CheckAndCloseTrades(currentPrices);
+        }
+
+        PrintTradeSummary();
+        PrintWalletBalance();
+    }
+    
+    public void CloseAllActiveTrades(decimal closePrice)
+    {
+        foreach (var trade in _activeTrades.Values.ToList())
+        {
+            if (!trade.IsClosed)
+            {
+                trade.CloseTrade(closePrice); // Mark trade as closed and calculate profit
+                var profit = trade.IsLong
+                    ? (trade.Quantity * (closePrice - trade.EntryPrice)) + trade.InitialMargin
+                    : (trade.Quantity * (trade.EntryPrice - closePrice)) + trade.InitialMargin;
+
+                Console.WriteLine($"Trade for {trade.Symbol} closed.");
+                Console.WriteLine($"Realized Return for {trade.Symbol}: {trade.Profit:P2}");
+                _wallet.AddFunds(profit);
+                profitOfClosed += profit;
+                _activeTrades.Remove(trade.Id);
+
+                _excelWriter.WriteClosedTradeToExcel(trade);
+            }
+        }
     }
 }
