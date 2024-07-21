@@ -145,4 +145,16 @@ public class FVGStrategy : StrategyBase
         Console.WriteLine($"Status Code: {response.StatusCode}");
         Console.WriteLine($"Content: {response.Content}");
     }
+    
+    public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
+    {
+        foreach (var kline in historicalData)
+        {
+            await RunOnKlineAsync(kline);
+        }
+    }
+
+    public async Task RunOnKlineAsync(Kline kline)
+    {
+    }
 }

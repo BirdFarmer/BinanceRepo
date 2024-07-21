@@ -125,7 +125,6 @@ public class SMAExpansionStrategy : StrategyBase
             }
         }
     }
-
     private void CheckTradingConditions(string symbol, decimal currentPrice)
     {
         lock (recentExpansions)
@@ -135,28 +134,28 @@ public class SMAExpansionStrategy : StrategyBase
                 var recentExpansionResults = recentExpansions[symbol];
                 bool allLongExpansions = recentExpansionResults.All(r => r == 1);
                 bool allShortExpansions = recentExpansionResults.All(r => r == -1);
-/*
-                Console.WriteLine($"Checking trade conditions for {symbol}:");
-                Console.WriteLine($"All long expansions: {allLongExpansions}");
-                Console.WriteLine($"All short expansions: {allShortExpansions}");
-*/
+
                 if (allLongExpansions)
                 {
                     OrderManager.PlaceLongOrder(symbol, currentPrice, "SMAExpansion");
-                    //Console.WriteLine($"******SMA Expansion Strategy***************************");
-                    //Console.WriteLine($"Reversal Signal: Go LONG on {symbol} @ {currentPrice}.");
-                    //Console.WriteLine($"*******************************************************");
                 }
                 else if (allShortExpansions)
-                {                    
-                    //OrderManager.PlaceShortOrder(symbol, currentPrice, "SMAExpansion");
-                    //Console.WriteLine($"******SMA Expansion Strategy***************************");
-                    //Console.WriteLine($"Reversal Signal: Go SHORT on {symbol} @ {currentPrice}.");
-                    //Console.WriteLine($"*******************************************************");
+                {
+                    
+                    OrderManager.PlaceShortOrder(symbol, currentPrice, "SMAExpansion");
                 }
             }
+
+            // After checking for trade placements, always check for closures
+            var currentPrices = new Dictionary<string, decimal>
+            {
+                { symbol, currentPrice }
+            };
+
+            OrderManager.CheckAndCloseTrades(currentPrices);
         }
     }
+
 
     private RestRequest CreateRequest(string resource)
     {
@@ -188,4 +187,50 @@ public class SMAExpansionStrategy : StrategyBase
             return 0; // or handle error appropriately
         }
     }
+
+    public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
+    {
+        var sma14 = new List<double>();
+        var sma50 = new List<double>();
+        var sma100 = new List<double>();
+        var sma200 = new List<double>();
+        var closes = new List<double>();
+
+        foreach (var kline in historicalData)
+        {
+            closes.Add((double)kline.Close);
+            UpdateSMAs(closes, sma14, sma50, sma100, sma200);
+
+            if (sma200.Count >= 200)
+            {
+                int index = sma200.Count - 1;
+                int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansion(sma14, sma50, sma100, sma200, index);
+                TrackExpansion(kline.Symbol, kline.Close, expansionResult);
+            }
+        }
+    }
+
+    private void UpdateSMAs(List<double> closes, List<double> sma14, List<double> sma50, List<double> sma100, List<double> sma200)
+    {
+        if (closes.Count >= 14) sma14.Add(closes.Skip(closes.Count - 14).Take(14).Average());
+        if (closes.Count >= 50) sma50.Add(closes.Skip(closes.Count - 50).Take(50).Average());
+        if (closes.Count >= 100) sma100.Add(closes.Skip(closes.Count - 100).Take(100).Average());
+        if (closes.Count >= 200) sma200.Add(closes.Skip(closes.Count - 200).Take(200).Average());
+    }
+
+    
+    private void LogTradeSignal(string direction, string symbol, decimal price)
+    {
+        Console.WriteLine($"******MACD Divergence Strategy******************");
+        Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
+        Console.WriteLine($"************************************************");
+        //Console.Beep();
+    }
+
+    private void HandleErrorResponse(string symbol, RestResponse response)
+    {
+        Console.WriteLine($"Error for {symbol}: {response.ErrorMessage}");
+        Console.WriteLine($"Status Code: {response.StatusCode}");
+        Console.WriteLine($"Content: {response.Content}");
+    }  
 }

@@ -7,6 +7,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace BinanceLive.Strategies
 {
@@ -47,12 +48,12 @@ namespace BinanceLive.Strategies
                             if (divergence == 1)
                             {
                                 OrderManager.PlaceLongOrder(symbol, klines.Last().Close, "MAC-D");
-                                LogTradeSignal("LONG", symbol, klines.Last().Close);
+                                //LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
                             else if (divergence == -1)
                             {
                                 OrderManager.PlaceShortOrder(symbol, klines.Last().Close, "MAC-D");
-                                LogTradeSignal("SHORT", symbol, klines.Last().Close);
+                                //LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
                         }
                         else
@@ -111,10 +112,9 @@ namespace BinanceLive.Strategies
             request.AddHeader("Content-Type", "application/json");
             request.AddHeader("Accept", "application/json");
 
-            // Add any additional headers or parameters as needed
-
             return request;
         }
+
         private int IdentifyDivergence(List<MacdResult> macdResults)
         {
             if (macdResults.Count < 2)
@@ -140,7 +140,6 @@ namespace BinanceLive.Strategies
             Console.WriteLine($"******MACD Divergence Strategy******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
             Console.WriteLine($"************************************************");
-            //Console.Beep();
         }
 
         private void HandleErrorResponse(string symbol, RestResponse response)
@@ -148,6 +147,40 @@ namespace BinanceLive.Strategies
             Console.WriteLine($"Error for {symbol}: {response.ErrorMessage}");
             Console.WriteLine($"Status Code: {response.StatusCode}");
             Console.WriteLine($"Content: {response.Content}");
+        }
+
+        public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
+        {
+            var quotes = historicalData.Select(k => new Quote
+            {
+                Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
+                Close = k.Close
+            }).ToList();
+
+            var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
+
+            foreach (var kline in historicalData)
+            {
+                var currentQuotes = quotes.TakeWhile(q => q.Date <= DateTimeOffset.FromUnixTimeMilliseconds(kline.OpenTime).UtcDateTime).ToList();
+                var divergence = IdentifyDivergence(macdResults);
+
+                if (divergence != 0)
+                {
+                    if (divergence == 1)
+                    {
+                        OrderManager.PlaceLongOrder(kline.Symbol, kline.Close, "MAC-D");
+                        //LogTradeSignal("LONG", kline.Symbol, kline.Close);
+                    }
+                    else if (divergence == -1)
+                    {
+                        OrderManager.PlaceShortOrder(kline.Symbol, kline.Close, "MAC-D");
+                        //LogTradeSignal("SHORT", kline.Symbol, kline.Close);
+                    }
+                }
+
+                // Update MACD results for the next iteration
+                macdResults = Indicator.GetMacd(currentQuotes, 12, 26, 9).ToList();
+            }
         }
     }
 }

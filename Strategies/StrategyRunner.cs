@@ -1,5 +1,6 @@
 // StrategyRunner.cs
 
+using BinanceLive.Models;
 using RestSharp;
 using System;
 using System.Collections.Generic;
@@ -10,13 +11,14 @@ namespace BinanceLive.Strategies
     public class StrategyRunner
     {
         private readonly List<string> _symbols;
-        private readonly string _interval;
+        public string _interval;
         private readonly RestClient _client;
         private readonly string _apiKey;
         private readonly Wallet _wallet;
         private readonly OrderManager _orderManager;
+        private readonly SelectedTradingStrategy _selectedStrategy;
 
-        public StrategyRunner(RestClient client, string apiKey, List<string> symbols, string interval, Wallet wallet, OrderManager orderManager)
+        public StrategyRunner(RestClient client, string apiKey, List<string> symbols, string interval, Wallet wallet, OrderManager orderManager, SelectedTradingStrategy selectedStrategy)
         {
             _client = client;
             _apiKey = apiKey;
@@ -24,10 +26,24 @@ namespace BinanceLive.Strategies
             _interval = interval;
             _wallet = wallet;
             _orderManager = orderManager;
+            _selectedStrategy = selectedStrategy;
         }
 
-        public async Task RunStrategiesAsync(params StrategyBase[] strategies)
+        public async Task RunStrategiesAsync()
         {
+            var strategies = new List<StrategyBase>();
+
+            // Add strategies based on the selected strategy
+            if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.Both)
+            {
+                strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
+            }
+
+            if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.Both)
+            {
+                strategies.Add(new MACDDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
+            }
+
             var tasks = new List<Task>();
 
             foreach (var symbol in _symbols)
@@ -59,9 +75,38 @@ namespace BinanceLive.Strategies
             return currentPrices;
         }
 
+        public async Task RunStrategiesOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
+        {
+            var strategies = new List<StrategyBase>();
+
+            // Add strategies based on the selected strategy
+            if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.Both)
+            {
+                strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
+            }
+
+            if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.Both)
+            {
+                strategies.Add(new MACDDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
+            }
+
+            foreach (var strategy in strategies)
+            {
+                await strategy.RunOnHistoricalDataAsync(historicalData);
+            }
+
+            // Get the closing price of the last Kline
+            var lastKline = historicalData.Last();
+            var closePrice = lastKline.Close;
+
+            // Close all active trades with the last Kline's close price
+            _orderManager.CloseAllActiveTrades(closePrice);
+        }
+
         private class PriceResponse
         {
             public decimal Price { get; set; }
         }
     }
+
 }
