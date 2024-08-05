@@ -10,7 +10,7 @@ public class Wallet
     }
 
     public bool CanPlaceTrade(Trade trade)
-    {
+    {        
         decimal requiredBalance = (trade.Quantity * trade.EntryPrice) / trade.Leverage;
         Console.WriteLine($"Wallet: {Balance:F2}, Required: {requiredBalance:F1}, Quantity: {trade.Quantity:F2}, EntryPrice: {trade.EntryPrice}");
 
@@ -22,7 +22,12 @@ public class Wallet
         if (CanPlaceTrade(trade))
         {
             Balance -= trade.Quantity * trade.EntryPrice / trade.Leverage;
-            Console.WriteLine($"Successfully placed trade for {trade.Symbol}.");
+            var direction = trade.IsLong ? "Long" : "Short";
+            Console.WriteLine($"Successfully placed {direction} trade for {trade.Symbol}. Entry: {trade.EntryPrice}  TP: {trade.TakeProfitPrice}  SL: {trade.StopLossPrice}" );
+            if(trade.IsLong)
+                Console.WriteLine($"TP -> {trade.TakeProfitPrice - trade.EntryPrice} - Entry - {trade.EntryPrice - trade.StopLossPrice} -> SL" );
+            else
+                Console.WriteLine($"SL -> {trade.StopLossPrice - trade.EntryPrice} - Entry - {trade.EntryPrice - trade.TakeProfitPrice} -> TP" );
             return true;
         }
         else

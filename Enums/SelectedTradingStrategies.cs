@@ -2,5 +2,6 @@ public enum SelectedTradingStrategy
 {
     SMAExpansion,
     MACD,
-    Both
+    Aroon,
+    All
 }
