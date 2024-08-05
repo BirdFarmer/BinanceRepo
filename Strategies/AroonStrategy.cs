@@ -1,4 +1,3 @@
-// MACDDivergenceStrategy.cs
 using BinanceLive.Models;
 using Newtonsoft.Json;
 using RestSharp;
@@ -11,10 +10,10 @@ using System.Collections.Generic;
 
 namespace BinanceLive.Strategies
 {
-    public class MACDDivergenceStrategy : StrategyBase
+    public class AroonStrategy : StrategyBase
     {
-        public MACDDivergenceStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
-        : base(client, apiKey, orderManager, wallet)
+        public AroonStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
+            : base(client, apiKey, orderManager, wallet)
         {
         }
 
@@ -25,7 +24,7 @@ namespace BinanceLive.Strategies
                 var request = CreateRequest("/api/v3/klines");
                 request.AddParameter("symbol", symbol, ParameterType.QueryString);
                 request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "401", ParameterType.QueryString);
+                request.AddParameter("limit", "750", ParameterType.QueryString);  // Fetch 750 data points
 
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful)
@@ -37,28 +36,39 @@ namespace BinanceLive.Strategies
                         var quotes = klines.Select(k => new BinanceLive.Models.Quote
                         {
                             Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
+                            High = k.High,
+                            Low = k.Low,
                             Close = k.Close
                         }).ToList();
 
-                        var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
-                        var divergence = IdentifyDivergence(macdResults);
+                        var aroonResults = Indicator.GetAroon(quotes, 375).ToList();  // Aroon with 125-period
+                        var lastSMA = Indicator.GetSma(quotes, 750).LastOrDefault();  // Calculate SMA with 750-period
 
-                        if (divergence != 0)
+                        if (lastSMA == null || lastSMA.Sma == null)
                         {
-                            if (divergence == 1)
-                            {
-                                OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "MAC-D");
-                                //LogTradeSignal("LONG", symbol, klines.Last().Close);
-                            }
-                            else if (divergence == -1)
-                            {
-                                OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "MAC-D");
-                                //LogTradeSignal("SHORT", symbol, klines.Last().Close);
-                            }
+                            Console.WriteLine($"SMA calculation is not available for {symbol}.");
+                            return;
                         }
-                        else
+
+                        bool isSMAAbovePrice = (double)quotes.Last().Low > lastSMA.Sma;
+                        bool isSMABelowPrice = (double)quotes.Last().High < lastSMA.Sma;                        
+
+                        int signal = IdentifyAroonSignal(aroonResults);
+/*                        if(isSMAAbovePrice)
+                            Console.WriteLine($"SMA for {symbol} is {lastSMA.Sma.Value} and Price is {quotes.Last().Low}. \n Bullish, but Aroon is {signal}");
+                        if(isSMABelowPrice)
+                            Console.WriteLine($"SMA for {symbol} is {lastSMA.Sma.Value} and Price is {quotes.Last().High}. \n Bearish, but Aroon is {signal}");
+*/
+                        if (signal != 0)
                         {
-                            //Console.WriteLine($"No MACD divergence identified for {symbol}.");
+                            if (signal == 1 && isSMAAbovePrice)
+                            {
+                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "Aroon");
+                            }
+                            else if (signal == -1 && isSMABelowPrice)
+                            {
+                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "Aroon");
+                            }
                         }
                     }
                     else
@@ -115,31 +125,33 @@ namespace BinanceLive.Strategies
             return request;
         }
 
-        private int IdentifyDivergence(List<MacdResult> macdResults)
+        private int IdentifyAroonSignal(List<AroonResult> aroonResults)
         {
-            if (macdResults.Count < 2)
+            if (aroonResults.Count < 2)
                 return 0;
 
-            var lastMacd = macdResults[macdResults.Count - 1];
-            var prevMacd = macdResults[macdResults.Count - 2];
+            var lastAroon = aroonResults[aroonResults.Count - 1];
+            var prevAroon = aroonResults[aroonResults.Count - 2];
 
-            if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd < prevMacd.Signal)
+            if (lastAroon.AroonUp > prevAroon.AroonUp &&
+                lastAroon.AroonDown < prevAroon.AroonDown)// &&                lastAroon.AroonUp >= prevAroon.AroonUp &&                )lastAroon.AroonDown <= 0
             {
-                return 1; // Bullish divergence
+                return 1; // Bullish crossover
             }
-            else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd > prevMacd.Signal)
+            else if (lastAroon.AroonDown > prevAroon.AroonDown &&
+                     lastAroon.AroonUp < prevAroon.AroonUp)// &&     lastAroon.AroonUp <= 0                lastAroon.AroonDown >= prevAroon.AroonDown &&                     )
             {
-                return -1; // Bearish divergence
+                return -1; // Bearish crossover
             }
 
-            return 0; // No divergence
+            return 0; // No crossover
         }
 
         private void LogTradeSignal(string direction, string symbol, decimal price)
         {
-            Console.WriteLine($"******MACD Divergence Strategy******************");
+            Console.WriteLine($"******Aroon Strategy******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
-            Console.WriteLine($"************************************************");
+            Console.WriteLine($"**************************************");
         }
 
         private void HandleErrorResponse(string symbol, RestResponse response)
@@ -154,32 +166,51 @@ namespace BinanceLive.Strategies
             var quotes = historicalData.Select(k => new BinanceLive.Models.Quote
             {
                 Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
+                High = k.High,
+                Low = k.Low,
                 Close = k.Close
             }).ToList();
 
-            var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
+            var aroonResults = Indicator.GetAroon(quotes, 375).ToList();  // Aroon with 125-period
 
             foreach (var kline in historicalData)
             {
                 var currentQuotes = quotes.TakeWhile(q => q.Date <= DateTimeOffset.FromUnixTimeMilliseconds(kline.OpenTime).UtcDateTime).ToList();
-                var divergence = IdentifyDivergence(macdResults);
 
-                if (divergence != 0)
+                // Recalculate SMA for the current subset of quotes
+                //var currentSMA = Indicator.GetSma(currentQuotes, 750).LastOrDefault();
+                var currentSMA = Indicator.GetSma(quotes, 750).LastOrDefault();
+
+                if (currentSMA == null || currentSMA.Sma == null)
                 {
-                    if (divergence == 1)
+                    Console.WriteLine($"Can't get SMA for {kline.Symbol}.");
+                    continue;
+                }
+
+                bool isSMAAbovePrice = (double)kline.Low > currentSMA.Sma;
+                bool isSMABelowPrice = (double)kline.High < currentSMA.Sma;
+
+ //               Console.WriteLine($"SMA for {kline.Symbol} is {currentSMA.Sma.Value} and Price is {kline.Close}. Is Low above SMA? = {isSMAAbovePrice}");
+
+                int signal = IdentifyAroonSignal(aroonResults);
+
+                if (signal != 0)
+                {
+                    if (signal == 1 && isSMAAbovePrice)
                     {
-                        OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "MAC-D");
-                        //LogTradeSignal("LONG", kline.Symbol, kline.Close);
+                        await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "Aroon");
                     }
-                    else if (divergence == -1)
+                    else if (signal == -1 && isSMABelowPrice)
                     {
-                        OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "MAC-D");
-                        //LogTradeSignal("SHORT", kline.Symbol, kline.Close);
+                        await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "Aroon");
                     }
                 }
 
-                // Update MACD results for the next iteration
-                macdResults = Indicator.GetMacd(currentQuotes, 12, 26, 9).ToList();
+                // Update Aroon results for the next iteration
+                aroonResults = Indicator.GetAroon(currentQuotes, 125).ToList();
+
+                var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
+                await OrderManager.CheckAndCloseTrades(currentPrices);
             }
         }
     }

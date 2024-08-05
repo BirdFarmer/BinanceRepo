@@ -1,14 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 using BinanceLive.Strategies;
 using BinanceLive.Tools;
-using RestSharp;
 using Newtonsoft.Json;
-using System.Globalization;
+using RestSharp;
 using Serilog;
-using OfficeOpenXml;
 using BinanceTestnet.Enums;
+using BinanceLive.Services;
 using BinanceLive.Models;
 
 namespace BinanceLive
@@ -50,7 +50,7 @@ namespace BinanceLive
             }
             else
             {
-                leverage = 1; // Default starting leverage for backtesting
+                leverage = 15; // Default starting leverage for backtesting
             }
 
             // Step 4: Direction
@@ -70,31 +70,41 @@ namespace BinanceLive
             };
 
             // Step 5: Strategies
-            Console.WriteLine("Select Trading Strategies (default is both):");
+            Console.WriteLine("Select Trading Strategies (default is All combined):");
             Console.WriteLine("1. SMA Expansion");
             Console.WriteLine("2. MACD");
-            Console.WriteLine("3. Both");
-            Console.Write("Enter choice (1/2/3): ");
+            Console.WriteLine("3. Aroon");
+            Console.WriteLine("4. All combined");
+            Console.Write("Enter choice (1/2/3/4): ");
             string strategyInput = Console.ReadLine();
-            int strategyChoice = string.IsNullOrEmpty(strategyInput) ? 3 : int.Parse(strategyInput);
+            int strategyChoice = string.IsNullOrEmpty(strategyInput) ? 4 : int.Parse(strategyInput);
 
             SelectedTradingStrategy selectedStrategy = strategyChoice switch
             {
                 1 => SelectedTradingStrategy.SMAExpansion,
                 2 => SelectedTradingStrategy.MACD,
-                _ => SelectedTradingStrategy.Both,
+                3 => SelectedTradingStrategy.Aroon,
+                _ => SelectedTradingStrategy.All,
             };
 
-            // Step 6: Take Profit %
-            Console.Write("Enter Take Profit % (default 1.5%): ");
-            string takeProfitInput = Console.ReadLine();
-            decimal takeProfit = string.IsNullOrEmpty(takeProfitInput) ? 1.5M : decimal.Parse(takeProfitInput);
+            decimal takeProfit = 1.5M; // Default value, only used in Paper Trading
+
+            if (operationMode == OperationMode.LivePaperTrading)
+            {
+                // Step 6: Take Profit %
+                Console.Write("Enter Take Profit % (default 1.5%): ");
+                string takeProfitInput = Console.ReadLine();
+                takeProfit = string.IsNullOrEmpty(takeProfitInput) ? 1.5M : decimal.Parse(takeProfitInput);
+            }
 
             // Concatenate user inputs to form a title, excluding Take Profit percentage
-            string title = $"{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Entry{entrySize}_Leverage{leverage}_Direction{tradeDirection.ToString().Replace(" ", "")}_Strategy{selectedStrategy.ToString().Replace(" ", "")}";
+            string title = $"{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Entry{entrySize}_Leverage{leverage}_Direction{tradeDirection.ToString().Replace(" ", "")}_Strategy{selectedStrategy.ToString().Replace(" ", "")}_TakeProfitPercent{takeProfit.ToString().Replace(" ", "")}_{DateTime.Now:yyyyMMdd-HH-mm}";
 
             // Clean up the title to be a valid file name
-            string fileName = $"{title.Replace(" ", "_").Replace("%", "Percent").Replace(".", "p")}.xlsx";
+            string cleanedTitle = title.Replace(" ", "_").Replace("%", "Percent").Replace(".", "p");
+
+            // Append the .xlsx extension
+            string fileName = $"{cleanedTitle}.xlsx";
 
             // Output the collected data
             Console.WriteLine("\nSummary:");
@@ -103,7 +113,10 @@ namespace BinanceLive
             Console.WriteLine($"Leverage: {leverage}x");
             Console.WriteLine($"Trade Direction: {tradeDirection}");
             Console.WriteLine($"Trading Strategies: {selectedStrategy}");
-            Console.WriteLine($"Take Profit: {takeProfit}%");
+            if (operationMode == OperationMode.LivePaperTrading)
+            {
+                Console.WriteLine($"Take Profit: {takeProfit}%");
+            }
             Console.WriteLine($"Excel File: {fileName}");
 
             // Proceed with the rest of the program
@@ -126,64 +139,70 @@ namespace BinanceLive
             var symbols = new List<string>
             {
                 "FTMUSDT", "XRPUSDT", "BTCUSDT", "ETHUSDT", "TIAUSDT", "SUIUSDT", "BCHUSDT", "AVAXUSDT", "MATICUSDT", "RNDRUSDT",
-                "DOGEUSDT", "HBARUSDT", "SEIUSDT", "STORJUSDT", "EOSUSDT", "FETUSDT", "SHIBUSDT", "THETAUSDT", "PEPEUSDT",
-                "ARUSDT", "LINKUSDT", "ATOMUSDT", "TRBUSDT", "SUSHIUSDT", "BNBUSDT", "ORDIUSDT"
+                "DOGEUSDT", "HBARUSDT", "SEIUSDT", "STORJUSDT", "ADAUSDT", "DOTUSDT", "FETUSDT", "THETAUSDT", "ONTUSDT", "QNTUSDT",
+                "ARUSDT", "LINKUSDT", "ATOMUSDT", "TRBUSDT", "SUSHIUSDT", "BNBUSDT", "ORDIUSDT", "SANDUSDT", "INJUSDT", "AXSUSDT", 
+                "ENSUSDT", "LTCUSDT", "YGGUSDT", "XLMUSDT"
             };
 
             var intervals = new string[] { "1m" }; // Default interval
 
-            var wallet = new Wallet(10000);
+            var wallet = new Wallet(1000);
 
-            // Pass fileName to OrderManager
-            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, 
-                                                intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy);
-
-             var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
-
-            var smaExpansionStrategy = new SMAExpansionStrategy(client, apiKey, orderManager, wallet);
-            var macdDivergenceStrategy = new MACDDivergenceStrategy(client, apiKey, orderManager, wallet);
+            // Define take profit percentages for backtesting
+            var backtestTakeProfits = new List<decimal> { 0.3M, 0.6M, 0.9M, 1.2M, 1.5M };
 
             if (operationMode == OperationMode.Backtest)
             {
-                List<Kline> historicalData = new List<Kline>();
-                var currentPrices = new Dictionary<string, decimal>();
-
-                while (leverage <= 25)
+                // Loop over different take profit percentages for backtesting
+                foreach (var tp in backtestTakeProfits)
                 {
-                    foreach (var interval in new[] { "1m", "5m", "15m", "1h" }) // Example intervals for backtesting
-                    {
-                        orderManager._interval = interval;
-                        runner._interval = interval;
+                    //string tpTitle = $"{title}_TP{tp.ToString().Replace(".", "p")}";
+                    //string tpFileName = $"{tpTitle}.xlsx";
 
-                        foreach (var symbol in symbols)
+                    // Pass fileName to OrderManager
+                    var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, 
+                                                        intervals[0], fileName, tp, tradeDirection, selectedStrategy, client);
+
+                    var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
+
+                    var smaExpansionStrategy = new SMAExpansionStrategy(client, apiKey, orderManager, wallet);
+                    var macdDivergenceStrategy = new MACDDivergenceStrategy(client, apiKey, orderManager, wallet);
+                    //var aroonStrategy = new AroonStrategy(client, apiKey, orderManager, wallet);
+
+                    List<Kline> historicalData = new List<Kline>();
+
+                    orderManager._interval = "1m";
+                    runner._interval = "1m";
+
+                    foreach (var symbol in symbols)
+                    {
+                        historicalData = await FetchHistoricalData(client, symbol, intervals[0]);
+                        foreach (var kline in historicalData)
                         {
-                            historicalData = await FetchHistoricalData(client, symbol, interval);
-                            foreach (var kline in historicalData)
-                            {
-                                kline.Symbol = symbol;
-                            }
-
-                            currentPrices = await FetchCurrentPrices(client, symbols);
-                            Console.WriteLine($" -- Coin: " + symbol + " TF: " + interval + " Lev: " + leverage + " -- ");
-                            await runner.RunStrategiesOnHistoricalDataAsync(historicalData); 
+                            kline.Symbol = symbol;
                         }
-                    }
-                    if(leverage == 1)
-                    {
-                        leverage += 4;
-                    }
-                    else
-                    {
-                        leverage += 5;
-                    }                    
-                    orderManager._leverage = leverage;
-                }
 
-                orderManager.PrintWalletBalance();
-                orderManager.PrintActiveTrades(currentPrices);
+                        Console.WriteLine($" -- Coin: " + symbol + " TF: " + intervals[0] + " Lev: " + leverage + " TP: " + tp + " -- ");
+
+                        // Ensure the backtest runs synchronously
+                        await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
+                    }
+
+                    orderManager.PrintWalletBalance();
+                }
             }
             else
             {
+                // Pass fileName to OrderManager
+                var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, 
+                                                    intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client);
+
+                var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
+
+                var smaExpansionStrategy = new SMAExpansionStrategy(client, apiKey, orderManager, wallet);
+                var macdDivergenceStrategy = new MACDDivergenceStrategy(client, apiKey, orderManager, wallet);
+                var aroonStrategy = new AroonStrategy(client, apiKey, orderManager, wallet);
+
                 var startTime = DateTime.Now;
 
                 while (true)
@@ -194,7 +213,7 @@ namespace BinanceLive
                     Console.WriteLine("---- Cycle Completed ----");
                     if (currentPrices != null)
                     {
-                        orderManager.CheckAndCloseTrades(currentPrices);
+                        await orderManager.CheckAndCloseTrades(currentPrices);
                         orderManager.PrintActiveTrades(currentPrices);
                         orderManager.PrintWalletBalance();
                     }

@@ -1,9 +1,8 @@
-// Models/Kline.cs
 namespace BinanceLive.Models
 {
     public class Kline
     {
-        public string Symbol { get; set; } // Add the Symbol property
+        public string Symbol { get; set; }
         public long OpenTime { get; set; }
         public decimal Open { get; set; }
         public decimal High { get; set; }
@@ -11,5 +10,6 @@ namespace BinanceLive.Models
         public decimal Close { get; set; }
         public long CloseTime { get; set; }
         public int NumberOfTrades { get; set; }
+        public decimal Volume { get; set; } // Ensure this is included
     }
 }

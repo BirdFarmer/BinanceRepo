@@ -36,13 +36,13 @@ public class FVGStrategy : StrategyBase
                         // Check for Long: coming from above into the FVG
                         if (klines.Last().Close < lastGap.High && klines.Last().Close > lastGap.Low)
                         {
-                            OrderManager.PlaceLongOrder(symbol, klines.Last().Close, "FVG");
+                            OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "FVG");
                             LogTradeSignal("LONG", symbol, klines.Last().Close);
                         }
                         // Check for Short: coming from below into the FVG
                         else if (klines.Last().Close > lastGap.Low && klines.Last().Close < lastGap.High)
                         {
-                            OrderManager.PlaceShortOrder(symbol, klines.Last().Close, "FVG");
+                            OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "FVG");
                             LogTradeSignal("SHORT", symbol, klines.Last().Close);
                         }
                     }

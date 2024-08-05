@@ -1,4 +1,3 @@
-// MACDDivergenceStrategy.cs
 using BinanceLive.Models;
 using Newtonsoft.Json;
 using RestSharp;
@@ -11,9 +10,9 @@ using System.Collections.Generic;
 
 namespace BinanceLive.Strategies
 {
-    public class MACDDivergenceStrategy : StrategyBase
+    public class MACDStandardStrategy : StrategyBase
     {
-        public MACDDivergenceStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
+        public MACDStandardStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
         : base(client, apiKey, orderManager, wallet)
         {
         }
@@ -41,24 +40,22 @@ namespace BinanceLive.Strategies
                         }).ToList();
 
                         var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
-                        var divergence = IdentifyDivergence(macdResults);
 
-                        if (divergence != 0)
+                        if (macdResults.Count > 1)
                         {
-                            if (divergence == 1)
+                            var lastMacd = macdResults[macdResults.Count - 1];
+                            var prevMacd = macdResults[macdResults.Count - 2];
+
+                            if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal)
                             {
-                                OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "MAC-D");
-                                //LogTradeSignal("LONG", symbol, klines.Last().Close);
+                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "MAC-D");
+                                LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
-                            else if (divergence == -1)
+                            else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal)
                             {
-                                OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "MAC-D");
-                                //LogTradeSignal("SHORT", symbol, klines.Last().Close);
+                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "MAC-D");
+                                LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
-                        }
-                        else
-                        {
-                            //Console.WriteLine($"No MACD divergence identified for {symbol}.");
                         }
                     }
                     else
@@ -76,6 +73,7 @@ namespace BinanceLive.Strategies
                 Console.WriteLine($"Error processing {symbol}: {ex.Message}");
             }
         }
+
 
         private List<Kline>? ParseKlines(string content)
         {
@@ -115,31 +113,13 @@ namespace BinanceLive.Strategies
             return request;
         }
 
-        private int IdentifyDivergence(List<MacdResult> macdResults)
-        {
-            if (macdResults.Count < 2)
-                return 0;
-
-            var lastMacd = macdResults[macdResults.Count - 1];
-            var prevMacd = macdResults[macdResults.Count - 2];
-
-            if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd < prevMacd.Signal)
-            {
-                return 1; // Bullish divergence
-            }
-            else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd > prevMacd.Signal)
-            {
-                return -1; // Bearish divergence
-            }
-
-            return 0; // No divergence
-        }
-
         private void LogTradeSignal(string direction, string symbol, decimal price)
         {
-            Console.WriteLine($"******MACD Divergence Strategy******************");
+            /*
+            Console.WriteLine($"****** MACD Standard Strategy ******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
             Console.WriteLine($"************************************************");
+        */
         }
 
         private void HandleErrorResponse(string symbol, RestResponse response)
@@ -159,27 +139,25 @@ namespace BinanceLive.Strategies
 
             var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
 
-            foreach (var kline in historicalData)
+            for (int i = 1; i < macdResults.Count; i++)
             {
-                var currentQuotes = quotes.TakeWhile(q => q.Date <= DateTimeOffset.FromUnixTimeMilliseconds(kline.OpenTime).UtcDateTime).ToList();
-                var divergence = IdentifyDivergence(macdResults);
+                var lastMacd = macdResults[i];
+                var prevMacd = macdResults[i - 1];
+                var kline = historicalData.ElementAt(i);
 
-                if (divergence != 0)
+                if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal)
                 {
-                    if (divergence == 1)
-                    {
-                        OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "MAC-D");
-                        //LogTradeSignal("LONG", kline.Symbol, kline.Close);
-                    }
-                    else if (divergence == -1)
-                    {
-                        OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "MAC-D");
-                        //LogTradeSignal("SHORT", kline.Symbol, kline.Close);
-                    }
+                    await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "MAC-D");
+                    LogTradeSignal("LONG", kline.Symbol, kline.Close);
                 }
-
-                // Update MACD results for the next iteration
-                macdResults = Indicator.GetMacd(currentQuotes, 12, 26, 9).ToList();
+                else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal)
+                {
+                    await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "MAC-D");
+                    LogTradeSignal("SHORT", kline.Symbol, kline.Close);
+                }
+                
+                var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
+                await OrderManager.CheckAndCloseTrades(currentPrices);
             }
         }
     }

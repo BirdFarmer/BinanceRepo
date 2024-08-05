@@ -19,5 +19,5 @@ public abstract class StrategyBase
     public abstract Task RunAsync(string symbol, string interval);
 
     // New abstract method for historical data
-    public abstract Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData);
+    public abstract Task  RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData);
 }

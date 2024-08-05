@@ -10,14 +10,14 @@ public static int CheckSMAExpansion(List<double> sma14, List<double> sma50, List
     bool isUpwardExpansion = 
         sma50[index] > sma100[index] 
         && sma100[index] > sma200[index]
-        && (sma50[index] - sma50[index - 3]) > (sma100[index] - sma100[index - 3])
-        && (sma100[index] - sma100[index - 3]) > (sma200[index] - sma200[index - 3]);
+        && (sma50[index] - sma50[index - 1]) > (sma100[index] - sma100[index - 1])
+        && (sma100[index] - sma100[index - 1]) > (sma200[index] - sma200[index -1]);
 
     bool isDownwardExpansion = 
         sma50[index] < sma100[index] 
         && sma100[index] < sma200[index]
-        && (sma50[index - 3] - sma50[index]) > (sma100[index - 3] - sma100[index])
-        && (sma100[index - 3] - sma100[index]) > (sma200[index - 3] - sma200[index]);
+        && (sma50[index - 1] - sma50[index]) > (sma100[index - 1] - sma100[index])
+        && (sma100[index - 1] - sma100[index]) > (sma200[index - 1] - sma200[index]);
 
     if (isUpwardExpansion) return 1;
     if (isDownwardExpansion) return -1;

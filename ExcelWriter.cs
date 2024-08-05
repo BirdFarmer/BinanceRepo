@@ -20,13 +20,12 @@ public class ExcelWriter
         }
     }
 
-
     public void Initialize(string fileName)
     {
         _package = new ExcelPackage(new FileInfo(fileName));
     }
 
-    public void WriteClosedTradeToExcel(Trade trade)
+    public void WriteClosedTradeToExcel(Trade trade, decimal takeProfit)
     {
         bool fileExists = File.Exists(_filePath);
 
@@ -34,20 +33,20 @@ public class ExcelWriter
         {
             ExcelWorksheet worksheet = fileExists ? package.Workbook.Worksheets[0] : package.Workbook.Worksheets.Add("Closed Trades");
 
-
             if (!fileExists)
             {
                 worksheet.Cells[1, 1].Value = "Id";
                 worksheet.Cells[1, 2].Value = "Symbol";
                 worksheet.Cells[1, 3].Value = "Leverage";
-                worksheet.Cells[1, 4].Value = "Interval";
-                worksheet.Cells[1, 5].Value = "IsLong";
-                worksheet.Cells[1, 6].Value = "Signal";
-                worksheet.Cells[1, 7].Value = "EntryTimestamp";
-                worksheet.Cells[1, 8].Value = "Duration";
-                worksheet.Cells[1, 9].Value = "Profit";
-                worksheet.Cells[1, 10].Value = "Funds Added";
-                worksheet.Cells[1, 11].Value = "US Market Hours";
+                worksheet.Cells[1, 4].Value = "IsLong";
+                worksheet.Cells[1, 5].Value = "Signal";
+                worksheet.Cells[1, 6].Value = "EntryTimestamp";
+                worksheet.Cells[1, 7].Value = "Duration";
+                worksheet.Cells[1, 8].Value = "Profit";
+                worksheet.Cells[1, 9].Value = "Funds Added";
+                worksheet.Cells[1, 10].Value = "US Market Hours";
+                worksheet.Cells[1, 11].Value = "TP%";
+                worksheet.Cells[1, 12].Value = "Adjusted TP";
             }
 
             // Find the next available row for trade data
@@ -63,104 +62,110 @@ public class ExcelWriter
             int nextTradeRow = lastTradeRow + 1;
 
             decimal fundsAdded = trade.Profit.HasValue ? trade.Profit.Value * trade.InitialMargin : 0;
+            decimal adjustedTP = takeProfit / trade.Leverage;
 
             worksheet.Cells[nextTradeRow, 1].Value = trade.Id;
             worksheet.Cells[nextTradeRow, 2].Value = trade.Symbol;
             worksheet.Cells[nextTradeRow, 3].Value = trade.Leverage;
-            worksheet.Cells[nextTradeRow, 4].Value = trade.Interval;
-            worksheet.Cells[nextTradeRow, 5].Value = trade.IsLong ? "Long" : "Short";
-            worksheet.Cells[nextTradeRow, 6].Value = trade.Signal;
-            worksheet.Cells[nextTradeRow, 7].Value = trade.EntryTimestamp.ToString("MM/dd HH:mm");
-            worksheet.Cells[nextTradeRow, 8].Value = trade.Duration.TotalMinutes;
-            worksheet.Cells[nextTradeRow, 9].Value = trade.Profit.HasValue ? trade.Profit : 0;
-            worksheet.Cells[nextTradeRow, 10].Value = fundsAdded;
+            worksheet.Cells[nextTradeRow, 4].Value = trade.IsLong ? "Long" : "Short";
+            worksheet.Cells[nextTradeRow, 5].Value = trade.Signal;
+            worksheet.Cells[nextTradeRow, 6].Value = trade.EntryTimestamp.ToString("MM/dd HH:mm");
+            worksheet.Cells[nextTradeRow, 7].Value = trade.Duration.TotalMinutes;
+            worksheet.Cells[nextTradeRow, 8].Value = trade.Profit.HasValue ? trade.Profit : 0;
+            worksheet.Cells[nextTradeRow, 9].Value = fundsAdded;
 
             bool isUSMarketHours = trade.EntryTimestamp.TimeOfDay >= new TimeSpan(14, 30, 0) && trade.EntryTimestamp.TimeOfDay <= new TimeSpan(21, 0, 0);
-            worksheet.Cells[nextTradeRow, 11].Value = isUSMarketHours ? "Yes" : "No";
+            worksheet.Cells[nextTradeRow, 10].Value = isUSMarketHours ? "Yes" : "No";
+            worksheet.Cells[nextTradeRow, 11].Value = takeProfit;
+            worksheet.Cells[nextTradeRow, 12].Value = adjustedTP;
 
             // Update dashboard statistics (shifted to the right)
-            worksheet.Cells[5, 15].Value = "Total Funds Added";
-            worksheet.Cells[5, 16].Formula = "ROUND(SUM(J:J), 3)";
+            worksheet.Cells[5, 14].Value = "Total Funds Added";
+            worksheet.Cells[5, 15].Formula = "ROUND(SUM(I:I), 3)";
 
-            worksheet.Cells[6, 15].Value = "Total Closed Trades";
-            worksheet.Cells[6, 16].Formula = "COUNTA(A:A) - 1";
+            worksheet.Cells[6, 14].Value = "Total Closed Trades";
+            worksheet.Cells[6, 15].Formula = "COUNTA(A:A) - 1";
 
-            worksheet.Cells[7, 15].Value = "Average Duration hh:mm:ss";
-            worksheet.Cells[7, 16].Formula = "IFERROR(TEXT(AVERAGE(H:H)/1440, \"[h]:mm:ss\"), \"N/A\")";
+            worksheet.Cells[7, 14].Value = "Average Duration hh:mm:ss";
+            worksheet.Cells[7, 15].Formula = "IFERROR(TEXT(AVERAGE(G:G)/1440, \"[h]:mm:ss\"), \"N/A\")";
 
-            worksheet.Cells[8, 15].Value = "Longs Average Profit";
-            worksheet.Cells[8, 16].Formula = "IFERROR(ROUND(AVERAGEIF(E:E, \"Long\", I:I), 3), \"N/A\")";
+            worksheet.Cells[8, 14].Value = "Longs Average Profit";
+            worksheet.Cells[8, 15].Formula = "IFERROR(ROUND(AVERAGEIF(D:D, \"Long\", H:H), 3), \"N/A\")";
 
-            worksheet.Cells[9, 15].Value = "Shorts Average Profit";
-            worksheet.Cells[9, 16].Formula = "IFERROR(ROUND(AVERAGEIF(E:E, \"Short\", I:I), 3), \"N/A\")";
+            worksheet.Cells[9, 14].Value = "Shorts Average Profit";
+            worksheet.Cells[9, 15].Formula = "IFERROR(ROUND(AVERAGEIF(D:D, \"Short\", H:H), 3), \"N/A\")";
 
-            worksheet.Cells[10, 15].Value = "MAC-D Average Profit";
-            worksheet.Cells[10, 16].Formula = "IFERROR(ROUND(AVERAGEIF(F:F, \"MAC-D\", I:I), 3), \"N/A\")";
+            worksheet.Cells[10, 14].Value = "MAC-D Average Profit";
+            worksheet.Cells[10, 15].Formula = "IFERROR(ROUND(AVERAGEIF(E:E, \"MAC-D\", H:H), 3), \"N/A\")";
 
-            worksheet.Cells[11, 15].Value = "SMA Average Profit";
-            worksheet.Cells[11, 16].Formula = "IFERROR(ROUND(AVERAGEIF(F:F, \"SMAExpansion\", I:I), 3), \"N/A\")";
+            worksheet.Cells[11, 14].Value = "SMA Average Profit";
+            worksheet.Cells[11, 15].Formula = "IFERROR(ROUND(AVERAGEIF(E:E, \"SMAExpansion\", H:H), 3), \"N/A\")";
 
-            worksheet.Cells[12, 15].Value = "SMA Short Combined Average";
-            worksheet.Cells[12, 16].Formula = "IFERROR(ROUND(AVERAGEIFS(I:I, E:E, \"Short\", F:F, \"SMAExpansion\"), 3), \"N/A\")";
+            worksheet.Cells[12, 14].Value = "Aroon Average Profit";
+            worksheet.Cells[12, 15].Formula = "IFERROR(ROUND(AVERAGEIF(E:E, \"Aroon\", H:H), 3), \"N/A\")";
 
-            worksheet.Cells[13, 15].Value = "SMA Long Combined Average";
-            worksheet.Cells[13, 16].Formula = "IFERROR(ROUND(AVERAGEIFS(I:I, E:E, \"Long\", F:F, \"SMAExpansion\"), 3), \"N/A\")";
+            worksheet.Cells[13, 14].Value = "SMA Short Combined Average";
+            worksheet.Cells[13, 15].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Short\", E:E, \"SMAExpansion\"), 3), \"N/A\")";
 
-            worksheet.Cells[14, 15].Value = "MAC-D Long Combined Average";
-            worksheet.Cells[14, 16].Formula = "IFERROR(ROUND(AVERAGEIFS(I:I, E:E, \"Long\", F:F, \"MAC-D\"), 3), \"N/A\")";
+            worksheet.Cells[14, 14].Value = "SMA Long Combined Average";
+            worksheet.Cells[14, 15].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Long\", E:E, \"SMAExpansion\"), 3), \"N/A\")";
 
-            worksheet.Cells[15, 15].Value = "MAC-D Short Combined Average";
-            worksheet.Cells[15, 16].Formula = "IFERROR(ROUND(AVERAGEIFS(I:I, E:E, \"Short\", F:F, \"MAC-D\"), 3), \"N/A\")";
+            worksheet.Cells[15, 14].Value = "MAC-D Long Combined Average";
+            worksheet.Cells[15, 15].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Long\", E:E, \"MAC-D\"), 3), \"N/A\")";
 
-            worksheet.Cells[16, 15].Value = "Win Rate";
-            worksheet.Cells[16, 16].Formula = "IFERROR(ROUND(COUNTIF(I:I, \">0\") / COUNT(I:I), 3), \"N/A\")";
+            worksheet.Cells[16, 14].Value = "MAC-D Short Combined Average";
+            worksheet.Cells[16, 15].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Short\", E:E, \"MAC-D\"), 3), \"N/A\")";
 
-            worksheet.Cells[17, 15].Value = "Sharpe Ratio";
-            worksheet.Cells[17, 16].Formula = "IFERROR(ROUND(AVERAGE(I:I) / STDEV(I:I), 3), \"N/A\")";
+            worksheet.Cells[17, 14].Value = "Aroon Long Combined Average";
+            worksheet.Cells[17, 15].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Long\", E:E, \"Aroon\"), 3), \"N/A\")";
 
-            worksheet.Cells[18, 15].Value = "Profit Factor";
-            worksheet.Cells[18, 16].Formula = "IFERROR(ROUND(SUMIF(I:I, \">0\") / ABS(SUMIF(I:I, \"<0\")), 3), \"N/A\")";
+            worksheet.Cells[18, 14].Value = "Aroon Short Combined Average";
+            worksheet.Cells[18, 15].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Short\", E:E, \"Aroon\"), 3), \"N/A\")";
 
-            worksheet.Cells[20, 15].Value = "Total Long Trades";
-            worksheet.Cells[20, 16].Formula = "COUNTIF(E:E, \"Long\")";
+            worksheet.Cells[20, 14].Value = "Win Rate";
+            worksheet.Cells[20, 15].Formula = "IFERROR(ROUND(COUNTIF(H:H, \">0\") / COUNT(H:H), 3), \"N/A\")";
 
-            worksheet.Cells[21, 15].Value = "Total Short Trades";
-            worksheet.Cells[21, 16].Formula = "COUNTIF(E:E, \"Short\")";
+            worksheet.Cells[21, 14].Value = "Sharpe Ratio";
+            worksheet.Cells[21, 15].Formula = "IFERROR(ROUND(AVERAGE(H:H) / STDEV(H:H), 3), \"N/A\")";
 
-            worksheet.Cells[22, 15].Value = "Maximum Profit per Trade";
-            worksheet.Cells[22, 16].Formula = "IFERROR(ROUND(MAX(I:I), 3), \"N/A\")";
+            worksheet.Cells[22, 14].Value = "Profit Factor";
+            worksheet.Cells[22, 15].Formula = "IFERROR(ROUND(SUMIF(H:H, \">0\") / ABS(SUMIF(H:H, \"<0\")), 3), \"N/A\")";
 
-            worksheet.Cells[23, 15].Value = "Maximum Loss per Trade";
-            worksheet.Cells[23, 16].Formula = "IFERROR(ROUND(MIN(I:I), 3), \"N/A\")";
+            worksheet.Cells[24, 14].Value = "Total Long Trades";
+            worksheet.Cells[24, 15].Formula = "COUNTIF(D:D, \"Long\")";
+
+            worksheet.Cells[25, 14].Value = "Total Short Trades";
+            worksheet.Cells[25, 15].Formula = "COUNTIF(D:D, \"Short\")";
+
+            worksheet.Cells[26, 14].Value = "Maximum Profit per Trade";
+            worksheet.Cells[26, 15].Formula = "IFERROR(ROUND(MAX(H:H), 3), \"N/A\")";
+
+            worksheet.Cells[27, 14].Value = "Maximum Loss per Trade";
+            worksheet.Cells[27, 15].Formula = "IFERROR(ROUND(MIN(H:H), 3), \"N/A\")";
 
             // New statistics for US market hours
-            worksheet.Cells[25, 15].Value = "US Market Hours Trades";
-            worksheet.Cells[25, 16].Formula = "COUNTIF(K:K, \"Yes\")";
+            worksheet.Cells[29, 14].Value = "US Market Hours Trades";
+            worksheet.Cells[29, 15].Formula = "COUNTIF(J:J, \"Yes\")";
 
-            worksheet.Cells[26, 15].Value = "US Market Hours Profit";
-            worksheet.Cells[26, 16].Formula = "IFERROR(ROUND(SUMIFS(I:I, K:K, \"Yes\"), 3), \"N/A\")";
+            worksheet.Cells[30, 14].Value = "US Market Hours Profit";
+            worksheet.Cells[30, 15].Formula = "IFERROR(ROUND(SUMIFS(H:H, J:J, \"Yes\"), 3), \"N/A\")";
 
-            worksheet.Cells[27, 15].Value = "US Market Hours Average Profit";
-            worksheet.Cells[27, 16].Formula = "IFERROR(ROUND(AVERAGEIFS(I:I, K:K, \"Yes\"), 3), \"N/A\")";
+            worksheet.Cells[31, 14].Value = "US Market Hours Average Profit";
+            worksheet.Cells[31, 15].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, J:J, \"Yes\"), 3), \"N/A\")";
 
-            worksheet.Cells[28, 15].Value = "US Market Hours Win Rate";
-            worksheet.Cells[28, 16].Formula = "IFERROR(ROUND(COUNTIFS(I:I, \">0\", K:K, \"Yes\") / COUNTIFS(K:K, \"Yes\"), 3), \"N/A\")";
+            worksheet.Cells[32, 14].Value = "US Market Hours Win Rate";
+            worksheet.Cells[32, 15].Formula = "IFERROR(ROUND(COUNTIFS(H:H, \">0\", J:J, \"Yes\") / COUNTIFS(J:J, \"Yes\"), 3), \"N/A\")";
+            
+            // Define your take profit levels
+            var backtestTakeProfits = new List<decimal> { 0.3M, 0.6M, 0.9M, 1.2M, 1.5M };
 
-            // Adding funds added for different leverage levels
-            for (int leverageLevel = 5; leverageLevel <= 25; leverageLevel += 5)
+            // Add funds added for different take profit levels
+            for (int i = 0; i < backtestTakeProfits.Count; i++)
             {
-                int leverageRow = 30 + leverageLevel / 5;
-                worksheet.Cells[leverageRow, 15].Value = $"Funds added {leverageLevel}x";
-                worksheet.Cells[leverageRow, 16].Formula = $"SUMIFS(J:J, C:C, {leverageLevel})";
-            }
-
-            // Adding funds added for different intervals
-            string[] intervals = { "1m", "5m", "15m", "30m", "1h" };
-            for (int i = 0; i < intervals.Length; i++)
-            {
-                int intervalRow = 30 + i;
-                worksheet.Cells[intervalRow, 17].Value = $"Funds added {intervals[i]}";
-                worksheet.Cells[intervalRow, 18].Formula = $"SUMIFS(J:J, D:D, \"{intervals[i]}\")";
+                decimal tpLevel = backtestTakeProfits[i];
+                int tpRow = 34 + (int)(tpLevel * 2); // Adjust row calculation as needed
+                worksheet.Cells[tpRow, 14].Value = $"Funds added {tpLevel * 100}% TP"; // Percentage format
+                worksheet.Cells[tpRow, 15].Formula = $"SUMIFS(I:I, K:K, {tpLevel})"; // Formula for summing funds
             }
 
             package.Save();

@@ -1,9 +1,8 @@
-// StrategyRunner.cs
-
 using BinanceLive.Models;
 using RestSharp;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace BinanceLive.Strategies
@@ -31,19 +30,7 @@ namespace BinanceLive.Strategies
 
         public async Task RunStrategiesAsync()
         {
-            var strategies = new List<StrategyBase>();
-
-            // Add strategies based on the selected strategy
-            if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.Both)
-            {
-                strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
-            }
-
-            if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.Both)
-            {
-                strategies.Add(new MACDDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
-            }
-
+            var strategies = GetStrategies();
             var tasks = new List<Task>();
 
             foreach (var symbol in _symbols)
@@ -54,6 +41,7 @@ namespace BinanceLive.Strategies
                 }
             }
 
+            // Ensure all strategies for all symbols complete before moving forward
             await Task.WhenAll(tasks);
         }
 
@@ -77,30 +65,39 @@ namespace BinanceLive.Strategies
 
         public async Task RunStrategiesOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
         {
-            var strategies = new List<StrategyBase>();
-
-            // Add strategies based on the selected strategy
-            if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.Both)
-            {
-                strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
-            }
-
-            if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.Both)
-            {
-                strategies.Add(new MACDDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
-            }
+            var strategies = GetStrategies();
 
             foreach (var strategy in strategies)
             {
                 await strategy.RunOnHistoricalDataAsync(historicalData);
             }
 
-            // Get the closing price of the last Kline
+            // Close all active trades with the last Kline's close price
             var lastKline = historicalData.Last();
             var closePrice = lastKline.Close;
-
-            // Close all active trades with the last Kline's close price
             _orderManager.CloseAllActiveTrades(closePrice);
+        }
+
+        private List<StrategyBase> GetStrategies()
+        {
+            var strategies = new List<StrategyBase>();
+
+            if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.All)
+            {
+                strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
+            }
+
+            if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.All)
+            {
+                strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
+            }
+
+            if (_selectedStrategy == SelectedTradingStrategy.Aroon || _selectedStrategy == SelectedTradingStrategy.All)
+            {
+                strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
+            }
+
+            return strategies;
         }
 
         private class PriceResponse
@@ -108,5 +105,4 @@ namespace BinanceLive.Strategies
             public decimal Price { get; set; }
         }
     }
-
 }
