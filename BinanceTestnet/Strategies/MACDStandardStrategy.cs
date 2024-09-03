@@ -28,7 +28,7 @@ namespace BinanceLive.Strategies
                 request.AddParameter("limit", "401", ParameterType.QueryString);
 
                 var response = await Client.ExecuteGetAsync(request);
-                if (response.IsSuccessful)
+                if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = ParseKlines(response.Content);
 
@@ -145,6 +145,8 @@ namespace BinanceLive.Strategies
                 var lastMacd = macdResults[i];
                 var prevMacd = macdResults[i - 1];
                 var kline = historicalData.ElementAt(i);
+
+                if(kline.Symbol == null) continue;
 
                 if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal)
                 {

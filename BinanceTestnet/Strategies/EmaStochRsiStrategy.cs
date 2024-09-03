@@ -30,7 +30,7 @@ namespace BinanceLive.Strategies
                 decimal lastPrice = 0;
 
                 var response = await Client.ExecuteGetAsync(request);
-                if (response.IsSuccessful)
+                if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = ParseKlines(response.Content);
 
@@ -124,7 +124,8 @@ namespace BinanceLive.Strategies
                 var currentStochRsi = stochRsi[i];
                 var prevStochRsi = stochRsi[i - 1];
 
-                if (currentKline != null && currentEma8 != null && currentEma14 != null && currentEma50 != null && currentStochRsi != null)
+                if (currentKline != null && currentEma8 != null && currentEma14 != null 
+                    && currentEma50 != null && currentStochRsi != null && currentKline.Symbol != null)
                 {
                     // Long Signal
                     if ((double)currentKline.Close > currentEma8.Ema &&
@@ -146,7 +147,8 @@ namespace BinanceLive.Strategies
                         await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "EMA-StochRSI", currentKline.CloseTime);
                         LogTradeSignal("SHORT", currentKline.Symbol, currentKline.Close);
                     }
-                }      
+                }   
+                else continue;   
                 
                 var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
                 await OrderManager.CheckAndCloseTrades(currentPrices);

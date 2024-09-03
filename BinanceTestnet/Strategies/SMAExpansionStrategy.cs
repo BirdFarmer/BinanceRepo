@@ -44,10 +44,10 @@ public override async Task RunAsync(string symbol, string interval)
         // Parallelize SMA and RSI calculations
         var smaTasks = new[]
         {
-            Task.Run(() => Indicator.GetSma(history, 25).Where(q => q.Sma.HasValue).Select(q => q.Sma.Value).ToList()),
-            Task.Run(() => Indicator.GetSma(history, 50).Where(q => q.Sma.HasValue).Select(q => q.Sma.Value).ToList()),
-            Task.Run(() => Indicator.GetSma(history, 100).Where(q => q.Sma.HasValue).Select(q => q.Sma.Value).ToList()),
-            Task.Run(() => Indicator.GetSma(history, 200).Where(q => q.Sma.HasValue).Select(q => q.Sma.Value).ToList())
+            Task.Run(() => Indicator.GetSma(history, 25).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList()),
+            Task.Run(() => Indicator.GetSma(history, 50).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList()),
+            Task.Run(() => Indicator.GetSma(history, 100).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList()),
+            Task.Run(() => Indicator.GetSma(history, 200).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList())
         };
 
         await Task.WhenAll(smaTasks);
@@ -73,7 +73,7 @@ public override async Task RunAsync(string symbol, string interval)
             TrackExpansion(symbol, currentPrice, expansionResult);
 
             // Check trading conditions after tracking expansion
-            CheckTradingConditions(symbol, currentPrice, klines.Last().CloseTime, sma100[sma100.Count - 1]);
+            await CheckTradingConditions(symbol, currentPrice, klines.Last().CloseTime, sma100[sma100.Count - 1]);
         }
     }
 
@@ -93,10 +93,10 @@ public override async Task RunAsync(string symbol, string interval)
 
         // Calculate all SMAs in one go, reducing the need for repeated calculations
         var history = ConvertToQuoteList(klinesArray, closes.ToArray());
-        var sma25Values = Indicator.GetSma(history, 25).Where(q => q.Sma.HasValue).Select(q => q.Sma.Value).ToList();
-        var sma50Values = Indicator.GetSma(history, 50).Where(q => q.Sma.HasValue).Select(q => q.Sma.Value).ToList();
-        var sma100Values = Indicator.GetSma(history, 100).Where(q => q.Sma.HasValue).Select(q => q.Sma.Value).ToList();
-        var sma200Values = Indicator.GetSma(history, 200).Where(q => q.Sma.HasValue).Select(q => q.Sma.Value).ToList();
+        var sma25Values = Indicator.GetSma(history, 25).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList();
+        var sma50Values = Indicator.GetSma(history, 50).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList();
+        var sma100Values = Indicator.GetSma(history, 100).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList();
+        var sma200Values = Indicator.GetSma(history, 200).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList();
 
         // Combine the SMA calculation results into the respective lists
         sma25.AddRange(sma25Values.Select(d => (decimal)d));
@@ -125,6 +125,8 @@ public override async Task RunAsync(string symbol, string interval)
 
                 // Retrieve the corresponding kline
                 var kline = klinesArray[klineIndex];
+
+                if(kline.Symbol == null) continue;
                 
                 // Track expansion based on the current kline and expansion result
                 TrackExpansion(kline.Symbol, kline.Close, expansionResult);
@@ -133,19 +135,7 @@ public override async Task RunAsync(string symbol, string interval)
                 await CheckTradingConditions(kline.Symbol, kline.Close, kline.CloseTime, (double)sma100[i]);
             }
         }
-
-/*
-                var kline = klinesArray[i];
-                TrackExpansion(kline.Symbol, kline.Close, expansionResult);
-
-                // Check trading conditions after tracking expansion
-                await CheckTradingConditions(kline.Symbol, kline.Close, kline.CloseTime, (double)sma100[i]);
-          
-            }
-        }
-*/      
     }
-
 
     private async Task<List<Kline>> FetchKlines(string symbol, string interval)
     {
@@ -156,7 +146,7 @@ public override async Task RunAsync(string symbol, string interval)
 
         var response = await Client.ExecuteGetAsync(request);
 
-        if (response.IsSuccessful)
+        if (response.IsSuccessful && response.Content != null)
         {
             return JsonConvert.DeserializeObject<List<List<object>>>(response.Content)
                 ?.Select(k =>
@@ -327,7 +317,7 @@ public override async Task RunAsync(string symbol, string interval)
 
         var response = await Client.ExecuteGetAsync(request);
 
-        if (response.IsSuccessful)
+        if (response.IsSuccessful && response.Content != null)
         {
             var ticker = JsonConvert.DeserializeObject<dynamic>(response.Content);
             return ticker.price;
@@ -410,8 +400,8 @@ public override async Task RunAsync(string symbol, string interval)
         var history = ConvertToQuoteList(klines, closes);
 
         var smaValues = Indicator.GetSma(history, period)
-            .Where(q => q.Sma.HasValue)
-            .Select(q => q.Sma.Value)
+            .Where(q => q.Sma!.HasValue)
+            .Select(q => q.Sma!.Value)
             .ToList();
 
         return (decimal)smaValues.LastOrDefault();

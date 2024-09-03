@@ -11,7 +11,7 @@ namespace TradingAPI.Services
     public class TradingService
     {
         private readonly RestClient _client;
-        private readonly string _apiKey;
+        private readonly string? _apiKey;
         private readonly Wallet _wallet;
 
         public TradingService(RestClient client)
@@ -37,6 +37,11 @@ namespace TradingAPI.Services
 
             var orderManager = new OrderManager(_wallet, leverage, new ExcelWriter(fileName: "default.xlsx"), operationMode, interval, "default.xlsx", takeProfit, tradeDirection, selectedStrategy, _client);
 
+            if(_apiKey == null) 
+            { 
+                Console.WriteLine("No API key provided. Cannot continue trading.");
+                throw new System.InvalidOperationException("No API key provided. Cannot continue trading.");          
+            }
             var runner = new StrategyRunner(_client, _apiKey, symbols, interval, _wallet, orderManager, selectedStrategy);
 
             if (operationMode == OperationMode.Backtest)
@@ -53,12 +58,14 @@ namespace TradingAPI.Services
                 }
             }
         }
-
         private async Task<List<Kline>> FetchHistoricalData(List<string> symbols, string interval)
         {
+            return await Task.Run(() =>
+            {
             var historicalData = new List<Kline>();
             // Fetch historical data implementation...
             return historicalData;
+            });
         }
     }
 }

@@ -17,27 +17,30 @@ namespace BinanceLive.Services
 
         var response = await client.ExecuteAsync<List<List<object>>>(request);
 
-        if (response.IsSuccessful)
+        if (response.IsSuccessful && !string.IsNullOrEmpty(response.Content))
         {
             var klineData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content);
-
-            foreach (var kline in klineData)
+            
+            if (klineData != null)
             {
-                historicalData.Add(new Kline
+                foreach (var kline in klineData)
                 {
-                    OpenTime = (long)kline[0],
-                    Open = decimal.Parse(kline[1].ToString(), CultureInfo.InvariantCulture),
-                    High = decimal.Parse(kline[2].ToString(), CultureInfo.InvariantCulture),
-                    Low = decimal.Parse(kline[3].ToString(), CultureInfo.InvariantCulture),
-                    Close = decimal.Parse(kline[4].ToString(), CultureInfo.InvariantCulture),
-                    Volume = decimal.Parse(kline[5].ToString(), CultureInfo.InvariantCulture),
-                    Symbol = symbol
-                });
+                    historicalData.Add(new Kline
+                    {
+                        OpenTime = (long)kline[0],
+                        Open = decimal.Parse(kline[1].ToString(), CultureInfo.InvariantCulture),
+                        High = decimal.Parse(kline[2].ToString(), CultureInfo.InvariantCulture),
+                        Low = decimal.Parse(kline[3].ToString(), CultureInfo.InvariantCulture),
+                        Close = decimal.Parse(kline[4].ToString(), CultureInfo.InvariantCulture),
+                        Volume = decimal.Parse(kline[5].ToString(), CultureInfo.InvariantCulture),
+                        Symbol = symbol
+                    });
+                }
             }
-        }
-        else
-        {
-            Console.WriteLine($"Failed to fetch historical data for {symbol}: {response.ErrorMessage}");
+            else
+            {
+                Console.WriteLine($"Failed to fetch historical data for {symbol}: {response.ErrorMessage}");
+            }
         }
 
         return historicalData;

@@ -32,7 +32,7 @@ namespace BinanceLive.Strategies
                 request.AddParameter("limit", "800", ParameterType.QueryString);  // Fetch 750 data points
 
                 var response = await Client.ExecuteGetAsync(request);
-                if (response.IsSuccessful)
+                if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = ParseKlines(response.Content);
 
@@ -135,7 +135,8 @@ namespace BinanceLive.Strategies
                 var currentAroon = aroonResults[i];
                 var currentHull = hullResults[i];
 
-                if (currentSMA != null && currentSMA.Sma.HasValue && currentAroon != null)
+                if (currentSMA != null && currentSMA.Sma.HasValue && currentAroon != null
+                    && previousSMA != null && previousSMA.Sma.HasValue && currentHull != null)
                 {
                     bool isPriceAboveSMA = (double)currentKline.Low > currentSMA.Sma.Value;
                     bool isPriceBelowSMA = (double)currentKline.High < currentSMA.Sma.Value;     
@@ -149,20 +150,23 @@ namespace BinanceLive.Strategies
 
                     bool isHullCrossingUp = currentKline.Low > currentHull.EHMA  && prevKline.Low <= currentHull.EHMAPrev;
                     bool isHullCrossingDown = currentKline.High < currentHull.EHMA  && prevKline.High >= currentHull.EHMAPrev;
-
-                    if (isAroonUptrend && isHullCrossingUp 
-                        && isPriceAboveSMA && isSMAPointingUp)
+                    
+                    if(currentKline.Symbol != null)
                     {
-                        await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
-                    }
-                    else if (isAroonDowntrend && isHullCrossingDown
-                        && isPriceBelowSMA && isSMAPointingDown) 
-                    {
-                        await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
+                        if (isAroonUptrend && isHullCrossingUp 
+                            && isPriceAboveSMA && isSMAPointingUp)
+                        {
+                            await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
+                        }
+                        else if (isAroonDowntrend && isHullCrossingDown
+                            && isPriceBelowSMA && isSMAPointingDown) 
+                        {
+                            await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
+                        }
                     }
                 }
 
-                if (currentKline.Close > 0)
+                if (currentKline.Symbol != null && currentKline.Close > 0)
                 {
                     var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
                     await OrderManager.CheckAndCloseTrades(currentPrices);
@@ -200,8 +204,8 @@ namespace BinanceLive.Strategies
                 results.Add(new HullSuiteResult
                 {
                     Date = quotes[i].Date,
-                    EHMA = (decimal)ehmaValue,
-                    EHMAPrev = (decimal)ehmaprevValue
+                    EHMA = (decimal)ehmaValue!,
+                    EHMAPrev = (decimal)ehmaprevValue!
                 });
             }
 

@@ -13,14 +13,12 @@ namespace BinanceLive.Indicators
             {
                 if (macdResults[i].Macd == null || macdResults[i].Signal == null || macdResults[i].Histogram == null)
                     continue;
-
-                var prevMacd = macdResults[i - 1].Macd.Value;
-                var prevSignal = macdResults[i - 1].Signal.Value;
-                var macd = macdResults[i].Macd.Value;
-                var signal = macdResults[i].Signal.Value;
+                var prevMacd = macdResults[i - 1].Macd.GetValueOrDefault(double.MinValue);
+                var prevSignal = macdResults[i - 1].Signal.GetValueOrDefault(double.MinValue);
+                var macd = macdResults[i].Macd.GetValueOrDefault(double.MinValue);
+                var signal = macdResults[i].Signal.GetValueOrDefault(double.MinValue);
                 var close = history[i].Close;
 
-                // Bullish Divergence
                 if (macd > signal && prevMacd < prevSignal && close > history[i - 1].Close)
                 {
                     signals.Add((macdResults[i].Date, "Bullish Divergence"));

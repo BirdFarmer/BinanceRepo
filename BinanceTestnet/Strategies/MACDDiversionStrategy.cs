@@ -29,7 +29,7 @@ namespace BinanceLive.Strategies
                 request.AddParameter("limit", "401", ParameterType.QueryString);
 
                 var response = await Client.ExecuteGetAsync(request);
-                if (response.IsSuccessful)
+                if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = ParseKlines(response.Content);
 
@@ -90,6 +90,8 @@ namespace BinanceLive.Strategies
 
             foreach (var kline in historicalData)
             {
+                if(kline.Symbol == null)    continue;
+                
                 var currentQuotes = quotes.TakeWhile(q => q.Date <= DateTimeOffset.FromUnixTimeMilliseconds(kline.OpenTime).UtcDateTime).ToList();
                 var divergence = IdentifyDivergence(macdResults);
 
