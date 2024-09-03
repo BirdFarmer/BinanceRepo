@@ -26,7 +26,7 @@ namespace BinanceLive
             Console.WriteLine("1. Paper Trading");
             Console.WriteLine("2. Backtesting");
             Console.Write("Enter choice (1/2): ");
-            string modeInput = Console.ReadLine();
+            string? modeInput = Console.ReadLine();
             int modeChoice = string.IsNullOrEmpty(modeInput) ? 1 : int.Parse(modeInput);
 
             // Set operation mode based on user choice
@@ -38,7 +38,7 @@ namespace BinanceLive
 
             // Step 2: Choose Entry Size
             Console.Write("Enter Entry Size (default 20 USDT): ");
-            string entrySizeInput = Console.ReadLine();
+            string? entrySizeInput = Console.ReadLine();
             decimal entrySize = string.IsNullOrEmpty(entrySizeInput) ? 20 : decimal.Parse(entrySizeInput);
 
             decimal leverage;
@@ -46,7 +46,7 @@ namespace BinanceLive
             {
                 // Step 3: Leverage (for Paper Trading)
                 Console.Write("Enter Leverage (1 to 25, default 15): ");
-                string leverageInput = Console.ReadLine();
+                string? leverageInput = Console.ReadLine();
                 leverage = string.IsNullOrEmpty(leverageInput) ? 15 : decimal.Parse(leverageInput);
             }
             else
@@ -60,7 +60,7 @@ namespace BinanceLive
             Console.WriteLine("2. Only Longs");
             Console.WriteLine("3. Only Shorts");
             Console.Write("Enter choice (1/2/3): ");
-            string directionInput = Console.ReadLine();
+            string? directionInput = Console.ReadLine();
             int directionChoice = string.IsNullOrEmpty(directionInput) ? 1 : int.Parse(directionInput);
 
             SelectedTradeDirection tradeDirection = directionChoice switch
@@ -77,7 +77,7 @@ namespace BinanceLive
             Console.WriteLine("3. Aroon");
             Console.WriteLine("4. All combined");
             Console.Write("Enter choice (1/2/3/4): ");
-            string strategyInput = Console.ReadLine();
+            string? strategyInput = Console.ReadLine();
             int strategyChoice = string.IsNullOrEmpty(strategyInput) ? 4 : int.Parse(strategyInput);
 
             SelectedTradingStrategy selectedStrategy = strategyChoice switch
@@ -94,7 +94,7 @@ namespace BinanceLive
             {
                 // Step 6: Take Profit %
                 Console.Write("Enter Take Profit % (default 1.5%): ");
-                string takeProfitInput = Console.ReadLine();
+                string? takeProfitInput = Console.ReadLine();
                 takeProfit = string.IsNullOrEmpty(takeProfitInput) ? 1.5M : decimal.Parse(takeProfitInput);
             }
 
@@ -234,8 +234,21 @@ namespace BinanceLive
 
                 if (response.IsSuccessful)
                 {
+                    if(response.Content == null)
+                    { 
+                        Console.WriteLine($"Failed to fetch price for {symbol}: {response.ErrorMessage}");
+                        continue;
+                    }
+
                     var priceData = JsonConvert.DeserializeObject<Dictionary<string, string>>(response.Content);
-                    prices[symbol] = decimal.Parse(priceData["price"], CultureInfo.InvariantCulture);
+                    if (priceData != null && priceData.ContainsKey("price"))
+                    {
+                        prices[symbol] = decimal.Parse(priceData["price"], CultureInfo.InvariantCulture);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Failed to fetch price for {symbol}: {response.ErrorMessage}");
+                    }
                 }
                 else
                 {
@@ -248,7 +261,7 @@ namespace BinanceLive
 
         static async Task<List<Kline>> FetchHistoricalData(RestClient client, string symbol, string interval)
         {
-          var historicalData = new List<Kline>();
+            var historicalData = new List<Kline>();
             var request = new RestRequest("/api/v3/klines", Method.Get);
             request.AddParameter("symbol", symbol);
             request.AddParameter("interval", interval);
@@ -256,7 +269,7 @@ namespace BinanceLive
 
             var response = await client.ExecuteAsync<List<List<object>>>(request);
 
-            if (response.IsSuccessful)
+            if (response.IsSuccessful && response.Content != null)
             {
                 var klineData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content);
 
@@ -282,36 +295,3 @@ namespace BinanceLive
         }
     }
 }
-/* 
-           var historicalData = new List<Kline>();
-            var request = new RestRequest("/api/v3/klines", Method.Get);
-            request.AddParameter("symbol", symbol);
-            request.AddParameter("interval", interval);
-            request.AddParameter("limit", 1000);
-
-            var response = await client.ExecuteAsync<List<List<object>>>(request);
-
-            if (response.IsSuccessful)
-            {
-                var klineData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content);
-
-                foreach (var kline in klineData)
-                {
-                    historicalData.Add(new Kline
-                    {
-                        OpenTime = (long)kline[0],
-                        Open = decimal.Parse(kline[1].ToString(), CultureInfo.InvariantCulture),
-                        High = decimal.Parse(kline[2].ToString(), CultureInfo.InvariantCulture),
-                        Low = decimal.Parse(kline[3].ToString(), CultureInfo.InvariantCulture),
-                        Close = decimal.Parse(kline[4].ToString(), CultureInfo.InvariantCulture),
-                        CloseTime = (long)kline[6],
-                        NumberOfTrades = int.Parse(kline[8].ToString(), CultureInfo.InvariantCulture)
-                    });
-                }
-            }
-            else
-            {
-                Console.WriteLine($"Failed to fetch historical data for {symbol}: {response.ErrorMessage}");
-            }
-*/
-

@@ -10,7 +10,7 @@ namespace BinanceTestnet.Services
         public List<Kline> LoadHistoricalData(string filePath)
         {
             var jsonData = File.ReadAllText(filePath);
-            return JsonConvert.DeserializeObject<List<Kline>>(jsonData);
+            return JsonConvert.DeserializeObject<List<Kline>>(jsonData)!;
         }
     }
 }

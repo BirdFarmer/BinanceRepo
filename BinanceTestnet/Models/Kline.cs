@@ -2,7 +2,7 @@ namespace BinanceTestnet.Models
 {
     public class Kline
     {
-        public string Symbol { get; set; }
+        public string? Symbol { get; set; }
         public long OpenTime { get; set; }
         public decimal Open { get; set; }
         public decimal High { get; set; }

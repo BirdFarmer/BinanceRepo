@@ -16,7 +16,7 @@ public class VolatilityBasedTPandSL
         }
 
         // Calculate ATR for the target coin pair
-        var atrs = history.GetAtr(AtrPeriod).Where(a => a.Atr.HasValue).Select(a => a.Atr.Value).ToList();
+        var atrs = history.GetAtr(AtrPeriod).Select(a => a.Atr.GetValueOrDefault(0)).ToList();
         var currentAtr = atrs.LastOrDefault();
         var currentPrice = history.Last().Close;
         
@@ -33,7 +33,7 @@ public class VolatilityBasedTPandSL
         Console.WriteLine($"Current Price for {symbol}: {currentPrice}");
 
         // Calculate ATR for BTCUSDT as the baseline
-        var btcAtrs = btcHistory.GetAtr(AtrPeriod).Where(a => a.Atr.HasValue).Select(a => a.Atr.Value).ToList();
+        var btcAtrs = btcHistory.GetAtr(AtrPeriod).Where(a => a.Atr.HasValue).Select(a => a.Atr.GetValueOrDefault()).ToList();
         var btcAtr = btcAtrs.LastOrDefault();
         var btcPrice = btcHistory.Last().Close;
 

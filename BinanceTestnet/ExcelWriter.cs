@@ -7,7 +7,7 @@ public class ExcelWriter
 {
     private readonly string _folderPath;
     private readonly string _filePath;
-    private ExcelPackage _package;
+    private ExcelPackage? _package;
     public string FilePath => _filePath;
 
     public ExcelWriter(string folderPath = "C:\\Repo\\BinanceAPI\\BinanceTestnet\\Excels", string fileName = "ClosedTrades.xlsx")
