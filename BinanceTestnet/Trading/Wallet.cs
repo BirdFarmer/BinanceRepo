@@ -4,7 +4,7 @@ namespace BinanceTestnet.Trading
 {
     public class Wallet
     {
-        public decimal Balance { get; private set; }
+        public decimal Balance { get; set; }
 
         public Wallet(decimal initialBalance)
         {

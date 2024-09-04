@@ -89,6 +89,7 @@ namespace BinanceLive
             };
 
             decimal takeProfit = 1.5M; // Default value, only used in Paper Trading
+            decimal intialWalletSize = 300;
 
             if (operationMode == OperationMode.LivePaperTrading)
             {
@@ -147,7 +148,7 @@ namespace BinanceLive
 
             var intervals = new string[] { "1m" }; // Default interval
 
-            var wallet = new Wallet(300);
+            var wallet = new Wallet(intialWalletSize);
 
             // Define take profit percentages for backtesting
             var backtestTakeProfits = new List<decimal> { 0.3M, 0.6M, 0.8M, 1.0M, 1.3M, 1.5M, 1.7M, 1.9M};//0.3M, 0.6M, 0.5M, , 2.0M0.2M, 0.3M, 0.4M, 0.5M, 0.6M, 
@@ -156,7 +157,9 @@ namespace BinanceLive
             {
                 // Loop over different take profit percentages for backtesting
                 foreach (var tp in backtestTakeProfits)
-                {
+                {        
+                    // Reset the wallet balance for each iteration
+                    wallet = new Wallet(300);
 
                     // Pass fileName to OrderManager
                     var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, 
