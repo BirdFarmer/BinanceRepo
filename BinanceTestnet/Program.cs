@@ -159,11 +159,11 @@ namespace BinanceLive
                 foreach (var tp in backtestTakeProfits)
                 {        
                     // Reset the wallet balance for each iteration
-                    wallet = new Wallet(300);
+                    wallet = new Wallet(intialWalletSize);
 
                     // Pass fileName to OrderManager
                     var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, 
-                                                        intervals[0], fileName, tp, tradeDirection, selectedStrategy, client);
+                                                        intervals[0], fileName, tp, tradeDirection, selectedStrategy, client, tp);
 
                     var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
                     List<Kline> historicalData = new List<Kline>();
@@ -192,7 +192,7 @@ namespace BinanceLive
             {
                 // Pass fileName to OrderManager
                 var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, 
-                                                    intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client);
+                                                    intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client, takeProfit);
 
                 var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
 

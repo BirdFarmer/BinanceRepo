@@ -27,6 +27,7 @@ namespace BinanceTestnet.Trading
         private decimal shorts = 0;
         private int _nextTradeId = 1;
         private decimal _takeProfit;
+        private decimal _tpIteration;
         private readonly SelectedTradeDirection _tradeDirection;
         private readonly SelectedTradingStrategy _tradingStrategy;
         private readonly RestClient _client;
@@ -34,7 +35,7 @@ namespace BinanceTestnet.Trading
         public OrderManager(Wallet wallet, decimal leverage, ExcelWriter excelWriter, OperationMode operationMode,
                             string interval, string fileName, decimal takeProfit,
                             SelectedTradeDirection tradeDirection, SelectedTradingStrategy tradingStrategy,
-                            RestClient client)
+                            RestClient client, decimal tpIteration)
         {
             _wallet = wallet;
             _leverage = leverage;
@@ -42,6 +43,7 @@ namespace BinanceTestnet.Trading
             _operationMode = operationMode;
             _interval = interval;
             _takeProfit = takeProfit;
+            _tpIteration = tpIteration;
             _excelWriter.Initialize(fileName);
             _tradeDirection = tradeDirection;
             _tradingStrategy = tradingStrategy;
@@ -129,87 +131,87 @@ namespace BinanceTestnet.Trading
         }
 
        */
-       private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, decimal? takeProfit = null)
-{
-    lock (_activeTrades) // Lock to ensure thread safety
-    {
-        if ((isLong && _tradeDirection == SelectedTradeDirection.OnlyShorts) ||
-            (!isLong && _tradeDirection == SelectedTradeDirection.OnlyLongs))
+        private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, decimal? takeProfit = null)
         {
-            // Skipping trade due to trade direction preference
-            return;
+            lock (_activeTrades) // Lock to ensure thread safety
+            {
+                if ((isLong && _tradeDirection == SelectedTradeDirection.OnlyShorts) ||
+                    (!isLong && _tradeDirection == SelectedTradeDirection.OnlyLongs))
+                {
+                    // Skipping trade due to trade direction preference
+                    return;
+                }
+
+                if (_activeTrades.Count >= 14)
+                {
+                    // Skipping new trade as max active trades limit reached
+                    return;
+                }
+
+                if (_activeTrades.Values.Any(t => t.Symbol == symbol && t.IsInTrade))
+                {
+                    // Skipping trade as trade for symbol is already active
+                    return;
+                }
+            }
+
+            decimal takeProfitPrice;
+            decimal stopLossPrice;
+
+            if (takeProfit.HasValue)
+            {
+                takeProfitPrice = takeProfit.Value;
+
+                // Calculate risk (TP distance)
+                decimal riskDistance = takeProfitPrice - price;
+
+                // SL should be at half of the TP distance
+                if (isLong)
+                {
+                    stopLossPrice = price - (riskDistance / 2); // SL below entry
+                }
+                else
+                {
+                    riskDistance = price - takeProfitPrice;
+                    stopLossPrice = price + (riskDistance / 2); // SL above entry
+                }
+            }
+            else
+            {
+                // If no TP provided, fall back to ATR-based TP and SL
+                var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
+
+                if (isLong)
+                {
+                    takeProfitPrice = price * (1 + (tpPercent / 100));
+                    stopLossPrice = price * (1 - (slPercent / 100));
+                }
+                else
+                {
+                    takeProfitPrice = price * (1 - (tpPercent / 100));
+                    stopLossPrice = price * (1 + (slPercent / 100));
+                }
+            }
+
+            decimal quantity = CalculateQuantity(price);
+
+            var trade = new Trade(_nextTradeId++, symbol, price, takeProfitPrice, stopLossPrice, quantity, isLong, _leverage, signal, _interval, timestampEntry);
+
+            lock (_activeTrades) // Lock to ensure thread safety
+            {
+                if (_wallet.PlaceTrade(trade))
+                {
+                    Console.WriteLine($"With signal: {signal}");
+                    if (trade.IsLong) longs++;
+                    else shorts++;
+                    noOfTrades++;
+                    _activeTrades[trade.Id] = trade;
+                }
+            }
+
+            // Small delay to ensure `_activeTrades` is updated
+            //await Task.Delay(100);
         }
-
-        if (_activeTrades.Count >= 14)
-        {
-            // Skipping new trade as max active trades limit reached
-            return;
-        }
-
-        if (_activeTrades.Values.Any(t => t.Symbol == symbol && t.IsInTrade))
-        {
-            // Skipping trade as trade for symbol is already active
-            return;
-        }
-    }
-
-    decimal takeProfitPrice;
-    decimal stopLossPrice;
-
-    if (takeProfit.HasValue)
-    {
-        takeProfitPrice = takeProfit.Value;
-
-        // Calculate risk (TP distance)
-        decimal riskDistance = takeProfitPrice - price;
-
-        // SL should be at half of the TP distance
-        if (isLong)
-        {
-            stopLossPrice = price - (riskDistance / 2); // SL below entry
-        }
-        else
-        {
-            riskDistance = price - takeProfitPrice;
-            stopLossPrice = price + (riskDistance / 2); // SL above entry
-        }
-    }
-    else
-    {
-        // If no TP provided, fall back to ATR-based TP and SL
-        var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
-
-        if (isLong)
-        {
-            takeProfitPrice = price * (1 + (tpPercent / 100));
-            stopLossPrice = price * (1 - (slPercent / 100));
-        }
-        else
-        {
-            takeProfitPrice = price * (1 - (tpPercent / 100));
-            stopLossPrice = price * (1 + (slPercent / 100));
-        }
-    }
-
-    decimal quantity = CalculateQuantity(price);
-
-    var trade = new Trade(_nextTradeId++, symbol, price, takeProfitPrice, stopLossPrice, quantity, isLong, _leverage, signal, _interval, timestampEntry);
-
-    lock (_activeTrades) // Lock to ensure thread safety
-    {
-        if (_wallet.PlaceTrade(trade))
-        {
-            Console.WriteLine($"With signal: {signal}");
-            if (trade.IsLong) longs++;
-            else shorts++;
-            noOfTrades++;
-            _activeTrades[trade.Id] = trade;
-        }
-    }
-
-    // Small delay to ensure `_activeTrades` is updated
-    //await Task.Delay(100);
-}
 
         private async Task<(decimal tpPercent, decimal slPercent)> CalculateATRBasedTPandSL(string symbol)
         {
@@ -262,7 +264,7 @@ namespace BinanceTestnet.Trading
                     profitOfClosed += profit;
                     _activeTrades.TryRemove(trade.Id, out _);
 
-                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit);
+                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration);
                     await Task.CompletedTask;
                 }
             }
@@ -353,7 +355,7 @@ namespace BinanceTestnet.Trading
                     profitOfClosed += profit;
                     _activeTrades.TryRemove(trade.Id, out _);
 
-                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit);
+                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration);
                 }
             }
         }
