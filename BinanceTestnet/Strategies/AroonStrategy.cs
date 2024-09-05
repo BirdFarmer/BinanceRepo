@@ -14,7 +14,7 @@ namespace BinanceLive.Strategies
     public class AroonStrategy : StrategyBase
     {
         private const int AroonPeriod = 20; // Aroon Period
-        private const int SmaPeriod = 750;  // SMA Period
+        private const int SmaPeriod = 200;  // SMA Period
         private const int HullLength = 70;  // Hull Length for EHMA
         
         public AroonStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
@@ -77,13 +77,15 @@ namespace BinanceLive.Strategies
                             bool isHullCrossingUp = prevHull != null && (currentKline.Low > currentHull.EHMA && prevKline.Low <= prevHull.EHMA);
                             bool isHullCrossingDown = prevHull != null && (currentKline.High < currentHull.EHMA && prevKline.High >= prevHull.EHMA);
 
-                            if (isAroonUptrend && isHullCrossingUp
-                                && isPriceAboveSMA && isSMAPointingUp)
+                            if (isHullCrossingUp 
+                                    && isPriceAboveSMA
+                                    && isSMAPointingDown)
                             {
                                 await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
                             }
-                            else if (isAroonDowntrend && isHullCrossingDown
-                                && isPriceBelowSMA && isSMAPointingDown)
+                            else if (isHullCrossingDown
+                                    && isPriceBelowSMA
+                                    && isSMAPointingUp)
                             {
                                 await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
                             }
@@ -122,7 +124,7 @@ namespace BinanceLive.Strategies
                 Close = k.Close
             }).ToList();
 
-            var smaResults = Indicator.GetSma(quotes, SmaPeriod / 2).ToList();
+            var smaResults = Indicator.GetSma(quotes, SmaPeriod).ToList();
             var aroonResults = Indicator.GetAroon(quotes, AroonPeriod).ToList();
             var hullResults = CalculateEHMA(quotes, HullLength).ToList();
 
@@ -153,13 +155,15 @@ namespace BinanceLive.Strategies
                     
                     if(currentKline.Symbol != null)
                     {
-                        if (isAroonUptrend && isHullCrossingUp 
-                            && isPriceAboveSMA && isSMAPointingUp)
+                        if (isHullCrossingUp 
+                            && isSMAPointingDown 
+                            && isPriceAboveSMA)
                         {
                             await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
                         }
-                        else if (isAroonDowntrend && isHullCrossingDown
-                            && isPriceBelowSMA && isSMAPointingDown) 
+                        else if (isHullCrossingDown 
+                                && isSMAPointingUp 
+                                && isPriceBelowSMA)
                         {
                             await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
                         }
