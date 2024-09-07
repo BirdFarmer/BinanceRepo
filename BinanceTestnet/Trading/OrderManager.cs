@@ -66,71 +66,7 @@ namespace BinanceTestnet.Trading
         {
             await PlaceOrderAsync(symbol, price, false, signal, timestamp, takeProfit);
         }
-/*
-        private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry)
-        {
-            lock (_activeTrades) // Lock to ensure thread safety
-            {
-                if ((isLong && _tradeDirection == SelectedTradeDirection.OnlyShorts) ||
-                    (!isLong && _tradeDirection == SelectedTradeDirection.OnlyLongs))
-                {
-                    //Console.WriteLine($"Skipping trade for {symbol} because it does not match the trade direction preference.");
-                    return;
-                }
 
-                if (_activeTrades.Count >= 14
-                )
-                {
-                    //Console.WriteLine("Maximum number of active trades reached. Skipping new trade.");
-                    return;
-                }
-
-                if (_activeTrades.Values.Any(t => t.Symbol == symbol && t.IsInTrade))
-                {
-                    
-                    
-                    //Console.WriteLine($"Trade for {symbol} is already active. Skipping new trade.");
-                    return;
-                }
-            }
-
-            var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
-
-            decimal takeProfitPrice;
-            decimal stopLossPrice;
-
-            if (isLong)
-            {
-                takeProfitPrice = price * (1 + (tpPercent / 100));
-                stopLossPrice = price * (1 - (slPercent / 100));
-            }
-            else
-            {
-                takeProfitPrice = price * (1 - (tpPercent / 100));
-                stopLossPrice = price * (1 + (slPercent / 100));
-            }
-
-            decimal quantity = CalculateQuantity(price);
-
-            var trade = new Trade(_nextTradeId++, symbol, price, takeProfitPrice, stopLossPrice, quantity, isLong, _leverage, signal, _interval, timestampEntry);
-
-            lock (_activeTrades) // Lock to ensure thread safety
-            {
-                if (_wallet.PlaceTrade(trade))
-                {
-                    Console.WriteLine($"With signal: {signal}");
-                    if (trade.IsLong) longs++;
-                    else shorts++;
-                    noOfTrades++;
-                    _activeTrades[trade.Id] = trade;
-                }
-            }
-
-            // Small delay to ensure `_activeTrades` is updated
-            //await Task.Delay(100);
-        }
-
-       */
         private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, decimal? takeProfit = null)
         {
             lock (_activeTrades) // Lock to ensure thread safety
@@ -201,11 +137,13 @@ namespace BinanceTestnet.Trading
             {
                 if (_wallet.PlaceTrade(trade))
                 {
+                    Console.Beep();
                     Console.WriteLine($"With signal: {signal}");
                     if (trade.IsLong) longs++;
                     else shorts++;
                     noOfTrades++;
                     _activeTrades[trade.Id] = trade;
+                    _excelWriter.RewriteActiveTradesSheet(_activeTrades.Values.ToList());
                 }
             }
 
@@ -264,7 +202,7 @@ namespace BinanceTestnet.Trading
                     profitOfClosed += profit;
                     _activeTrades.TryRemove(trade.Id, out _);
 
-                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration);
+                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration, _activeTrades);
                     await Task.CompletedTask;
                 }
             }
@@ -355,7 +293,7 @@ namespace BinanceTestnet.Trading
                     profitOfClosed += profit;
                     _activeTrades.TryRemove(trade.Id, out _);
 
-                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration);
+                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration, _activeTrades);
                 }
             }
         }
