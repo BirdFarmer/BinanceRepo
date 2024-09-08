@@ -204,13 +204,13 @@ public class ExcelWriter
         // Set the headers
         worksheet.Cells[1, 1].Value = "Id";
         worksheet.Cells[1, 2].Value = "Symbol";
-        worksheet.Cells[1, 3].Value = "Trade Type";
+        worksheet.Cells[1, 3].Value = "Trade Type";        
         worksheet.Cells[1, 4].Value = "Signal";
         worksheet.Cells[1, 5].Value = "Kline Timestamp";
         worksheet.Cells[1, 6].Value = "Entry Price";        
         worksheet.Cells[1, 7].Value = "Take Profit Price";
         worksheet.Cells[1, 8].Value = "Stop Loss Price";
-        worksheet.Cells[1, 8].Value = "Expected Profit excl. leverage";
+        worksheet.Cells[1, 9].Value = "Expected Profit excl. leverage";
 
         // Write the active trades to the sheet
         int nextTradeRow = 2;

@@ -15,7 +15,7 @@ namespace BinanceTestnet.Trading
 {
     public class OrderManager
     {
-        private readonly Wallet _wallet;
+        public Wallet _wallet;
         private readonly ConcurrentDictionary<int, Trade> _activeTrades = new ConcurrentDictionary<int, Trade>();
         public decimal _leverage;
         public string _interval;
@@ -303,6 +303,12 @@ namespace BinanceTestnet.Trading
             _leverage = leverage;
             _interval = interval;
             _takeProfit = takeProfit;
+        }
+
+        public void UpdateParams(Wallet wallet, decimal tpPercent)
+        {
+            _takeProfit = tpPercent;
+            _wallet = wallet;
         }
 
     }

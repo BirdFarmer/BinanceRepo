@@ -14,7 +14,7 @@ namespace BinanceLive.Strategies
         public string _interval;
         private readonly RestClient _client;
         private readonly string _apiKey;
-        private readonly Wallet _wallet;
+        public Wallet _wallet;
         private readonly OrderManager _orderManager;
         private readonly SelectedTradingStrategy _selectedStrategy;
 

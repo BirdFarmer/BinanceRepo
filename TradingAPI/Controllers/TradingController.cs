@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using BinanceTestnet.Enums;
-using BinanceLive.Services;
 using System.Threading.Tasks;
 using TradingAPI.Services;
 
@@ -17,13 +16,29 @@ namespace TradingAPI.Controllers
             _tradingService = tradingService;
         }
 
+        // Start trading with specified operation mode
         [HttpPost("start")]
-        public async Task<IActionResult> StartTrading([FromQuery] OperationMode operationMode)
+        public async Task<IActionResult> StartTrading([FromQuery] OperationMode operationMode = OperationMode.LivePaperTrading)
         {
-            // Start the trading process with the specified operation mode
-            await _tradingService.RunTradingAsync(operationMode);
+            try
+            {
+                await _tradingService.RunTradingAsync(operationMode);
+                return Ok("Trading started successfully in mode: " + operationMode);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, "Failed to start trading: " + ex.Message);
+            }
+        }
 
-            return Ok("Trading started with mode: " + operationMode);
+        // Stop trading
+        [HttpPost("stop")]
+        public IActionResult StopTrading()
+        {
+            _tradingService.StopTrading();
+            
+                Console.WriteLine($"Stopped trading, through API.");
+            return Ok("Trading has been stopped.");
         }
     }
 }
