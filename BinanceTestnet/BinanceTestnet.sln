@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.002.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BinanceTestnet", "BinanceTestnet.csproj", "{CF0D17F1-F7C4-4B52-A046-7574980B0CC0}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BinanceTestnet", "BinanceTestnet.csproj", "{7E844748-0FD6-44DE-A67B-A27416BD5BD2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -11,15 +11,15 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{CF0D17F1-F7C4-4B52-A046-7574980B0CC0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{CF0D17F1-F7C4-4B52-A046-7574980B0CC0}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{CF0D17F1-F7C4-4B52-A046-7574980B0CC0}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{CF0D17F1-F7C4-4B52-A046-7574980B0CC0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7E844748-0FD6-44DE-A67B-A27416BD5BD2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7E844748-0FD6-44DE-A67B-A27416BD5BD2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7E844748-0FD6-44DE-A67B-A27416BD5BD2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7E844748-0FD6-44DE-A67B-A27416BD5BD2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {7CDED279-0F6B-43D7-A021-4172EA9ED269}
+		SolutionGuid = {1441AB5F-E98E-4E5B-9EEE-E0F0EB418569}
 	EndGlobalSection
 EndGlobal
