@@ -17,6 +17,7 @@ namespace TradingAPI.Services
         private readonly string? _apiKey;
         private Wallet _wallet;
         private CancellationTokenSource _cts; // Added for stopping trading
+        private string _fileName;
 
         public TradingService(RestClient client)
         {
@@ -33,13 +34,15 @@ namespace TradingAPI.Services
             var entrySize = 20M;
             var leverage = 15M;
             var tradeDirection = SelectedTradeDirection.Both;   
-            var selectedStrategy = SelectedTradingStrategy.All;
-            var takeProfit = 1.5M;
+            var selectedStrategy = SelectedTradingStrategy.Aroon;
+            var takeProfit = 1.9M;
             var symbols = GetSymbols();
+            
+            _fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategy, takeProfit);
             
             var interval = "1m";
 
-            var orderManager = new OrderManager(_wallet, leverage, new ExcelWriter(fileName: "default.xlsx"), operationMode, interval, "default.xlsx", takeProfit, tradeDirection, selectedStrategy, _client, takeProfit);
+            var orderManager = new OrderManager(_wallet, leverage, new ExcelWriter(fileName: _fileName), operationMode, interval, _fileName, takeProfit, tradeDirection, selectedStrategy, _client, takeProfit);
 
             if (_apiKey == null)
             {
@@ -86,7 +89,7 @@ namespace TradingAPI.Services
                 }
             }
         }
-
+        
         public void StopTrading()
         {
             if (_cts != null)
@@ -97,14 +100,17 @@ namespace TradingAPI.Services
 
         public async Task RunBacktestAsync(SelectedTradingStrategy selectedStrategy, decimal initialWalletSize, decimal takeProfit)
         {
+            var entrySize = 20M;
+            var leverage = 15M;
+            var tradeDirection = SelectedTradeDirection.Both;   
             var symbols = GetSymbols();
             var interval = "1m";
-            var fileName = "backtest_results.xlsx";
+            _fileName = GenerateFileName(OperationMode.Backtest, entrySize, leverage, tradeDirection, selectedStrategy, takeProfit);
 
-            var orderManager = new OrderManager(_wallet, 15, new ExcelWriter(fileName: fileName), OperationMode.Backtest, interval, fileName, takeProfit, SelectedTradeDirection.Both, selectedStrategy, _client, takeProfit);
+            var orderManager = new OrderManager(_wallet, 15, new ExcelWriter(fileName: _fileName), OperationMode.Backtest, interval, _fileName, takeProfit, SelectedTradeDirection.Both, selectedStrategy, _client, takeProfit);
             var runner = new StrategyRunner(_client, _apiKey, symbols, interval, _wallet, orderManager, selectedStrategy);
 
-            await RunBacktest(symbols, interval, _wallet, fileName, selectedStrategy, orderManager, runner);
+            await RunBacktest(symbols, interval, _wallet, _fileName, selectedStrategy, orderManager, runner);
         }
 
         private async Task RunBacktest(List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
@@ -177,6 +183,12 @@ namespace TradingAPI.Services
                 "ARUSDT", "LINKUSDT", "ATOMUSDT", "TRBUSDT", "SUSHIUSDT", "BNBUSDT", "ORDIUSDT", "SANDUSDT", "INJUSDT", "AXSUSDT", 
                 "ENSUSDT", "LTCUSDT", "XLMUSDT"
             };
+        }
+        
+        private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit)
+        {
+            string title = $"{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Entry{entrySize}_Leverage{leverage}_Direction{tradeDirection}_Strategy{selectedStrategy}_TakeProfitPercent{takeProfit}_{DateTime.Now:yyyyMMdd-HH-mm}";
+            return title.Replace(" ", "_").Replace("%", "Percent").Replace(".", "p") + ".xlsx";
         }
     }
 }

@@ -267,7 +267,8 @@ public override async Task RunAsync(string symbol, string interval)
                     //if (IsRSIOverbought(symbol))//IsUptrend(symbol) && 
                     //{
                         //Console.WriteLine($"Placing Long Order for {symbol} at {currentPrice}");
-                        OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
+                        //OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
+                        OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                     //}
                 }
                 else if (allShortExpansions)
@@ -276,7 +277,8 @@ public override async Task RunAsync(string symbol, string interval)
                     //if (IsRSIOversold(symbol))//IsDowntrend(symbol) && 
                     //{                        
                         //Console.WriteLine($"Placing Short Order for {symbol} at {currentPrice}");
-                        OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
+                        //OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
+                        OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                     //}
                 }
             }
