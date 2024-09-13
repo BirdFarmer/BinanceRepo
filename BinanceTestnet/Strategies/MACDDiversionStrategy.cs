@@ -41,7 +41,7 @@ namespace BinanceLive.Strategies
                             Close = k.Close
                         }).ToList();
 
-                        var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
+                        var macdResults = Indicator.GetMacd(quotes, 25, 125, 9).ToList();
                         var divergence = IdentifyDivergence(macdResults);                       
 
                         if (divergence != 0)
@@ -110,7 +110,7 @@ namespace BinanceLive.Strategies
                 }
 
                 // Update MACD results for the next iteration
-                macdResults = Indicator.GetMacd(currentQuotes, 12, 26, 9).ToList();
+                macdResults = Indicator.GetMacd(currentQuotes, 25, 125, 9).ToList();
             }
         }
 

@@ -62,7 +62,8 @@ namespace BinanceLive.Strategies
 
                         if (previousSMA != null && previousSMA.Sma.HasValue 
                             && currentSMA != null && currentSMA.Sma.HasValue 
-                            && currentAroon != null && currentHull != null)
+                            && currentAroon != null 
+                            && currentHull != null && prevHull != null)
                         {
                             bool isPriceAboveSMA = (double)currentKline.Low > currentSMA.Sma;
                             bool isPriceBelowSMA = (double)currentKline.High < currentSMA.Sma;
@@ -74,18 +75,20 @@ namespace BinanceLive.Strategies
                             bool isAroonUptrend = aroonSignal > 0;
                             bool isAroonDowntrend = aroonSignal < 0;
 
-                            bool isHullCrossingUp = prevHull != null && (currentKline.Low > currentHull.EHMA && prevKline.Low <= prevHull.EHMA);
-                            bool isHullCrossingDown = prevHull != null && (currentKline.High < currentHull.EHMA && prevKline.High >= prevHull.EHMA);
+                            bool isHullCrossingUp = currentHull.EHMA > currentHull.EHMAPrev && prevHull.EHMA <= prevHull.EHMAPrev;
+                            bool isHullCrossingDown = currentHull.EHMA > currentHull.EHMAPrev && prevHull.EHMA >= prevHull.EHMAPrev;
 
                             if (isHullCrossingUp 
-                                    && isPriceAboveSMA
-                                    && isSMAPointingDown)
+                                    && isPriceBelowSMA
+                                    && isSMAPointingUp
+                                )
                             {
                                 await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
                             }
                             else if (isHullCrossingDown
-                                    && isPriceBelowSMA
-                                    && isSMAPointingUp)
+                                    && isPriceAboveSMA
+                                    && isSMAPointingDown
+                                    )
                             {
                                 await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
                             }
@@ -136,9 +139,11 @@ namespace BinanceLive.Strategies
                 var previousSMA = smaResults[i - 1];
                 var currentAroon = aroonResults[i];
                 var currentHull = hullResults[i];
+                var prevHull = hullResults[i - 1];
 
                 if (currentSMA != null && currentSMA.Sma.HasValue && currentAroon != null
-                    && previousSMA != null && previousSMA.Sma.HasValue && currentHull != null)
+                    && previousSMA != null && previousSMA.Sma.HasValue 
+                    && currentHull != null && prevHull != null)
                 {
                     bool isPriceAboveSMA = (double)currentKline.Low > currentSMA.Sma.Value;
                     bool isPriceBelowSMA = (double)currentKline.High < currentSMA.Sma.Value;     
@@ -150,20 +155,22 @@ namespace BinanceLive.Strategies
                     bool isAroonUptrend = aroonSignal > 0;
                     bool isAroonDowntrend = aroonSignal < 0;
 
-                    bool isHullCrossingUp = currentKline.Low > currentHull.EHMA  && prevKline.Low <= currentHull.EHMAPrev;
-                    bool isHullCrossingDown = currentKline.High < currentHull.EHMA  && prevKline.High >= currentHull.EHMAPrev;
+                    bool isHullCrossingUp = currentHull.EHMA > currentHull.EHMAPrev && prevHull.EHMA <= prevHull.EHMAPrev;
+                    bool isHullCrossingDown = currentHull.EHMA < currentHull.EHMAPrev && prevHull.EHMA >= prevHull.EHMAPrev;
                     
                     if(currentKline.Symbol != null)
                     {
                         if (isHullCrossingUp 
-                            && isSMAPointingDown 
-                            && isPriceAboveSMA)
+                            && isSMAPointingUp 
+                            && isPriceBelowSMA
+                            )
                         {
                             await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
                         }
                         else if (isHullCrossingDown 
-                                && isSMAPointingUp 
-                                && isPriceBelowSMA)
+                                && isSMAPointingDown
+                                && isPriceAboveSMA
+                                )
                         {
                             await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
                         }

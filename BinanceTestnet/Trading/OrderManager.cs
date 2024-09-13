@@ -137,13 +137,13 @@ namespace BinanceTestnet.Trading
             {
                 if (_wallet.PlaceTrade(trade))
                 {
-                    Console.Beep();
+                    //Console.Beep();
                     Console.WriteLine($"With signal: {signal}");
                     if (trade.IsLong) longs++;
                     else shorts++;
                     noOfTrades++;
                     _activeTrades[trade.Id] = trade;
-                    _excelWriter.RewriteActiveTradesSheet(_activeTrades.Values.ToList());
+                    _excelWriter.RewriteActiveTradesSheet(_activeTrades.Values.ToList(), _tpIteration);
                 }
             }
 
@@ -280,6 +280,10 @@ namespace BinanceTestnet.Trading
         {
             foreach (var trade in _activeTrades.Values.ToList())
             {
+                if(closePrice == -1)
+                {
+                    closePrice = trade.EntryPrice;
+                }
                 if (!trade.IsClosed)
                 {
                     trade.CloseTrade(closePrice);
@@ -308,6 +312,7 @@ namespace BinanceTestnet.Trading
         public void UpdateParams(Wallet wallet, decimal tpPercent)
         {
             _takeProfit = tpPercent;
+            _tpIteration = _takeProfit;
             _wallet = wallet;
         }
 
