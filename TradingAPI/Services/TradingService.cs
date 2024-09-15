@@ -26,23 +26,24 @@ namespace TradingAPI.Services
             _wallet = new Wallet(300); // Default wallet balancecd tra
             _cts = new CancellationTokenSource(); // Initialize cancellation token
         }
-
-        public async Task RunTradingAsync(OperationMode operationMode)
+        
+        public async Task RunTradingAsync(OperationMode operationMode, SelectedTradeDirection direction, 
+                                          SelectedTradingStrategy strategy, double? takeProfitPercent, string userName)
         {
             _cts = new CancellationTokenSource(); // Reset token each time trading starts
 
             var entrySize = 20M;
             var leverage = 15M;
-            var tradeDirection = SelectedTradeDirection.Both;   
-            var selectedStrategy = SelectedTradingStrategy.Aroon;
-            var takeProfit = 1.9M;
+            var tradeDirection = direction;   
+            var selectedStrategy = strategy;
+            var takeProfit = takeProfitPercent;
             var symbols = GetSymbols();
             
-            _fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategy, takeProfit);
+            _fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategy, (decimal)takeProfit, userName);
             
             var interval = "1m";
 
-            var orderManager = new OrderManager(_wallet, leverage, new ExcelWriter(fileName: _fileName), operationMode, interval, _fileName, takeProfit, tradeDirection, selectedStrategy, _client, takeProfit);
+            var orderManager = new OrderManager(_wallet, leverage, new ExcelWriter(fileName: _fileName), operationMode, interval, _fileName, (decimal)takeProfit, tradeDirection, selectedStrategy, _client, (decimal)takeProfit);
 
             if (_apiKey == null)
             {
@@ -74,6 +75,8 @@ namespace TradingAPI.Services
                             await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
                         }
 
+                        Console.WriteLine($" -- All TP Cycles done, BACKTEST COMPLETED! -- ");
+
                         orderManager.PrintWalletBalance();
                     }
 
@@ -97,7 +100,7 @@ namespace TradingAPI.Services
                 _cts.Cancel(); // Signal to stop trading
             }
         }
-
+/*
         public async Task RunBacktestAsync(SelectedTradingStrategy selectedStrategy, decimal initialWalletSize, decimal takeProfit)
         {
             var entrySize = 20M;
@@ -139,7 +142,7 @@ namespace TradingAPI.Services
                 orderManager.PrintWalletBalance();
             }
         }
-
+*/
        static async Task<List<Kline>> FetchHistoricalData(RestClient client, string symbol, string interval)
         {
             var historicalData = new List<Kline>();
@@ -185,9 +188,11 @@ namespace TradingAPI.Services
             };
         }
         
-        private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit)
+        private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, 
+                                               SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, 
+                                               decimal takeProfit, string userName)
         {
-            string title = $"{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Entry{entrySize}_Leverage{leverage}_Direction{tradeDirection}_Strategy{selectedStrategy}_TakeProfitPercent{takeProfit}_{DateTime.Now:yyyyMMdd-HH-mm}";
+            string title = $"{userName}_{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Entry{entrySize}_Leverage{leverage}_Direction{tradeDirection}_Strategy{selectedStrategy}_TakeProfitPercent{takeProfit}_{DateTime.Now:yyyyMMdd-HH-mm}";
             return title.Replace(" ", "_").Replace("%", "Percent").Replace(".", "p") + ".xlsx";
         }
     }
