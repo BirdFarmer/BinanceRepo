@@ -101,7 +101,8 @@ namespace BinanceLive
             Console.WriteLine("2. Only Longs");
             Console.WriteLine("3. Only Shorts");
             Console.Write("Enter choice (1/2/3): ");
-            int directionChoice = int.Parse(Console.ReadLine() ?? "1");
+            string dirInput = Console.ReadLine();
+            int directionChoice = int.TryParse(dirInput, out var parsedDirection) ? parsedDirection : 1;
 
             return directionChoice switch
             {
@@ -114,18 +115,19 @@ namespace BinanceLive
         private static SelectedTradingStrategy GetTradingStrategy()
         {
             Console.WriteLine("Select Trading Strategies (default is All combined):");
-            Console.WriteLine("1. SMA Expansion");
-            Console.WriteLine("2. MACD");
-            Console.WriteLine("3. Aroon");
-            Console.WriteLine("4. All combined");
-            Console.Write("Enter choice (1/2/3/4): ");
-            int strategyChoice = int.Parse(Console.ReadLine() ?? "4");
+            Console.WriteLine("1. Loop through all strategies");
+            Console.WriteLine("2. 3 SMAs expanding, trade reversal.");
+            Console.WriteLine("3. MACD Diversion");
+            Console.WriteLine("4. Hull with 200SMA");
+            Console.Write("Enter choice (1/2/3/4): ");            
+            string stratInput = Console.ReadLine();
+            int strategyChoice = int.TryParse(stratInput, out var parsedStrat) ? parsedStrat : 1;
 
             return strategyChoice switch
             {
-                1 => SelectedTradingStrategy.SMAExpansion,
-                2 => SelectedTradingStrategy.MACD,
-                3 => SelectedTradingStrategy.Aroon,
+                2 => SelectedTradingStrategy.SMAExpansion,
+                3 => SelectedTradingStrategy.MACD,
+                4 => SelectedTradingStrategy.Aroon,
                 _ => SelectedTradingStrategy.All,
             };
         }
@@ -135,7 +137,9 @@ namespace BinanceLive
             if (operationMode == OperationMode.LivePaperTrading)
             {
                 Console.Write("Enter Take Profit % (default 1.5%): ");
-                return decimal.Parse(Console.ReadLine() ?? "1.5");
+                
+                string tpInput = Console.ReadLine();
+                return decimal.TryParse(tpInput, out var parsedTP) ? parsedTP : (decimal)1.5;
             }
             return 1.5M; // Default for backtesting
         }
