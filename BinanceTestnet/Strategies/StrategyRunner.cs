@@ -85,6 +85,7 @@ namespace BinanceLive.Strategies
 
             if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.All)
             {
+                //strategies.Add(new EmaVwapStrategy(_client, _apiKey, _orderManager, _wallet));
                 strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
                 //strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
             }
@@ -96,7 +97,8 @@ namespace BinanceLive.Strategies
             
             if (_selectedStrategy == SelectedTradingStrategy.Aroon || _selectedStrategy == SelectedTradingStrategy.All)
             {
-                strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
+                //strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
+                strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
             }
 
 

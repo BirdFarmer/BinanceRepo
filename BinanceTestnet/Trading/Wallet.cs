@@ -41,7 +41,7 @@ namespace BinanceTestnet.Trading
 
         public void AddFunds(decimal amount)
         {
-            Console.Beep();
+            //Console.Beep();
             Balance += amount;
             Console.WriteLine($"Funds added: {amount:F2}. New Balance: {Balance:F2}");
         }
