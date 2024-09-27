@@ -24,9 +24,10 @@ namespace BinanceLive
             var operationMode = GetOperationMode();
 
             // Get User Inputs
-            var (entrySize, leverage) = GetEntrySizeAndLeverage(operationMode);
             var tradeDirection = GetTradeDirection();
             var selectedStrategy = GetTradingStrategy();
+            var interval = GetInterval(operationMode);
+            var (entrySize, leverage) = GetEntrySizeAndLeverage(operationMode);
             var takeProfit = GetTakeProfit(operationMode);
             var fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategy, takeProfit);
 
@@ -48,7 +49,7 @@ namespace BinanceLive
             // Initialize Client, Symbols, Wallet
             var client = new RestClient("https://api.binance.com");
             var symbols = GetSymbols(); // List of more than 30 coin pairs
-            var intervals = new[] { "1m" }; // Default interval
+            var intervals = new[] { interval }; // Default interval
             var wallet = new Wallet(300); // Initial wallet size
 
             // Initialize OrderManager and StrategyRunner
@@ -61,30 +62,42 @@ namespace BinanceLive
             }
             else
             {
-                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);
+                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);                 
             }
+        }
+
+        private static string GetInterval(OperationMode operationMode)
+        {
+            if (operationMode == OperationMode.LivePaperTrading)
+            {
+                Console.Write("Enter Interval 1m, 5m, 15m, 30m, 1h, 4h (default 1m): ");
+                string intervalInput = Console.ReadLine();
+                return string.IsNullOrEmpty(intervalInput) ? "1m" : intervalInput;
+            }
+            return "1m"; // Default for backtesting
         }
 
         // Methods to Get User Inputs
         private static OperationMode GetOperationMode()
-        {
+        {   
             Console.WriteLine("Choose Mode:");
             Console.WriteLine("1. Paper Trading");
             Console.WriteLine("2. Backtesting");
             Console.Write("Enter choice (1/2): ");
             string? modeInput = Console.ReadLine();
             return modeInput == "2" ? OperationMode.Backtest : OperationMode.LivePaperTrading;
-                }
+        }
+
         private static (decimal entrySize, decimal leverage) GetEntrySizeAndLeverage(OperationMode operationMode)
         {
-            Console.Write("Enter Entry Size (default 20 USDT): ");
-            string entrySizeInput = Console.ReadLine();
-            decimal entrySize = decimal.TryParse(entrySizeInput, out var parsedEntrySize) ? parsedEntrySize : 20;
-
-            decimal leverage = 15; // Default leverage
-
+             decimal leverage = 15; // Default leverage
+             decimal entrySize = 20; // Default entry size
             if (operationMode == OperationMode.LivePaperTrading)
-            {
+            {                
+                Console.Write("Enter Entry Size (default 20 USDT): ");
+                string entrySizeInput = Console.ReadLine();
+                entrySize = decimal.TryParse(entrySizeInput, out var parsedEntrySize) ? parsedEntrySize : 20;
+   
                 Console.Write("Enter Leverage (1 to 25, default 15): ");
                 string leverageInput = Console.ReadLine();
                 leverage = decimal.TryParse(leverageInput, out var parsedLeverage) ? parsedLeverage : 15;
@@ -146,7 +159,15 @@ namespace BinanceLive
 
         private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit)
         {
-            string title = $"{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Entry{entrySize}_Leverage{leverage}_Direction{tradeDirection}_Strategy{selectedStrategy}_TakeProfitPercent{takeProfit}_{DateTime.Now:yyyyMMdd-HH-mm}";
+            //Maybe later Entry{entrySize}_Leverage{leverage}_
+            //TakeProfitPercent{takeProfit}_ only for live trading, backtest loops through all of them
+            string title = $"{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Direction{tradeDirection}_Strategy{selectedStrategy}_";
+            if(operationMode == OperationMode.LivePaperTrading)
+            {
+                title += $"_TakeProfitPercent{takeProfit}_";
+            }            
+            
+            title += $"{DateTime.Now:yyyyMMdd-HH-mm}";
             return title.Replace(" ", "_").Replace("%", "Percent").Replace(".", "p") + ".xlsx";
         }
 
@@ -161,7 +182,7 @@ namespace BinanceLive
         {
             return new List<string>
             {
-                "FTMUSDT", "XRPUSDT", "BTCUSDT", "ETHUSDT", "TIAUSDT", "SUIUSDT", "BCHUSDT", "AVAXUSDT", "MATICUSDT", "YGGUSDT", 
+                "FTMUSDT", "XRPUSDT", "BTCUSDT", "ETHUSDT", "TIAUSDT", "SUIUSDT", "BCHUSDT", "AVAXUSDT", "YGGUSDT", 
                 "DOGEUSDT", "HBARUSDT", "SEIUSDT", "STORJUSDT", "ADAUSDT", "DOTUSDT", "FETUSDT", "THETAUSDT", "ONTUSDT", "QNTUSDT",
                 "ARUSDT", "LINKUSDT", "ATOMUSDT", "TRBUSDT", "SUSHIUSDT", "BNBUSDT", "ORDIUSDT", "SANDUSDT", "INJUSDT", "AXSUSDT", 
                 "ENSUSDT", "LTCUSDT", "XLMUSDT"
@@ -170,27 +191,34 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
         {
-            var backtestTakeProfits = new List<decimal> { 0.3M, 0.6M, 0.8M, 1.0M, 1.3M, 1.5M, 1.7M, 1.9M }; // Take profit percentages
+            var backtestTakeProfits = new List<decimal> { 1, 3, 5  };//,*/ 1.0M, 1.3M, 1.7M, 1.9M, 2.2M, 2.5M }; // Take profit percentages
+            var intervals = new[] { "5m"};//, "15m"};//, "30m" };
 
             foreach (var tp in backtestTakeProfits)
             {
-                wallet = new Wallet(300); // Reset wallet balance
-
-                orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
-
-                foreach (var symbol in symbols)
+                for(int i = 0; i < intervals.Length; i++)
                 {
-                    var historicalData = await FetchHistoricalData(client, symbol, interval);
-                    foreach (var kline in historicalData)
+                    wallet = new Wallet(300); // Reset wallet balance
+
+                    orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
+                    orderManager.UpdateSettings(15, intervals[i]); // Update OrderManager with new parameters
+
+                    foreach (var symbol in symbols)
                     {
-                        kline.Symbol = symbol;
+                        var historicalData = await FetchHistoricalData(client, symbol, intervals[i]);
+                        foreach (var kline in historicalData)
+                        {
+                            kline.Symbol = symbol;
+                        }
+
+                        Console.WriteLine($" -- Coin: {symbol} TF: {intervals} Lev: 15 TP: {tp} -- ");
+
+
+                        await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
                     }
 
-                    Console.WriteLine($" -- Coin: {symbol} TF: {interval} Lev: 15 TP: {tp} -- ");
-                    await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
-                }
-
-                orderManager.PrintWalletBalance();
+                    orderManager.PrintWalletBalance();
+                }    
             }
         }
 
@@ -213,7 +241,7 @@ namespace BinanceLive
                 var elapsedTime = DateTime.Now - startTime;
                 Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
 
-                var delay = TimeTools.GetTimeSpanFromInterval(interval);
+                var delay = TimeTools.GetTimeSpanFromInterval(interval);//"1m"
                 await Task.Delay(delay);
             }
         }
@@ -272,6 +300,7 @@ namespace BinanceLive
                         High = decimal.Parse(kline[2].ToString(), CultureInfo.InvariantCulture),
                         Low = decimal.Parse(kline[3].ToString(), CultureInfo.InvariantCulture),
                         Close = decimal.Parse(kline[4].ToString(), CultureInfo.InvariantCulture),
+                        Volume = decimal.Parse(kline[5].ToString(), CultureInfo.InvariantCulture), // Add volume parsing                
                         CloseTime = (long)kline[6],
                         NumberOfTrades = int.Parse(kline[8].ToString(), CultureInfo.InvariantCulture)
                     });

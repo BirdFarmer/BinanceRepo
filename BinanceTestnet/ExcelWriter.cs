@@ -60,7 +60,7 @@ public class ExcelWriter
         _package.Dispose();
     }
 
-    public void WriteClosedTradeToExcel(Trade trade, decimal takeProfit, decimal tpIteration, ConcurrentDictionary<int, Trade> activeTrades)
+    public void WriteClosedTradeToExcel(Trade trade, decimal takeProfit, decimal tpIteration, ConcurrentDictionary<int, Trade> activeTrades, string interval)
     {
         try
         {
@@ -78,7 +78,7 @@ public class ExcelWriter
                     RewriteActiveTradesSheet(activeTrades.Values.ToList(), tpIteration);
                 }
 
-                sheetName = $"TP_{tpIteration}";
+                sheetName = $"TP_{tpIteration}:TF_{interval}";
                 worksheet = _package.Workbook.Worksheets[sheetName] ?? _package.Workbook.Worksheets.Add(sheetName);
 
                 if (string.IsNullOrEmpty(worksheet.Cells[1, 1].Text) || worksheet.Name != sheetName)
@@ -149,14 +149,14 @@ public class ExcelWriter
                 worksheet.Cells[11, 17].Value = "SMA Average Profit";
                 worksheet.Cells[11, 18].Formula = "IFERROR(ROUND(AVERAGEIF(E:E, \"SMAExpansion\", H:H), 3), \"N/A\")";
 
-                worksheet.Cells[12, 17].Value = "Aroon Average Profit";
-                worksheet.Cells[12, 18].Formula = "IFERROR(ROUND(AVERAGEIF(E:E, \"Aroon + EHMA\", H:H), 3), \"N/A\")";
+                worksheet.Cells[12, 17].Value = "Hull SMA Average Profit";
+                worksheet.Cells[12, 18].Formula = "IFERROR(ROUND(AVERAGEIF(E:E, \"Hull SMA\", H:H), 3), \"N/A\")";
 
-                worksheet.Cells[13, 17].Value = "SMA Short Combined Average";
-                worksheet.Cells[13, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Short\", E:E, \"SMAExpansion\"), 3), \"N/A\")";
+                worksheet.Cells[13, 17].Value = "SMA Long Combined Average";
+                worksheet.Cells[13, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Long\", E:E, \"SMAExpansion\"), 3), \"N/A\")";
 
-                worksheet.Cells[14, 17].Value = "SMA Long Combined Average";
-                worksheet.Cells[14, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Long\", E:E, \"SMAExpansion\"), 3), \"N/A\")";
+                worksheet.Cells[14, 17].Value = "SMA Short Combined Average";
+                worksheet.Cells[14, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Short\", E:E, \"SMAExpansion\"), 3), \"N/A\")";
 
                 worksheet.Cells[15, 17].Value = "MAC-D Long Combined Average";
                 worksheet.Cells[15, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Long\", E:E, \"Enhanced MACD\"), 3), \"N/A\")";
@@ -164,11 +164,11 @@ public class ExcelWriter
                 worksheet.Cells[16, 17].Value = "MAC-D Short Combined Average";
                 worksheet.Cells[16, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Short\", E:E, \"Enhanced MACD\"), 3), \"N/A\")";
 
-                worksheet.Cells[17, 17].Value = "Aroon Long Combined Average";
-                worksheet.Cells[17, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Long\", E:E, \"Aroon + EHMA\"), 3), \"N/A\")";
+                worksheet.Cells[17, 17].Value = "Hull SMA Long Combined Average";
+                worksheet.Cells[17, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Long\", E:E, \"Hull SMA\"), 3), \"N/A\")";
 
-                worksheet.Cells[18, 17].Value = "Aroon Short Combined Average";
-                worksheet.Cells[18, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Short\", E:E, \"Aroon + EHMA\"), 3), \"N/A\")";
+                worksheet.Cells[18, 17].Value = "Hull SMA Short Combined Average";
+                worksheet.Cells[18, 18].Formula = "IFERROR(ROUND(AVERAGEIFS(H:H, D:D, \"Short\", E:E, \"Hull SMA\"), 3), \"N/A\")";
 
                 worksheet.Cells[20, 17].Value = "Win Rate";
                 worksheet.Cells[20, 18].Formula = "IFERROR(ROUND(COUNTIF(H:H, \">0\") / COUNT(H:H), 3), \"N/A\")";

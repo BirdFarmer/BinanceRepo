@@ -78,7 +78,7 @@ namespace BinanceTestnet.Trading
                     return;
                 }
 
-                if (_activeTrades.Count >= 14)
+                if (_activeTrades.Count >= 13)
                 {
                     // Skipping new trade as max active trades limit reached
                     return;
@@ -178,7 +178,8 @@ namespace BinanceTestnet.Trading
                 Volume = k.Volume
             }).ToList();
 
-            return VolatilityBasedTPandSL.CalculateTpAndSl(symbol, symbolQuotes, btcQuotes, _takeProfit);
+            //return VolatilityBasedTPandSL.CalculateTpAndSl(symbol, symbolQuotes, btcQuotes, _takeProfit);
+            return VolatilityBasedTPandSL.CalculateTpAndSlBasedOnAtrMultiplier(symbol, symbolQuotes, _takeProfit);
         }
 
         public async Task CheckAndCloseTrades(Dictionary<string, decimal> currentPrices)
@@ -202,7 +203,7 @@ namespace BinanceTestnet.Trading
                     profitOfClosed += profit;
                     _activeTrades.TryRemove(trade.Id, out _);
 
-                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration, _activeTrades);
+                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration, _activeTrades, _interval);
                     await Task.CompletedTask;
                 }
             }
@@ -297,16 +298,15 @@ namespace BinanceTestnet.Trading
                     profitOfClosed += profit;
                     _activeTrades.TryRemove(trade.Id, out _);
 
-                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration, _activeTrades);
+                    _excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration, _activeTrades, _interval);
                 }
             }
         }
 
-        public void UpdateSettings(decimal leverage, string interval, decimal takeProfit)
+        public void UpdateSettings(decimal leverage, string interval)
         {
             _leverage = leverage;
             _interval = interval;
-            _takeProfit = takeProfit;
         }
 
         public void UpdateParams(Wallet wallet, decimal tpPercent)

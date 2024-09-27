@@ -61,7 +61,7 @@ public override async Task RunAsync(string symbol, string interval)
         {
             int index = sma200.Count - 1;
 
-            int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansion(
+            int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansionEasy(
                 sma25.Select(d => (double)d).ToList(),
                 sma50.Select(d => (double)d).ToList(),
                 sma100.Select(d => (double)d).ToList(),
@@ -115,12 +115,14 @@ public override async Task RunAsync(string symbol, string interval)
                 int klineIndex = i + smaOffset; // Align SMA indices with the correct kline index
 
                 // Check expansion condition using the values up to the current point
-                int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansion(
+                int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansionEasy(
                     sma25.Take(i + 1).Select(d => (double)d).ToList(),
                     sma50.Take(i + 1).Select(d => (double)d).ToList(),
                     sma100.Take(i + 1).Select(d => (double)d).ToList(),
                     sma200.Take(i + 1).Select(d => (double)d).ToList(),
                     i
+
+                    
                 );
 
                 // Retrieve the corresponding kline
@@ -218,33 +220,6 @@ public override async Task RunAsync(string symbol, string interval)
         //CheckTradingConditions(symbol, currentPrice, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).GetAwaiter().GetResult();
     }
 
-
-    private void UpdateRecentExpansions(string symbol, int expansionResult)
-    {
-        if (string.IsNullOrEmpty(symbol))
-        {
-            Console.WriteLine("Error: Symbol is null or empty when updating recent expansions.");
-            return;
-        }
-
-        if (!recentExpansions.ContainsKey(symbol))
-        {
-            recentExpansions[symbol] = new Queue<int>();
-        }
-
-        var expansionsQueue = recentExpansions[symbol];
-
-        lock (expansionsQueue)
-        {
-            if (expansionsQueue.Count == ExpansionWindowSize)
-            {
-                expansionsQueue.Dequeue();
-            }
-
-            expansionsQueue.Enqueue(expansionResult);
-        }
-    }
-
     private async Task CheckTradingConditions(string symbol, decimal currentPrice, long entryTimeStamp, double sma100Value)
     {
         if (string.IsNullOrEmpty(symbol))
@@ -268,7 +243,9 @@ public override async Task RunAsync(string symbol, string interval)
                     //{
                         //Console.WriteLine($"Placing Long Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
-                        OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        
+                        OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        
                     //}
                 }
                 else if (allShortExpansions)
@@ -278,7 +255,7 @@ public override async Task RunAsync(string symbol, string interval)
                     //{                        
                         //Console.WriteLine($"Placing Short Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
-                        OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                     //}
                 }
             }
@@ -330,33 +307,6 @@ public override async Task RunAsync(string symbol, string interval)
             return 0; // or handle error appropriately
         }
     }
-
-    private bool IsUptrend(string symbol)
-    {
-        if (string.IsNullOrEmpty(symbol))
-        {
-            Console.WriteLine("Error: Symbol is null or empty when checking uptrend.");
-            return false;
-        }
-
-        var sma200 = GetSMA(symbol, 200);
-        var currentPrice = GetCurrentPriceFromBinance(symbol).Result;
-        return currentPrice > sma200;
-    }
-
-    private bool IsDowntrend(string symbol)
-    {
-        if (string.IsNullOrEmpty(symbol))
-        {
-            Console.WriteLine("Error: Symbol is null or empty when checking downtrend.");
-            return false;
-        }
-
-        var sma200 = GetSMA(symbol, 200);
-        var currentPrice = GetCurrentPriceFromBinance(symbol).Result;
-        return currentPrice < sma200;
-    }
-
     private bool IsRSIOversold(string symbol)
     {
         if (string.IsNullOrEmpty(symbol))
@@ -389,25 +339,6 @@ public override async Task RunAsync(string symbol, string interval)
         return closes.Skip(closes.Count - period).Take(period).Average();
     }
 
-    private decimal GetSMA(string symbol, int period)
-    {
-        if (string.IsNullOrEmpty(symbol))
-        {
-            Console.WriteLine("Error: Symbol is null or empty when calculating SMA.");
-            return 0;
-        }
-
-        var klines = FetchKlines(symbol, "1m").Result;
-        var closes = klines.Select(k => k.Close).ToArray();
-        var history = ConvertToQuoteList(klines, closes);
-
-        var smaValues = Indicator.GetSma(history, period)
-            .Where(q => q.Sma!.HasValue)
-            .Select(q => q.Sma!.Value)
-            .ToList();
-
-        return (decimal)smaValues.LastOrDefault();
-    }
 
     private decimal GetRSI(string symbol, int period)
     {
