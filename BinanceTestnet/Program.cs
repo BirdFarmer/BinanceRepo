@@ -11,6 +11,8 @@ using BinanceTestnet.Enums;
 using BinanceLive.Services;
 using BinanceTestnet.Models;
 using BinanceTestnet.Trading;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace BinanceLive
 {
@@ -47,56 +49,68 @@ namespace BinanceLive
             }
 
             // Initialize Client, Symbols, Wallet
-            var client = new RestClient("https://api.binance.com");
+            var client = new RestClient("https://fapi.binance.com");
             var symbols = GetSymbols(); // List of more than 30 coin pairs
             var intervals = new[] { interval }; // Default interval
             var wallet = new Wallet(300); // Initial wallet size
 
             // Initialize OrderManager and StrategyRunner
-            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client, takeProfit);
+            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client, takeProfit, entrySize);
             var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
 
             if (operationMode == OperationMode.Backtest)
             {
                 await RunBacktest(client, symbols, intervals[0], wallet, fileName, selectedStrategy, orderManager, runner);
             }
-            else
+            else if (operationMode == OperationMode.LiveRealTrading)
             {
-                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);                 
+                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);
+            }
+            else // LivePaperTrading
+            {
+                await RunLivePaperTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);
             }
         }
 
         private static string GetInterval(OperationMode operationMode)
         {
-            if (operationMode == OperationMode.LivePaperTrading)
+            if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
             {
-                Console.Write("Enter Interval 1m, 5m, 15m, 30m, 1h, 4h (default 1m): ");
+                Console.Write("Enter Interval 1m, 5m, 15m, 30m, 1h, 4h (default 5m): ");
                 string intervalInput = Console.ReadLine();
-                return string.IsNullOrEmpty(intervalInput) ? "1m" : intervalInput;
+                return string.IsNullOrEmpty(intervalInput) ? "5m" : intervalInput;
             }
-            return "1m"; // Default for backtesting
+            return "5m"; // Default for backtesting
         }
 
         // Methods to Get User Inputs
         private static OperationMode GetOperationMode()
-        {   
+        {
             Console.WriteLine("Choose Mode:");
             Console.WriteLine("1. Paper Trading");
-            Console.WriteLine("2. Backtesting");
-            Console.Write("Enter choice (1/2): ");
+            Console.WriteLine("2. Back testing");
+            Console.WriteLine("3. Live Real Trading");
+            Console.Write("Enter choice (1/2/3): ");
             string? modeInput = Console.ReadLine();
-            return modeInput == "2" ? OperationMode.Backtest : OperationMode.LivePaperTrading;
+            
+            return modeInput switch
+            {
+                "2" => OperationMode.Backtest,
+                "3" => OperationMode.LiveRealTrading,
+                _ => OperationMode.LivePaperTrading,
+            };
         }
+
 
         private static (decimal entrySize, decimal leverage) GetEntrySizeAndLeverage(OperationMode operationMode)
         {
              decimal leverage = 15; // Default leverage
              decimal entrySize = 20; // Default entry size
-            if (operationMode == OperationMode.LivePaperTrading)
+            if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
             {                
                 Console.Write("Enter Entry Size (default 20 USDT): ");
                 string entrySizeInput = Console.ReadLine();
-                entrySize = decimal.TryParse(entrySizeInput, out var parsedEntrySize) ? parsedEntrySize : 20;
+                entrySize = decimal.TryParse(entrySizeInput, out var parsedEntrySize) ? parsedEntrySize : 10;
    
                 Console.Write("Enter Leverage (1 to 25, default 15): ");
                 string leverageInput = Console.ReadLine();
@@ -105,7 +119,6 @@ namespace BinanceLive
 
             return (entrySize, leverage);
         }
-
 
         private static SelectedTradeDirection GetTradeDirection()
         {
@@ -147,12 +160,12 @@ namespace BinanceLive
 
         private static decimal GetTakeProfit(OperationMode operationMode)
         {
-            if (operationMode == OperationMode.LivePaperTrading)
+            if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
             {
-                Console.Write("Enter Take Profit % (default 1.5%): ");
+                Console.Write("Enter Take Profit multiplier (default 5): ");
                 
                 string tpInput = Console.ReadLine();
-                return decimal.TryParse(tpInput, out var parsedTP) ? parsedTP : (decimal)1.5;
+                return decimal.TryParse(tpInput, out var parsedTP) ? parsedTP : (decimal)5.0M;
             }
             return 1.5M; // Default for backtesting
         }
@@ -191,8 +204,8 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
         {
-            var backtestTakeProfits = new List<decimal> { 1, 3, 5  };//,*/ 1.0M, 1.3M, 1.7M, 1.9M, 2.2M, 2.5M }; // Take profit percentages
-            var intervals = new[] { "5m"};//, "15m"};//, "30m" };
+            var backtestTakeProfits = new List<decimal> { 2  };//,*/ 1.0M, 1.3M, 1.7M, 1.9M, 2.2M, 2.5M }; // Take profit percentages
+            var intervals = new[] { "5m"};//};//, "30m" };
 
             foreach (var tp in backtestTakeProfits)
             {
@@ -201,7 +214,7 @@ namespace BinanceLive
                     wallet = new Wallet(300); // Reset wallet balance
 
                     orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
-                    orderManager.UpdateSettings(15, intervals[i]); // Update OrderManager with new parameters
+                    orderManager.UpdateSettings(5, intervals[i]); // Update OrderManager with new parameters
 
                     foreach (var symbol in symbols)
                     {
@@ -222,66 +235,158 @@ namespace BinanceLive
             }
         }
 
-        private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner)
+        private static async Task RunLivePaperTrading(RestClient client, List<string> symbols, 
+                                                      string interval, Wallet wallet, string fileName, 
+                                                      SelectedTradingStrategy selectedStrategy, decimal takeProfit, 
+                                                      OrderManager orderManager, StrategyRunner runner)
         {
             var startTime = DateTime.Now;
             while (true)
             {
-                var currentPrices = await FetchCurrentPrices(client, symbols);
-                await runner.RunStrategiesAsync();
-
-                Console.WriteLine($"---- Cycle Completed ----");
-                if (currentPrices != null)
+                try
                 {
-                    await orderManager.CheckAndCloseTrades(currentPrices);
-                    orderManager.PrintActiveTrades(currentPrices);
-                    orderManager.PrintWalletBalance();
+                    var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
+                    await runner.RunStrategiesAsync();
+
+                    Console.WriteLine($"---- Cycle Completed ----");
+                    if (currentPrices != null)
+                    {
+                        await orderManager.CheckAndCloseTrades(currentPrices);
+                        orderManager.PrintActiveTrades(currentPrices);
+                        orderManager.PrintWalletBalance();
+                    }
+
+                    var elapsedTime = DateTime.Now - startTime;
+                    Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
                 }
-
-                var elapsedTime = DateTime.Now - startTime;
-                Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
-
+                catch (Exception ex)
+                {
+                    // Log the exception without stopping the loop
+                    Console.WriteLine($"An error occurred: {ex.Message}");
+                    Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                }
                 var delay = TimeTools.GetTimeSpanFromInterval(interval);//"1m"
                 await Task.Delay(delay);
             }
         }
 
-        // Methods for Fetching Data
-        static async Task<Dictionary<string, decimal>> FetchCurrentPrices(RestClient client, List<string> symbols)
+        private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner)
+        {
+            var startTime = DateTime.Now;
+
+            while (true)
+            {
+                try
+                {
+                    // Fetch current prices for symbols
+                    var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
+
+                    // Execute trading strategies and get buy/sell signals
+                    await runner.RunStrategiesAsync();
+
+                    // Calculate elapsed time and log it
+                    var elapsedTime = DateTime.Now - startTime;
+                    Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
+                }
+                catch (Exception ex)
+                {
+                    // Log the exception without stopping the loop
+                    Console.WriteLine($"An error occurred: {ex.Message}");
+                    Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                }
+
+                // Determine delay based on the selected interval
+                var delay = TimeTools.GetTimeSpanFromInterval(interval); // e.g., "1m"
+                await Task.Delay(delay);
+            }
+        }
+
+
+        // Method to generate a signature
+        private static string GenerateSignature(string queryString, string apiSecret)
+        {
+            using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(apiSecret)))
+            {
+                var hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(queryString));
+                return BitConverter.ToString(hashBytes).Replace("-", "").ToLower();
+            }
+        }
+
+        static async Task<Dictionary<string, decimal>> FetchCurrentPrices(RestClient client, List<string> symbols, string apiKey, string apiSecret)
         {
             var prices = new Dictionary<string, decimal>();
 
             foreach (var symbol in symbols)
             {
-                var request = new RestRequest("/api/v3/ticker/price", Method.Get);
+                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+                var request = new RestRequest("/fapi/v1/ticker/price", Method.Get);
                 request.AddParameter("symbol", symbol);
-                var response = await client.ExecuteAsync<Dictionary<string, string>>(request);
+                request.AddHeader("X-MBX-APIKEY", apiKey);
+
+                // Create a query string using the generated timestamp
+                string queryString = $"symbol={symbol}&timestamp={timestamp}";
+
+                // Generate the signature based on the query string and secret
+                string signature = GenerateSignature(queryString, apiSecret);
+
+                // Add the timestamp and signature to the request
+                request.AddParameter("timestamp", timestamp.ToString());
+                request.AddParameter("signature", signature);
+
+                // Send the request
+                var response = await client.ExecuteAsync(request);
 
                 if (response.IsSuccessful && response.Content != null)
                 {
-                    var priceData = JsonConvert.DeserializeObject<Dictionary<string, string>>(response.Content);
-                    if (priceData?.ContainsKey("price") == true)
-                    {
-                        prices[symbol] = decimal.Parse(priceData["price"], CultureInfo.InvariantCulture);
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Failed to fetch price for {symbol}: {response.ErrorMessage}");
-                    }
+                    var priceData = JsonConvert.DeserializeObject<PriceResponse>(response.Content);
+                    prices[symbol] = priceData.Price;
                 }
                 else
                 {
-                    Console.WriteLine($"Failed to fetch price for {symbol}: {response.ErrorMessage}");
+                    // Log the response details for debugging
+                    Console.WriteLine($"Error fetching price for {symbol}: {response.StatusCode} - {response.Content}");
+                    throw new Exception($"Failed to fetch price for {symbol}: {response.Content}");
                 }
             }
 
             return prices;
         }
 
+
+        public async Task<long> GetServerTimeAsync(RestClient _client)
+        {
+            var request = new RestRequest("/fapi/v1/time", Method.Get);
+            var response = await _client.ExecuteAsync(request);
+            if (response.IsSuccessful)
+            {
+                var serverTimeData = JsonConvert.DeserializeObject<ServerTimeResponse>(response.Content);
+                return serverTimeData.ServerTime;
+            }
+            else
+            {
+                throw new Exception("Failed to fetch server time.");
+            }
+        }
+
+        
+        public class ServerTimeResponse
+        {
+            [JsonProperty("serverTime")]
+            public long ServerTime { get; set; }
+        }
+
+        // Create a class for the expected response structure
+        public class PriceResponse
+        {
+            public string Symbol { get; set; }
+            public decimal Price { get; set; }
+        }
+
         static async Task<List<Kline>> FetchHistoricalData(RestClient client, string symbol, string interval)
         {
             var historicalData = new List<Kline>();
-            var request = new RestRequest("/api/v3/klines", Method.Get);
+            var request = new RestRequest("/fapi/v1/klines", Method.Get);
             request.AddParameter("symbol", symbol);
             request.AddParameter("interval", interval);
             request.AddParameter("limit", 1000);
