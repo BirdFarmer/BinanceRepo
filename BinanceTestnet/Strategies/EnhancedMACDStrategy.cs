@@ -22,7 +22,7 @@ namespace BinanceLive.Strategies
         {
             try
             {
-                var request = CreateRequest("/api/v3/klines");
+                var request = CreateRequest("/fapi/v1/klines");
                 request.AddParameter("symbol", symbol, ParameterType.QueryString);
                 request.AddParameter("interval", interval, ParameterType.QueryString);
                 request.AddParameter("limit", "401", ParameterType.QueryString);
@@ -60,6 +60,7 @@ namespace BinanceLive.Strategies
                                 && lastEmaShort.Ema > lastEmaLong.Ema
                                 )
                             {
+                                Console.WriteLine($"MACd crossed over Signal and fast EMA is above slow EMA, trying to go LONG");
                                 await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().CloseTime);
                                 LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
@@ -68,7 +69,8 @@ namespace BinanceLive.Strategies
                             else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal 
                                      && lastEmaShort.Ema < lastEmaLong.Ema
                                      )
-                            {
+                            {   
+                                Console.WriteLine($"MACd crossed below Signal and fast EMA is below slow EMA, trying to go SHORT");
                                 await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().CloseTime);
                                 LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }

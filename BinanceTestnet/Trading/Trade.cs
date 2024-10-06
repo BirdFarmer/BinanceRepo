@@ -16,7 +16,7 @@ namespace BinanceTestnet.Trading
         public DateTime EntryTimestamp { get; }
         
         public DateTime KlineTimestamp { get; set; }
-        public bool IsInTrade { get; private set; }
+        public bool IsInTrade { get; set; }
         public TimeSpan Duration { get; private set; }
         public decimal? Profit { get; private set; }
 
@@ -36,7 +36,7 @@ namespace BinanceTestnet.Trading
             Leverage = leverage;
             Signal = signal;
             EntryTimestamp = DateTime.Now;
-            IsInTrade = true;
+            IsInTrade = false;
             IsClosed = false; // Initialize as not closed
             Interval = interval; // Set the interval
             KlineTimestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp).DateTime;

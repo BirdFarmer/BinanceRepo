@@ -10,10 +10,10 @@ namespace BinanceLive.Services
     public static async Task<List<Kline>> FetchHistoricalData(RestClient client, string symbol, string interval)
     {
         var historicalData = new List<Kline>();
-        var request = new RestRequest("/api/v3/klines", Method.Get);
+        var request = new RestRequest("/fapi/v1/klines", Method.Get);
         request.AddParameter("symbol", symbol);
         request.AddParameter("interval", interval);
-        request.AddParameter("limit", 1000);
+        request.AddParameter("limit", 200);
 
         var response = await client.ExecuteAsync<List<List<object>>>(request);
 

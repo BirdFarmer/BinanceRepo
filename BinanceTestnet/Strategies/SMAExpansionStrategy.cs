@@ -141,7 +141,7 @@ public override async Task RunAsync(string symbol, string interval)
 
     private async Task<List<Kline>> FetchKlines(string symbol, string interval)
     {
-        var request = CreateRequest("/api/v3/klines");
+        var request = CreateRequest("/fapi/v1/klines");
         request.AddParameter("symbol", symbol, ParameterType.QueryString);
         request.AddParameter("interval", interval, ParameterType.QueryString);
         request.AddParameter("limit", "401", ParameterType.QueryString);
@@ -243,8 +243,8 @@ public override async Task RunAsync(string symbol, string interval)
                     //{
                         //Console.WriteLine($"Placing Long Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
-                        
-                        OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        Console.WriteLine($"SMA50 is expanding UP faster than SMA100, trying to go LONG");
+                        OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                         
                     //}
                 }
@@ -255,7 +255,8 @@ public override async Task RunAsync(string symbol, string interval)
                     //{                        
                         //Console.WriteLine($"Placing Short Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
-                        OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        Console.WriteLine($"SMA50 is expanding DOWN faster than SMA100, trying to go SHORT");
+                        OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                     //}
                 }
             }
@@ -263,7 +264,7 @@ public override async Task RunAsync(string symbol, string interval)
             {
                 if (recentExpansions.ContainsKey(symbol))
                 {
-                    Console.WriteLine($"Symbol: {symbol}, Not enough expansions to decide trade. Current queue: {string.Join(", ", recentExpansions[symbol])}/{ExpansionWindowSize}");
+                    //Console.WriteLine($"Symbol: {symbol}, Not enough expansions to decide trade. Current queue: {string.Join(", ", recentExpansions[symbol])}/{ExpansionWindowSize}");
                 }
                 else
                 {
@@ -291,7 +292,7 @@ public override async Task RunAsync(string symbol, string interval)
             return 0;
         }
 
-        var request = CreateRequest("/api/v3/ticker/price");
+        var request = CreateRequest("/fapi/v1/ticker/price");
         request.AddParameter("symbol", symbol, ParameterType.QueryString);
 
         var response = await Client.ExecuteGetAsync(request);

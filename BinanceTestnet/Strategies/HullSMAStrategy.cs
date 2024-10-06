@@ -22,10 +22,10 @@ namespace BinanceLive.Strategies
         {
             try
             {
-                var request = CreateRequest("/api/v3/klines");
+                var request = CreateRequest("/fapi/v1/klines");
                 request.AddParameter("symbol", symbol, ParameterType.QueryString);
                 request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "800", ParameterType.QueryString);  // Fetch 750 data points
+                request.AddParameter("limit", "210", ParameterType.QueryString);  // Fetch 750 data points
 
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful && response.Content != null)
@@ -76,6 +76,8 @@ namespace BinanceLive.Strategies
                                 && isSMAPointingUp
                                 )
                             {
+                                
+                                Console.WriteLine($"Hull Crossing UP, SMA200 pointing up, trying to go LONG");
                                 //currentPrice = await GetCurrentPrice(Client, currentKline.Symbol); 
                                 await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Hull SMA", currentKline.CloseTime);
                             }
@@ -84,6 +86,7 @@ namespace BinanceLive.Strategies
                                     && isSMAPointingDown
                                     )
                             {
+                                Console.WriteLine($"Hull Crossing DOWN, SMA200 pointing down, trying to go SHORT");
                                 //currentPrice = await GetCurrentPrice(Client, currentKline.Symbol); 
                                 await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Hull SMA", currentKline.CloseTime);
                             }
@@ -174,7 +177,7 @@ namespace BinanceLive.Strategies
 
         static async Task<decimal> GetCurrentPrice(RestClient client, string symbol)
         {
-            var request = new RestRequest("/api/v3/ticker/price", Method.Get);
+            var request = new RestRequest("/fapi/v1/ticker/price", Method.Get);
             request.AddParameter("symbol", symbol);
             var response = await client.ExecuteAsync<Dictionary<string, string>>(request);
 
