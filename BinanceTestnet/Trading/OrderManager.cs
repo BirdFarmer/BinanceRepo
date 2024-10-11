@@ -31,7 +31,8 @@ namespace BinanceTestnet.Trading
         
         // Trade statistics
         private readonly ConcurrentDictionary<int, Trade> _activeTrades = new ConcurrentDictionary<int, Trade>();
-        private Dictionary<string, (decimal lotSize, int pricePrecision)> _lotSizeCache;// = new ConcurrentDictionary<string, (decimal lotSize, int pricePrecision)>();
+        private Dictionary<string, (decimal lotSize, int pricePrecision, decimal tickSize)> _lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();
+
         private int _nextTradeId = 1;
         private decimal noOfTrades = 0;
         private decimal profitOfClosed = 0;
@@ -55,7 +56,7 @@ namespace BinanceTestnet.Trading
             _tradingStrategy = tradingStrategy;
             _client = client;
             _marginPerTrade = margin;
-            _lotSizeCache = new Dictionary<string, (decimal, int)>();
+            _lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();
             _excelWriter.Initialize(fileName);
             InitializeLotSizes().Wait(); // Awaiting the task for initialization
         }
@@ -68,16 +69,16 @@ namespace BinanceTestnet.Trading
                 foreach (var symbolInfo in exchangeInfo.Symbols)
                 {
                     var lotSizeFilter = symbolInfo.Filters.FirstOrDefault(f => f.FilterType == "LOT_SIZE");
-                    var priceFilter = symbolInfo.PricePrecision;//.FirstOrDefault(f => f.FilterType == "PRICE_FILTER");
-                                        
+                    var priceFilter = symbolInfo.Filters.FirstOrDefault(f => f.FilterType == "PRICE_FILTER"); // Get PRICE_FILTER for tick size
+
                     if (lotSizeFilter != null && priceFilter != null)
                     {
-                         string stepSizeString = lotSizeFilter.StepSize.Replace('.', ',');
-                        // Store both lot size and price precision
+                        // Parse lot size and tick size
                         decimal lotSize = decimal.Parse(lotSizeFilter.StepSize, CultureInfo.InvariantCulture);
+                        decimal tickSize = decimal.Parse(priceFilter.TickSize, CultureInfo.InvariantCulture);
 
-                        // Store both lot size and price precision
-                        _lotSizeCache[symbolInfo.Symbol] = (lotSize, priceFilter);
+                        // Store lot size, price precision, and tick size in the cache
+                        _lotSizeCache[symbolInfo.Symbol] = (lotSize, symbolInfo.PricePrecision, tickSize);
                     }
                     else
                     {
@@ -90,6 +91,8 @@ namespace BinanceTestnet.Trading
                 Log.Error($"Error initializing lot sizes: {ex.Message}");
             }
         }
+
+
 
         private async Task<ExchangeInfo> GetExchangeInfoAsync()
         {
@@ -112,9 +115,9 @@ namespace BinanceTestnet.Trading
             }
         }
 
-        public (decimal lotSize, int pricePrecision) GetLotSizeAndPrecision(string symbol)
+        public (decimal lotSize, int pricePrecision, decimal tickSize) GetLotSizeAndPrecision(string symbol)
         {
-            return _lotSizeCache.TryGetValue(symbol, out var info) ? info : (0, 0);
+            return _lotSizeCache.TryGetValue(symbol, out var info) ? info : (0, 0, 0);
         }
 
         private decimal CalculateQuantity(decimal price, string symbol, decimal initialMargin)
@@ -123,7 +126,7 @@ namespace BinanceTestnet.Trading
             decimal quantity = (marginPerTrade * _leverage) / price;
 
             // Get the lot size and price precision for the symbol
-            var (lotSize, pricePrecision) = GetLotSizeAndPrecision(symbol);
+            var (lotSize, pricePrecision, tickSize) = GetLotSizeAndPrecision(symbol);
             if (lotSize > 0)
             {
                 // Round the quantity down to the nearest lot size
@@ -202,6 +205,9 @@ namespace BinanceTestnet.Trading
             {
                 // If no TP provided, fall back to ATR-based TP and SL
                 var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
+
+                if(tpPercent == -1 || slPercent == -1) 
+                    return;
 
                 if (isLong)
                 {
@@ -426,8 +432,10 @@ namespace BinanceTestnet.Trading
                 var orderType = trade.IsLong ? "BUY" : "SELL";
 
                 // Calculate the quantity based on the current price
-                decimal price = trade.EntryPrice; // Assuming trade has an EntryPrice property
-                decimal quantity = CalculateQuantity(price, trade.Symbol, trade.InitialMargin); // Calculate based on price and symbol
+                decimal price = trade.EntryPrice;
+                decimal quantity = CalculateQuantity(price, trade.Symbol, trade.InitialMargin);
+                int lotSizePrecision = GetLotSizePrecision(trade.Symbol);
+                string formattedQuantity = quantity.ToString("F" + lotSizePrecision, CultureInfo.InvariantCulture);
 
                 long serverTime = await GetServerTimeAsync();
 
@@ -436,7 +444,7 @@ namespace BinanceTestnet.Trading
                 orderRequest.AddParameter("symbol", trade.Symbol);
                 orderRequest.AddParameter("side", orderType);
                 orderRequest.AddParameter("type", "MARKET"); // Market order
-                orderRequest.AddParameter("quantity", quantity); // Use formatted quantity
+                orderRequest.AddParameter("quantity", formattedQuantity);
                 orderRequest.AddParameter("timestamp", serverTime);
 
                 // Generate signature for the request
@@ -447,8 +455,6 @@ namespace BinanceTestnet.Trading
 
                 var signature = GenerateSignature(queryString);
                 orderRequest.AddParameter("signature", signature);
-
-                // Add API key to the request header
                 orderRequest.AddHeader("X-MBX-APIKEY", apiKey);
 
                 // Execute the request and place the market order
@@ -457,7 +463,7 @@ namespace BinanceTestnet.Trading
                 if (response.IsSuccessful)
                 {
                     var orderData = JsonConvert.DeserializeObject<OrderResponse>(response.Content);
-                    var orderId = orderData.orderId; // Capture the order ID from the market order response
+                    var orderId = orderData.orderId;
                     var qtyInTrade = orderData.executedQty;
                     Console.WriteLine($"{orderType} Order placed for {trade.Symbol} at {trade.EntryPrice}. Quantity: {qtyInTrade}, Order ID: {orderId}");
 
@@ -466,12 +472,15 @@ namespace BinanceTestnet.Trading
                     // Regenerate timestamp for the next request
                     serverTime = await GetServerTimeAsync(5005);
 
-                    // Get lot size precision for formatting the quantity
-                    int lotSizePrecision = GetLotSizePrecision(trade.Symbol);
-                    string formattedQuantity = quantity.ToString("F" + lotSizePrecision); // Format quantity correctly based on precision
-
                     var pricePrecision = _lotSizeCache[trade.Symbol].pricePrecision;
                     string stopLossPriceString = trade.StopLossPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
+                    
+                    // **Fetch the tick size for the symbol** to ensure the price aligns with tick size.
+                    decimal tickSize = GetTickSize(trade.Symbol);
+                    
+                    // **Adjust the take profit price to align with the tick size.**
+                    decimal roundedTakeProfitPrice = Math.Floor(trade.TakeProfitPrice / tickSize) * tickSize;
+                    string takeProfitPriceString = roundedTakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
 
                     // Step 2: Place Stop Loss as a separate STOP_MARKET order
                     var stopLossRequest = new RestRequest("/fapi/v1/order", Method.Post);
@@ -480,7 +489,6 @@ namespace BinanceTestnet.Trading
                     stopLossRequest.AddParameter("type", "STOP_MARKET");
                     stopLossRequest.AddParameter("stopPrice", stopLossPriceString);
                     stopLossRequest.AddParameter("closePosition", "true"); // Close the entire position
-                    stopLossRequest.AddParameter("newClientOrderId", orderId); // Referencing the market order
                     stopLossRequest.AddParameter("timestamp", serverTime);
 
                     // Generate signature for stop loss
@@ -489,7 +497,6 @@ namespace BinanceTestnet.Trading
                         .Select(p2 => $"{p2.Name}={p2.Value}")
                         .Aggregate((current, next) => $"{current}&{next}");
 
-                    Console.WriteLine("Query String for Signature: " + stopLossQueryString);
                     var stopLossSignature = GenerateSignature(stopLossQueryString);
                     stopLossRequest.AddParameter("signature", stopLossSignature);
                     stopLossRequest.AddHeader("X-MBX-APIKEY", apiKey);
@@ -501,7 +508,7 @@ namespace BinanceTestnet.Trading
                         Console.WriteLine($"Stop Loss set for {trade.Symbol} at {trade.StopLossPrice}");
 
                         orderData = JsonConvert.DeserializeObject<OrderResponse>(stopLossResponse.Content);
-                        orderId = orderData.orderId; // Capture the order ID from the market order response
+                        orderId = orderData.orderId;
                     }
                     else
                     {
@@ -512,17 +519,15 @@ namespace BinanceTestnet.Trading
 
                     // Regenerate timestamp for the next request
                     serverTime = await GetServerTimeAsync(5005);
-                    
-                    string takeProfitPriceString = trade.TakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
 
-                    // Step 3: Place Take Profit Order separately
+                    // Step 3: Place Take Profit as a LIMIT order
                     var takeProfitRequest = new RestRequest("/fapi/v1/order", Method.Post);
                     takeProfitRequest.AddParameter("symbol", trade.Symbol);
                     takeProfitRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY"); // Opposite direction for TP
-                    takeProfitRequest.AddParameter("type", "TAKE_PROFIT_MARKET");
-                    takeProfitRequest.AddParameter("stopPrice", takeProfitPriceString);
-                    takeProfitRequest.AddParameter("closePosition", "true"); // Close the entire position
-                    takeProfitRequest.AddParameter("newClientOrderId", orderId); // Referencing the market order
+                    takeProfitRequest.AddParameter("type", "LIMIT");
+                    takeProfitRequest.AddParameter("price", takeProfitPriceString); // Adjusted take profit price
+                    takeProfitRequest.AddParameter("quantity", formattedQuantity);
+                    takeProfitRequest.AddParameter("timeInForce", "GTC"); // Good 'til canceled
                     takeProfitRequest.AddParameter("timestamp", serverTime);
 
                     // Generate signature for take profit order
@@ -531,7 +536,6 @@ namespace BinanceTestnet.Trading
                         .Select(p3 => $"{p3.Name}={p3.Value}")
                         .Aggregate((current, next) => $"{current}&{next}");
 
-                    Console.WriteLine("Query String for Signature: " + takeProfitQueryString);
                     var takeProfitSignature = GenerateSignature(takeProfitQueryString);
                     takeProfitRequest.AddParameter("signature", takeProfitSignature);
                     takeProfitRequest.AddHeader("X-MBX-APIKEY", apiKey);
@@ -540,7 +544,7 @@ namespace BinanceTestnet.Trading
 
                     if (takeProfitResponse.IsSuccessful)
                     {
-                        Console.WriteLine($"Take Profit set for {trade.Symbol} at {trade.TakeProfitPrice}");
+                        Console.WriteLine($"Take Profit set for {trade.Symbol} at {roundedTakeProfitPrice}");
                     }
                     else
                     {
@@ -553,7 +557,7 @@ namespace BinanceTestnet.Trading
                     // Enhanced debug information
                     Console.WriteLine($"Failed to place {orderType} Order for {trade.Symbol}. Error: {response.ErrorMessage}");
                     Console.WriteLine($"Response Status Code: {response.StatusCode}");
-                    Console.WriteLine($"Response Content: {response.Content}"); // This should contain error details from Binance
+                    Console.WriteLine($"Response Content: {response.Content}");
                 }
             }
         }
@@ -598,6 +602,16 @@ namespace BinanceTestnet.Trading
                 Log.Error($"Error checking open position: {ex.Message}, Response: {response.Content}");
                 return false;
             }
+        }
+
+        // Helper method to get the tick size for a symbol from the exchange info
+        private decimal GetTickSize(string symbol)
+        {
+            if (_lotSizeCache.ContainsKey(symbol))
+            {
+                return _lotSizeCache[symbol].tickSize; // Assuming tickSize is stored in _lotSizeCache
+            }
+            throw new Exception($"Tick size not found for symbol {symbol}");
         }
 
 

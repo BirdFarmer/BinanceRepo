@@ -30,6 +30,20 @@ public class SymbolInfo
     public List<string> OrderTypes { get; set; }
     public List<string> TimeInForce { get; set; }
 
+    // Property to store the tick size
+    public decimal TickSize
+    {
+        get
+        {
+            var priceFilter = Filters.FirstOrDefault(f => f.FilterType == "PRICE_FILTER");
+            if (priceFilter != null && !string.IsNullOrEmpty(priceFilter.TickSize))
+            {
+                return decimal.Parse(priceFilter.TickSize);
+            }
+            throw new Exception($"Tick size not found for symbol {Symbol}");
+        }
+    }
+
     // Method to format quantity based on LOT_SIZE filter
     public decimal FormatQuantity(decimal quantity)
     {

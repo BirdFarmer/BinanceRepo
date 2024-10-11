@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using BinanceTestnet.Trading;
+using System.Diagnostics;
 
 namespace BinanceLive.Strategies
 {
@@ -72,7 +73,11 @@ namespace BinanceLive.Strategies
 
             foreach (var strategy in strategies)
             {
+                Stopwatch timer = new Stopwatch();
+                timer.Start();
                 await strategy.RunOnHistoricalDataAsync(historicalData);
+                var elapsed = timer.Elapsed;
+                Console.WriteLine($"------------------Strategy {strategy.ToString()} lasted {elapsed} " );
                 // Close all active trades with the last Kline's close price
                 _orderManager.CloseAllActiveTrades(closePrice);
             }
