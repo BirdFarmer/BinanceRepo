@@ -67,37 +67,45 @@ public class VolatilityBasedTPandSL
 
     public static (decimal tpPercent, decimal slPercent) CalculateTpAndSlBasedOnAtrMultiplier(string symbol, List<Quote> history, decimal tpMultiplier)
     {
-        // Ensure there is enough data
-        if (history.Count < AtrPeriod)
+        try
         {
-            throw new ArgumentException("Not enough historical data to calculate ATR.");
+            // Ensure there is enough data
+            if (history.Count < AtrPeriod)
+            {
+                throw new ArgumentException("Not enough historical data to calculate ATR.");
+            }
+
+            // Calculate ATR for the target coin pair
+            var atrs = history.GetAtr(AtrPeriod).Select(a => a.Atr.GetValueOrDefault(0)).ToList();
+            var currentAtr = atrs.LastOrDefault();
+
+            if (currentAtr == 0)
+            {
+                throw new InvalidOperationException("Current ATR is zero, which is invalid for calculation.");
+            }
+            // Print ATR values for debugging
+            Console.WriteLine($"Current ATR for {symbol}: {currentAtr}");
+
+            var atrToPrice = currentAtr / (double)history.Last().Close;
+
+            // TP is ATR * multiplier
+            var tpPercent = (decimal)atrToPrice * tpMultiplier * 100;
+
+            // SL is half of TP to maintain 2:1 risk-reward ratio
+            var slPercent = tpPercent / 2;
+
+            // Print TP and SL percentages for debugging
+            Console.WriteLine($"Adjusted TP Percent (ATR * {tpMultiplier}): {tpPercent}");
+            Console.WriteLine($"Adjusted SL Percent (TP / 2): {slPercent}");
+
+            return (tpPercent, slPercent);
+        }
+        
+        catch
+        {
+            return (-1, -1);
         }
 
-        // Calculate ATR for the target coin pair
-        var atrs = history.GetAtr(AtrPeriod).Select(a => a.Atr.GetValueOrDefault(0)).ToList();
-        var currentAtr = atrs.LastOrDefault();
-
-        if (currentAtr == 0)
-        {
-            throw new InvalidOperationException("Current ATR is zero, which is invalid for calculation.");
-        }
-
-        // Print ATR values for debugging
-        Console.WriteLine($"Current ATR for {symbol}: {currentAtr}");
-
-        var atrToPrice = currentAtr / (double)history.Last().Close;
-
-        // TP is ATR * multiplier
-        var tpPercent = (decimal)atrToPrice * tpMultiplier * 100;
-
-        // SL is half of TP to maintain 2:1 risk-reward ratio
-        var slPercent = tpPercent / 2;
-
-        // Print TP and SL percentages for debugging
-        Console.WriteLine($"Adjusted TP Percent (ATR * {tpMultiplier}): {tpPercent}");
-        Console.WriteLine($"Adjusted SL Percent (TP / 2): {slPercent}");
-
-        return (tpPercent, slPercent);
     }
 }
 

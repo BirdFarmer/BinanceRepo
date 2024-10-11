@@ -244,7 +244,7 @@ public override async Task RunAsync(string symbol, string interval)
                         //Console.WriteLine($"Placing Long Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
                         Console.WriteLine($"SMA50 is expanding UP faster than SMA100, trying to go LONG");
-                        OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                         
                     //}
                 }
@@ -256,7 +256,7 @@ public override async Task RunAsync(string symbol, string interval)
                         //Console.WriteLine($"Placing Short Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
                         Console.WriteLine($"SMA50 is expanding DOWN faster than SMA100, trying to go SHORT");
-                        OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                     //}
                 }
             }
