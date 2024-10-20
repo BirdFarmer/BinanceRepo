@@ -204,7 +204,7 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
         {
-            var backtestTakeProfits = new List<decimal> { 5};//,*/ 1.0M, 1.3M, 1.7M, 1.9M, 2.2M, 2.5M }; // Take profit percentages
+            var backtestTakeProfits = new List<decimal> { 6.5M, 5.5M, 4.5M};//,*/ 1.0M, 1.3M, 1.7M, 1.9M, 2.2M, 2.5M }; // Take profit percentages
             var intervals = new[] { "5m"};//};//, "30m" };
 
             foreach (var tp in backtestTakeProfits)
