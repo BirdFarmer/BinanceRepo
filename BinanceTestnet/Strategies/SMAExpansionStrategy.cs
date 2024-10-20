@@ -12,7 +12,7 @@ using BinanceTestnet.Trading;
 
 public class SMAExpansionStrategy : StrategyBase
 {
-    private const int ExpansionWindowSize = 2;  // Adjusted for more robust detection
+    private const int ExpansionWindowSize = 1;  // Adjusted for more robust detection
     private static ConcurrentDictionary<string, Queue<int>> recentExpansions = new ConcurrentDictionary<string, Queue<int>>();
     private ConcurrentDictionary<string, Queue<int>> _expansionResults;
 
@@ -61,7 +61,7 @@ public override async Task RunAsync(string symbol, string interval)
         {
             int index = sma200.Count - 1;
 
-            int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansionEasy(
+            int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.ConfirmThe200Turn(//CheckSMAExpansionEasy(
                 sma25.Select(d => (double)d).ToList(),
                 sma50.Select(d => (double)d).ToList(),
                 sma100.Select(d => (double)d).ToList(),
@@ -115,7 +115,7 @@ public override async Task RunAsync(string symbol, string interval)
                 int klineIndex = i + smaOffset; // Align SMA indices with the correct kline index
 
                 // Check expansion condition using the values up to the current point
-                int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansionEasy(
+                int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.ConfirmThe200Turn(//CheckSMAExpansionEasy(
                     sma25.Take(i + 1).Select(d => (double)d).ToList(),
                     sma50.Take(i + 1).Select(d => (double)d).ToList(),
                     sma100.Take(i + 1).Select(d => (double)d).ToList(),

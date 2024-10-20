@@ -97,7 +97,9 @@ namespace BinanceLive.Strategies
             
             if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.All)
             {
-                strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));//MACDStandardStrategy
+                // strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));//MACDStandardStrategy
+                strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
+
             }
             
             if (_selectedStrategy == SelectedTradingStrategy.Aroon || _selectedStrategy == SelectedTradingStrategy.All)
