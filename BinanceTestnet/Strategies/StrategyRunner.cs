@@ -90,8 +90,8 @@ namespace BinanceLive.Strategies
 
             if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.All)
             {
-                //strategies.Add(new EmaVwapStrategy(_client, _apiKey, _orderManager, _wallet));
                 strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
+                //strategies.Add(new EmaVwapStrategy(_client, _apiKey, _orderManager, _wallet));
                 //strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
             }
             

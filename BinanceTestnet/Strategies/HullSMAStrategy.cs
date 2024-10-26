@@ -10,7 +10,7 @@ namespace BinanceLive.Strategies
     public class HullSMAStrategy : StrategyBase
     {
         private const int HullLength = 70; // Hull Length for HMA
-        private const int SmaPeriod = 200; // SMA Period
+        private const int SmaPeriod = 50; // SMA Period
         private const int HigherTimeFrame = 4; // Higher time frame (e.g., 4-hour chart)
 
         public HullSMAStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)

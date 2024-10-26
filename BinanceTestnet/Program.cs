@@ -13,6 +13,8 @@ using BinanceTestnet.Models;
 using BinanceTestnet.Trading;
 using System.Security.Cryptography;
 using System.Text;
+using BinanceTestnet.Database;
+using System.Diagnostics;
 
 namespace BinanceLive
 {
@@ -50,12 +52,22 @@ namespace BinanceLive
 
             // Initialize Client, Symbols, Wallet
             var client = new RestClient("https://fapi.binance.com");
-            var symbols = GetSymbols(); // List of more than 30 coin pairs
             var intervals = new[] { interval }; // Default interval
             var wallet = new Wallet(300); // Initial wallet size
 
+            Stopwatch timer = new Stopwatch();
+            timer.Start();
+            // Define your database path
+            string databasePath = @"C:\Repo\BinanceAPI\db\DataBase.db";
+            var databaseManager = new DatabaseManager(databasePath);
+            databaseManager.InitializeDatabase();
+            //var symbols = GetSymbols(); // List of more than 30 coin pairs
+            var symbols = await GetBestListOfSymbols(client, databaseManager);
+            Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
+            timer.Stop();
+
             // Initialize OrderManager and StrategyRunner
-            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client, takeProfit, entrySize);
+            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client, takeProfit, entrySize, databasePath);
             var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
 
             if (operationMode == OperationMode.Backtest)
@@ -202,38 +214,144 @@ namespace BinanceLive
             };
         }
 
+        private static async Task<List<string>> GetBestListOfSymbols(RestClient client, DatabaseManager dbManager)
+        {
+            // Fetch symbols from Binance Futures API (fapi)
+            var symbols = await FetchCoinPairsFromFuturesAPI(client);
+
+            // Upsert symbols into the database (with volume, price, etc.)
+            foreach (var symbolInfo in symbols)
+            {
+                dbManager.UpsertCoinPairData(symbolInfo.Symbol, symbolInfo.Price, symbolInfo.Volume);
+            }
+
+            // Query the database to get the top 50 symbols by volume
+            //var top50SymbolsHighestVolume = dbManager.GetTopCoinPairsByVolume(50);
+            var top50SymbolsByPriceChange = dbManager.GetTopCoinPairs(75);
+
+            return top50SymbolsByPriceChange;
+        }
+
+        private static async Task<List<CoinPairInfo>> FetchCoinPairsFromFuturesAPI(RestClient client)
+        {
+            var coinPairList = new List<CoinPairInfo>();
+
+            // Prepare request to fetch all coin pairs
+            var request = new RestRequest("/fapi/v1/exchangeInfo", Method.Get);
+
+            // Send the request
+            var response = await client.ExecuteAsync(request);
+
+            if (response.IsSuccessful && response.Content != null)
+            {
+                var exchangeInfo = JsonConvert.DeserializeObject<ExchangeInfoResponse>(response.Content);
+                
+                // Filter the symbols based on active trading pairs
+                foreach (var symbol in exchangeInfo.Symbols)
+                {
+                    if (symbol.Status == "TRADING")
+                    {
+                        // Optionally fetch more data such as volume and price (e.g., via another API call)
+                        var volume = await FetchSymbolVolume(client, symbol.Symbol);
+                        var price = await FetchSymbolPrice(client, symbol.Symbol);
+
+                        coinPairList.Add(new CoinPairInfo
+                        {
+                            Symbol = symbol.Symbol,
+                            Volume = volume,
+                            Price = price
+                        });
+                    }
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Failed to fetch coin pairs: {response.ErrorMessage}");
+            }
+
+            return coinPairList;
+        }
+
+        private static async Task<decimal> FetchSymbolVolume(RestClient client, string symbol)
+        {
+            // Example to fetch symbol's volume
+            var request = new RestRequest("/fapi/v1/ticker/24hr", Method.Get);
+            request.AddParameter("symbol", symbol);
+
+            var response = await client.ExecuteAsync(request);
+            if (response.IsSuccessful && response.Content != null)
+            {
+                var symbolData = JsonConvert.DeserializeObject<SymbolDataResponse>(response.Content);
+                return symbolData.Volume;
+            }
+
+            return 0;
+        }
+
+        public class SymbolDataResponse
+        {
+            [JsonProperty("volume")]
+            public decimal Volume { get; set; }
+        }
+
+        private static async Task<decimal> FetchSymbolPrice(RestClient client, string symbol)
+        {
+            // Example to fetch symbol's current price
+            var request = new RestRequest("/fapi/v1/ticker/price", Method.Get);
+            request.AddParameter("symbol", symbol);
+
+            var response = await client.ExecuteAsync(request);
+            if (response.IsSuccessful && response.Content != null)
+            {
+                var priceData = JsonConvert.DeserializeObject<PriceResponse>(response.Content);
+                return priceData.Price;
+            }
+
+            return 0;
+        }
+
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
         {
-            var backtestTakeProfits = new List<decimal> { 6.5M, 5.5M, 4.5M};//,*/ 1.0M, 1.3M, 1.7M, 1.9M, 2.2M, 2.5M }; // Take profit percentages
-            var intervals = new[] { "5m"};//};//, "30m" };
+            var backtestTakeProfits = new List<decimal> { 6.5M, 5.5M, 4.5M }; // Take profit percentages
+            var intervals = new[] { "5m" }; // Time intervals for backtesting
 
             foreach (var tp in backtestTakeProfits)
             {
-                for(int i = 0; i < intervals.Length; i++)
+                for (int i = 0; i < intervals.Length; i++)
                 {
                     wallet = new Wallet(300); // Reset wallet balance
 
                     orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
-                    orderManager.UpdateSettings(5, intervals[i]); // Update OrderManager with new parameters
+                    orderManager.UpdateSettings(5, intervals[i]); // Update OrderManager settings (leverage, etc.)
 
                     foreach (var symbol in symbols)
                     {
                         var historicalData = await FetchHistoricalData(client, symbol, intervals[i]);
+                        
                         foreach (var kline in historicalData)
                         {
                             kline.Symbol = symbol;
                         }
 
-                        Console.WriteLine($" -- Coin: {symbol} TF: {intervals} Lev: 15 TP: {tp} -- ");
+                        Console.WriteLine($" -- Coin: {symbol} TF: {intervals[i]} Lev: 15 TP: {tp} -- ");
 
-
+                        // Run the strategy on the historical data
                         await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
+
+                        // After backtest, get final price and volume for the symbol
+                        var finalKline = historicalData.Last();
+                        decimal finalPrice = finalKline.Close;
+                        decimal volume = historicalData.Sum(k => k.Volume);
+
+                        // Insert or update the coin pair data in the database
+                        orderManager.DatabaseManager.UpsertCoinPairData(symbol, finalPrice, volume);
                     }
 
                     orderManager.PrintWalletBalance();
-                }    
+                }
             }
         }
+
 
         private static async Task RunLivePaperTrading(RestClient client, List<string> symbols, 
                                                       string interval, Wallet wallet, string fileName, 
@@ -273,11 +391,12 @@ namespace BinanceLive
         private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner)
         {
             var startTime = DateTime.Now;
+            int cycles = 0;
 
             while (true)
             {
                 try
-                {
+                {                    
                     // Fetch current prices for symbols
                     var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
 
@@ -294,6 +413,16 @@ namespace BinanceLive
                     Console.WriteLine($"An error occurred: {ex.Message}");
                     Console.WriteLine($"Stack Trace: {ex.StackTrace}");
                 }
+
+                cycles++;
+                 if(cycles == 3)
+                 {
+                    cycles = 0;
+                    Stopwatch timer = new Stopwatch();
+                    timer.Start();
+                    symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                    Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
+                 }
 
                 // Determine delay based on the selected interval
                 var delay = TimeTools.GetTimeSpanFromInterval(interval); // e.g., "1m"
@@ -369,7 +498,13 @@ namespace BinanceLive
             }
         }
 
-        
+        // Helper Classes for Deserialization
+        public class ExchangeInfoResponse
+        {
+            [JsonProperty("symbols")]
+            public List<SymbolInfo> Symbols { get; set; }
+        }      
+
         public class ServerTimeResponse
         {
             [JsonProperty("serverTime")]
@@ -417,5 +552,12 @@ namespace BinanceLive
             }
             return historicalData;
         }
+
+        public class CoinPairInfo
+        {
+            public string Symbol { get; set; }
+            public decimal Volume { get; set; }
+            public decimal Price { get; set; }
+        }        
     }
 }

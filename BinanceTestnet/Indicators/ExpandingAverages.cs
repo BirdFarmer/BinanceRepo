@@ -12,27 +12,27 @@ namespace BinanceTestnet.Indicators
                 && sma100[index] > sma200[index]
                 && (sma50[index] - sma50[index - 1]) > 0
                 && (sma100[index] - sma100[index - 1]) > 0
-                //&& (sma200[index] - sma200[index -1]) >= 0
-                && (sma50[index] - sma50[index - 1]) > (sma100[index] - sma100[index - 1]);
-                //&& (sma100[index] - sma100[index - 1]) >= (sma200[index] - sma200[index -1]);
+                && (sma200[index] - sma200[index -1]) >= 0
+                //&& (sma50[index] - sma50[index - 1]) > (sma100[index] - sma100[index - 1]);
+                //&& (sma100[index] - sma100[index - 1]) >= (sma200[index] - sma200[index -1]
+                ;
 
             bool isDownwardExpansion = 
                 sma50[index] < sma100[index]
                 && sma100[index] < sma200[index]
                 && (sma50[index] - sma50[index - 1]) < 0
                 && (sma100[index] - sma100[index - 1]) < 0
-                //&& (sma200[index] - sma200[index -1]) <= 0    
-                && (sma50[index] - sma50[index - 1]) < (sma100[index] - sma100[index - 1]);
-                //&& (sma100[index] - sma100[index - 1]) <= (sma200[index] - sma200[index - 1]);
+                && (sma200[index] - sma200[index -1]) <= 0    
+                //&& (sma50[index] - sma50[index - 1]) < (sma100[index] - sma100[index - 1]);
+                //&& (sma100[index] - sma100[index - 1]) <= (sma200[index] - sma200[index - 1]
+                ;
 
 
             if (isUpwardExpansion 
-                && (sma25[index] <= sma25[index -1]) 
-                && sma25[index] > sma50[index]) 
+                && (sma25[index] <= sma25[index -1])) 
                 return 1;
             if (isDownwardExpansion 
-                && (sma25[index] >= sma25[index -1]) 
-                && sma25[index] < sma50[index]) 
+                && (sma25[index] >= sma25[index -1])) 
                 return -1;
             
             return 0;

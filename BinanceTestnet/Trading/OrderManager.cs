@@ -10,6 +10,7 @@ using System.Text;
 using System.Security.Cryptography;
 using Newtonsoft.Json;
 using System.Globalization;
+using BinanceTestnet.Database;
 
 namespace BinanceTestnet.Trading
 {
@@ -17,6 +18,7 @@ namespace BinanceTestnet.Trading
     {
         // Fields grouped by functionality
         private Wallet _wallet;
+        private readonly DatabaseManager _databaseManager;
         private readonly RestClient _client;
         private readonly ExcelWriter _excelWriter;
         private readonly SelectedTradeDirection _tradeDirection;
@@ -39,13 +41,15 @@ namespace BinanceTestnet.Trading
         private decimal longs = 0;
         private decimal shorts = 0;
         private decimal _marginPerTrade = 0;
+        public DatabaseManager DatabaseManager => _databaseManager;
 
         public OrderManager(Wallet wallet, decimal leverage, ExcelWriter excelWriter, OperationMode operationMode,
                             string interval, string fileName, decimal takeProfit,
                             SelectedTradeDirection tradeDirection, SelectedTradingStrategy tradingStrategy,
-                            RestClient client, decimal tpIteration, decimal margin)
+                            RestClient client, decimal tpIteration, decimal margin, string databasePath)
         {
             _wallet = wallet;
+            _databaseManager = new DatabaseManager(databasePath); // Create a new instance here
             _leverage = leverage;
             _excelWriter = excelWriter;
             _operationMode = operationMode;
@@ -57,6 +61,7 @@ namespace BinanceTestnet.Trading
             _client = client;
             _marginPerTrade = margin;
             _lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();
+            DatabaseManager.InitializeDatabase();
             _excelWriter.Initialize(fileName);
             InitializeLotSizes().Wait(); // Awaiting the task for initialization
         }
@@ -156,27 +161,24 @@ namespace BinanceTestnet.Trading
             await PlaceOrderAsync(symbol, price, false, signal, timestamp, takeProfit);
         }
 
-        private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, decimal? takeProfit = null)
+        private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, decimal? takeProfit = null, decimal? trailingActivationPercent = null, decimal? trailingCallbackPercent = null)
         {
             lock (_activeTrades) // Lock to ensure thread safety
             {
                 if ((isLong && _tradeDirection == SelectedTradeDirection.OnlyShorts) ||
                     (!isLong && _tradeDirection == SelectedTradeDirection.OnlyLongs))
                 {
-                    // Skipping trade due to trade direction preference
-                    return;
+                    return; // Skipping trade due to trade direction preference
                 }
 
                 if (_activeTrades.Count >= 2)
                 {
-                    // Skipping new trade as max active trades limit reached
-                    return;
+                    return; // Max active trades limit reached
                 }
 
                 if (_activeTrades.Values.Any(t => t.Symbol == symbol && t.IsInTrade))
                 {
-                    // Skipping trade as trade for symbol is already active
-                    return;
+                    return; // Trade for symbol already active
                 }
             }
 
@@ -186,55 +188,29 @@ namespace BinanceTestnet.Trading
             if (takeProfit.HasValue)
             {
                 takeProfitPrice = takeProfit.Value;
-
-                // Calculate risk (TP distance)
                 decimal riskDistance = takeProfitPrice - price;
-
-                // SL should be at half of the TP distance
-                if (isLong)
-                {
-                    stopLossPrice = price - (riskDistance / 2); // SL below entry
-                }
-                else
-                {
-                    riskDistance = price - takeProfitPrice;
-                    stopLossPrice = price + (riskDistance / 2); // SL above entry
-                }
+                stopLossPrice = isLong ? price - (riskDistance / 2) : price + (riskDistance / 2);
             }
             else
             {
-                // If no TP provided, fall back to ATR-based TP and SL
                 var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
+                if(tpPercent == -1 || slPercent == -1) return;
 
-                if(tpPercent == -1 || slPercent == -1) 
-                    return;
-
-                if (isLong)
-                {
-                    takeProfitPrice = price * (1 + (tpPercent / 100));
-                    stopLossPrice = price * (1 - (slPercent / 100));
-                }
-                else
-                {
-                    takeProfitPrice = price * (1 - (tpPercent / 100));
-                    stopLossPrice = price * (1 + (slPercent / 100));
-                }
+                takeProfitPrice = price * (isLong ? (1 + (tpPercent / 100)) : (1 - (tpPercent / 100)));
+                stopLossPrice = price * (isLong ? (1 - (slPercent / 100)) : (1 + (slPercent / 100)));
             }
 
             decimal quantity = CalculateQuantity(price, symbol, _marginPerTrade);
-
             var trade = new Trade(_nextTradeId++, symbol, price, takeProfitPrice, stopLossPrice, quantity, isLong, _leverage, signal, _interval, timestampEntry);
 
-            // Check whether this is a paper trade or real trade
-            if (_operationMode == OperationMode.LiveRealTrading) // Assuming you have an enum or property to track trading mode
+            if (_operationMode == OperationMode.LiveRealTrading)
             {
-                await PlaceRealOrdersAsync(trade); // Place real order
+                await PlaceRealOrdersAsync(trade, trailingActivationPercent, trailingCallbackPercent); // Pass trailing params
             }
             else
             {
                 trade.IsInTrade = true;
-                // Paper trade - just continue with local trade placement logic
-                lock (_activeTrades) // Lock to ensure thread safety
+                lock (_activeTrades)
                 {
                     if (_wallet.PlaceTrade(trade))
                     {
@@ -247,9 +223,6 @@ namespace BinanceTestnet.Trading
                     }
                 }
             }
-
-            // Small delay to ensure `_activeTrades` is updated
-            //await Task.Delay(100);
         }
 
         private async Task<(decimal tpPercent, decimal slPercent)> CalculateATRBasedTPandSL(string symbol)
@@ -417,7 +390,7 @@ namespace BinanceTestnet.Trading
             _wallet = wallet;
         }
 
-        public async Task PlaceRealOrdersAsync(Trade trade)
+        private async Task PlaceRealOrdersAsync(Trade trade, decimal? trailingActivationPercent, decimal? trailingCallbackPercent)
         {
             string? apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
             string? secretKey = Environment.GetEnvironmentVariable("BINANCE_API_SECRET");            
@@ -561,7 +534,8 @@ namespace BinanceTestnet.Trading
                 }
             }
         }
-        
+               
+
         private async Task<bool> IsSymbolInOpenPositionAsync(string symbol)
         {
             string? apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
@@ -715,55 +689,6 @@ namespace BinanceTestnet.Trading
             }
         }
 
-        public async Task CreateOCOOrderAsync(string symbol, decimal quantity, decimal takeProfitPrice, decimal stopLossPrice)
-        {
-            string? apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
-            string? secretKey = Environment.GetEnvironmentVariable("BINANCE_API_SECRET");
-            long serverTime = await GetServerTimeAsync();
-
-            if (string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(secretKey))
-                throw new Exception("API Key or Secret Key is missing");
-
-            var client = new RestClient("https://fapi.binance.com");
-
-            // Construct the OCO order request
-            var ocoOrderRequest = new RestRequest("/fapi/v1/order/oco", Method.Post);
-            ocoOrderRequest.AddParameter("symbol", symbol);
-            ocoOrderRequest.AddParameter("side", quantity > 0 ? "SELL" : "BUY"); // Adjust according to your strategy
-            ocoOrderRequest.AddParameter("quantity", quantity.ToString("F8")); // Ensure correct formatting
-            ocoOrderRequest.AddParameter("price", takeProfitPrice.ToString("F8"));
-            ocoOrderRequest.AddParameter("stopPrice", stopLossPrice.ToString("F8"));
-            ocoOrderRequest.AddParameter("stopLimitPrice", stopLossPrice.ToString("F8")); // May want to adjust this based on strategy
-            ocoOrderRequest.AddParameter("stopLimitTimeInForce", "GTC");
-            
-            // Add timestamp
-            ocoOrderRequest.AddParameter("timestamp", serverTime);
-
-            // Generate signature for the request
-            var queryString = ocoOrderRequest.Parameters
-                                .Where(p => p.Type == ParameterType.GetOrPost)
-                                .Select(p => $"{p.Name}={p.Value}")
-                                .Aggregate((current, next) => $"{current}&{next}");
-
-            var signature = GenerateSignature(queryString);
-            ocoOrderRequest.AddParameter("signature", signature);
-
-            // Add API key to the request header
-            ocoOrderRequest.AddHeader("X-MBX-APIKEY", apiKey);
-
-            // Execute the request
-            var response = await client.ExecuteAsync(ocoOrderRequest);
-
-            if (response.IsSuccessful)
-            {
-                Console.WriteLine($"OCO order placed for {symbol} with TP at {takeProfitPrice} and SL at {stopLossPrice}.");
-            }
-            else
-            {
-                Console.WriteLine($"Failed to place OCO order for {symbol}. Error: {response.ErrorMessage}");
-            }
-        }
-        
         public async Task<long> GetServerTimeAsync(int delayMilliseconds = 0)
         {
             // Introduce a delay if specified
