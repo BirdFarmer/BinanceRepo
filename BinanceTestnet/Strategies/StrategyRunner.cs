@@ -90,22 +90,23 @@ namespace BinanceLive.Strategies
 
             if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.All)
             {
-                strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
-                //strategies.Add(new EmaVwapStrategy(_client, _apiKey, _orderManager, _wallet));
-                //strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
+                //strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
+                strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
             }
             
             if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.All)
             {
-                // strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));//MACDStandardStrategy
+                //strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));//MACDStandardStrategy
                 strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
+                //strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
 
             }
             
             if (_selectedStrategy == SelectedTradingStrategy.Aroon || _selectedStrategy == SelectedTradingStrategy.All)
             {
-                //strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
-                strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
+                strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
+                //strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
+                //strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
             }
 
 

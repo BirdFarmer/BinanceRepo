@@ -30,11 +30,18 @@ namespace BinanceTestnet.Indicators
 
             if (isUpwardExpansion 
                 && (sma25[index] <= sma25[index -1])) 
+            {                    
                 return 1;
+                Console.WriteLine($"Fast SMAs are expanding UP faster than the slower ones, trying to go LONG");
+            }
+                     
             if (isDownwardExpansion 
                 && (sma25[index] >= sma25[index -1])) 
+            {
                 return -1;
-            
+                Console.WriteLine($"Fast SMAs are expanding DOWN faster than the slower ones, trying to go SHORT");
+            }
+                
             return 0;
         }
 
@@ -53,9 +60,16 @@ namespace BinanceTestnet.Indicators
                                         && (sma50[index] - sma50[index - 2]) < (sma100[index] - sma100[index - 2]);
 
             if (isUpwardExpansion) 
+            {                    
                 return 1;
-            if (isDownwardExpansion)    
+                Console.WriteLine($"SMA50 is expanding UP faster than SMA100, trying to go LONG");
+            }
+                     
+            if (isDownwardExpansion) 
+            {
                 return -1;
+                Console.WriteLine($"SMA50 is expanding DOWN faster than SMA100, trying to go SHORT");
+            }
             return 0;
         }
 
@@ -83,9 +97,16 @@ namespace BinanceTestnet.Indicators
 
 
             if (isTurningUp) 
+            {                    
                 return 1;
-            if (isTurningDown)    
+                Console.WriteLine($"SMA200 it turning upwards, trying to go LONG");
+            }
+                     
+            if (isTurningDown) 
+            {
                 return -1;
+                Console.WriteLine($"SMA200 is turning downwards, trying to go SHORT");
+            }
             return 0;
         }
 

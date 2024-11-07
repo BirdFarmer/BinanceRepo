@@ -22,7 +22,7 @@ public class SMAExpansionStrategy : StrategyBase
         _expansionResults = new ConcurrentDictionary<string, Queue<int>>();
     }
 
-public override async Task RunAsync(string symbol, string interval)
+    public override async Task RunAsync(string symbol, string interval)
     {
         if (string.IsNullOrEmpty(symbol))
         {
@@ -61,7 +61,7 @@ public override async Task RunAsync(string symbol, string interval)
         {
             int index = sma200.Count - 1;
 
-            int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.CheckSMAExpansion(//CheckSMAExpansionEasy(
+            int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.ConfirmThe200Turn(//CheckSMAExpansionEasy(
                 sma25.Select(d => (double)d).ToList(),
                 sma50.Select(d => (double)d).ToList(),
                 sma100.Select(d => (double)d).ToList(),
@@ -243,7 +243,6 @@ public override async Task RunAsync(string symbol, string interval)
                     //{
                         //Console.WriteLine($"Placing Long Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
-                        Console.WriteLine($"SMA50 is expanding UP faster than SMA100, trying to go LONG");
                         OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                         
                     //}
@@ -255,7 +254,6 @@ public override async Task RunAsync(string symbol, string interval)
                     //{                        
                         //Console.WriteLine($"Placing Short Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
-                        Console.WriteLine($"SMA50 is expanding DOWN faster than SMA100, trying to go SHORT");
                         OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
                     //}
                 }

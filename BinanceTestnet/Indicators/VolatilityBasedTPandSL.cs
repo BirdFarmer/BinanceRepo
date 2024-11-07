@@ -96,7 +96,7 @@ public class VolatilityBasedTPandSL
 
             // Print TP and SL percentages for debugging
             Console.WriteLine($"Adjusted TP Percent (ATR * {tpMultiplier}): {tpPercent}");
-            Console.WriteLine($"Adjusted SL Percent (TP / 1.5): {slPercent}");
+            Console.WriteLine($"Adjusted SL Percent (TP / 3): {slPercent}");
 
             return (tpPercent, slPercent);
         }

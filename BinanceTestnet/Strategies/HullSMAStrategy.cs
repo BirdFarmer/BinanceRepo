@@ -9,9 +9,9 @@ namespace BinanceLive.Strategies
 {
     public class HullSMAStrategy : StrategyBase
     {
-        private const int HullLength = 70; // Hull Length for HMA
-        private const int SmaPeriod = 50; // SMA Period
-        private const int HigherTimeFrame = 4; // Higher time frame (e.g., 4-hour chart)
+        private const int HullShortLength = 35; // Short Hull length
+        private const int HullLongLength = 100; // Long Hull length
+        //private const int SmaPeriod = 50; // SMA Period (commented out)
 
         public HullSMAStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
             : base(client, apiKey, orderManager, wallet)
@@ -25,14 +25,14 @@ namespace BinanceLive.Strategies
                 var request = CreateRequest("/fapi/v1/klines");
                 request.AddParameter("symbol", symbol, ParameterType.QueryString);
                 request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "210", ParameterType.QueryString);  // Fetch 750 data points
+                request.AddParameter("limit", "210", ParameterType.QueryString);  // Fetch 210 data points
 
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = ParseKlines(response.Content);
 
-                    if (klines != null && klines.Count > 1) // Ensure there are at least two data points
+                    if (klines != null && klines.Count > 1)
                     {
                         var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
                         {
@@ -42,60 +42,51 @@ namespace BinanceLive.Strategies
                             Close = k.Close,
                             Open = k.Open,
                             Volume = k.Volume
-                        }).ToList();
-                        var smaResults = Indicator.GetSma(quotes, SmaPeriod).ToList();
-                        var hullResults = CalculateEHMA(quotes, HullLength).ToList();
+                        }).ToList();                        
+                        
+                        var rsi = Indicator.GetRsi(quotes, 20).LastOrDefault().Rsi;
+
+                        // Add a filter for RSI to avoid trades in a "boring" zone (between 40 and 60)
+                        bool rsiNotInBoringZone = rsi < 40 || rsi > 60;
+
+                        var hullShortResults = CalculateEHMA(quotes, HullShortLength).ToList();
+                        var hullLongResults = CalculateEHMA(quotes, HullLongLength).ToList();
 
                         var currentKline = klines.Last();
                         var prevKline = klines[klines.Count - 2];
-                        var currentSMA = smaResults.LastOrDefault();
-                        var previousSMA = smaResults.ElementAt(smaResults.Count - 2);
-                        var currentHull = hullResults.LastOrDefault();
-                        var prevHull = hullResults.Count > 1 ? hullResults[hullResults.Count - 2] : null;
+                        var currentHullShort = hullShortResults.LastOrDefault();
+                        var currentHullLong = hullLongResults.LastOrDefault();
+                        var prevHullShort = hullShortResults[hullShortResults.Count - 2];
+                        var prevHullLong = hullLongResults[hullLongResults.Count - 2];
+                        
+                        if(!rsiNotInBoringZone)
+                            return;
 
-                        if (previousSMA != null && previousSMA.Sma.HasValue 
-                            && currentSMA != null && currentSMA.Sma.HasValue 
-                            && currentHull != null && prevHull != null)
+                        if (currentHullShort != null && currentHullLong != null && prevHullShort != null && prevHullLong != null)
                         {
-                            bool isPriceAboveSMA = (double)currentKline.Low > currentSMA.Sma;
-                            bool isPriceBelowSMA = (double)currentKline.High < currentSMA.Sma;
-                            bool isSMAPointingUp = currentSMA.Sma.Value > previousSMA.Sma.Value;
-                            bool isSMAPointingDown = currentSMA.Sma.Value < previousSMA.Sma.Value;
+                            bool isHullCrossingUp = currentHullShort.EHMA > currentHullLong.EHMA 
+                                                    && prevHullShort.EHMA <= prevHullLong.EHMA
+                                                    && currentHullLong.EHMA > prevHullLong.EHMA;
+                            bool isHullCrossingDown = currentHullShort.EHMA < currentHullLong.EHMA 
+                                                      && prevHullShort.EHMA >= prevHullLong.EHMA
+                                                      && currentHullLong.EHMA < prevHullLong.EHMA;
 
-                            bool isHullCrossingUp = currentHull.EHMA > currentHull.EHMAPrev 
-                                                    && prevHull.EHMA <= prevHull.EHMAPrev
-                                                    && currentKline.Low > currentHull.EHMA;
-                            bool isHullCrossingDown = currentHull.EHMA < currentHull.EHMAPrev 
-                                                      && prevHull.EHMA >= prevHull.EHMAPrev
-                                                      && currentKline.High < currentHull.EHMA;
-                            
                             decimal currentPrice;
 
-                            if (isHullCrossingUp 
-                                //&& isPriceBelowSMA
-                                && isSMAPointingUp
-                                )
+                            if (isHullCrossingUp)
                             {
-                                
-                                Console.WriteLine($"Hull Crossing UP, SMA200 pointing up, trying to go LONG");
-                                //currentPrice = await GetCurrentPrice(Client, currentKline.Symbol); 
-                                await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Hull SMA", currentKline.CloseTime);
+                                Console.WriteLine($"Hull 20 crossing above Hull 100, attempting to go LONG");
+                                await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Hull 20/100", currentKline.CloseTime);
                             }
-                            else if (isHullCrossingDown
-                                    //&& isPriceAboveSMA
-                                    && isSMAPointingDown
-                                    )
+                            else if (isHullCrossingDown)
                             {
-                                Console.WriteLine($"Hull Crossing DOWN, SMA200 pointing down, trying to go SHORT");
-                                //currentPrice = await GetCurrentPrice(Client, currentKline.Symbol); 
-                                await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Hull SMA", currentKline.CloseTime);
+                                Console.WriteLine($"Hull 20 crossing below Hull 100, attempting to go SHORT");
+                                await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Hull 20/100", currentKline.CloseTime);
                             }
                         }
                         else
                         {
-                            
                             LogError($"Required indicators data is not available for {symbol}.");
-
                         }
                     }
                     else
@@ -116,7 +107,7 @@ namespace BinanceLive.Strategies
 
         public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalCandles)
         {            
-            // Process 15-min quotes for signals
+            // Process quotes for signals
             var quotes = historicalCandles.Select(k => new BinanceTestnet.Models.Quote
             {
                 Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
@@ -125,45 +116,40 @@ namespace BinanceLive.Strategies
                 Close = k.Close
             }).ToList();
 
-            var smaResults = Indicator.GetSma(quotes, SmaPeriod).ToList();
-            var hullResults = CalculateEHMA(quotes, HullLength).ToList();
+            var rsi = Indicator.GetRsi(quotes, 20).LastOrDefault().Rsi;
+
+            var hullShortResults = CalculateEHMA(quotes, HullShortLength).ToList();
+            var hullLongResults = CalculateEHMA(quotes, HullLongLength).ToList();
             
-            // Iterate over 15-minute candles to generate signals
-            for (int i = SmaPeriod - 1; i < historicalCandles.Count(); i++)
-            {
+            // Iterate over candles to generate signals
+            for (int i = HullLongLength - 1; i < historicalCandles.Count(); i++)
+            {               
+                
+                // Add a filter for RSI to avoid trades in a "boring" zone (between 40 and 60)
+                bool rsiNotInBoringZone = rsi < 40 || rsi > 60;
                 var currentKline = historicalCandles.ElementAt(i);
                 var prevKline = historicalCandles.ElementAt(i - 1);
-                var currentSMA = smaResults[i];
-                var previousSMA = smaResults[i - 1];
-                var currentHull = hullResults[i];
-                var prevHull = hullResults[i - 1];
+                var currentHullShort = hullShortResults[i];
+                var prevHullShort = hullShortResults[i - 1];
+                var currentHullLong = hullLongResults[i];
+                var prevHullLong = hullLongResults[i - 1];
+                
+                if(!rsiNotInBoringZone)
+                    continue;
 
-                if (currentSMA != null && currentSMA.Sma.HasValue 
-                    && previousSMA != null && previousSMA.Sma.HasValue 
-                    && currentHull != null && prevHull != null)
+                if (currentHullShort != null && currentHullLong != null && prevHullShort != null && prevHullLong != null)
                 {
-                    bool isPriceAboveSMA = (double)currentKline.Low > currentSMA.Sma.Value;
-                    bool isPriceBelowSMA = (double)currentKline.High < currentSMA.Sma.Value;     
-                    bool isSMAPointingUp = previousSMA.Sma.Value < currentSMA.Sma.Value;
-                    bool isSMAPointingDown = previousSMA.Sma.Value > currentSMA.Sma.Value;  
+                    bool isHullCrossingUp = currentHullShort.EHMA > currentHullLong.EHMA && prevHullShort.EHMA <= prevHullLong.EHMA && rsi < 40;
+                    bool isHullCrossingDown = currentHullShort.EHMA < currentHullLong.EHMA && prevHullShort.EHMA >= prevHullLong.EHMA && rsi > 60;
 
-                    bool isHullCrossingUp = currentHull.EHMA > currentHull.EHMAPrev && prevHull.EHMA <= prevHull.EHMAPrev;
-                    bool isHullCrossingDown = currentHull.EHMA < currentHull.EHMAPrev && prevHull.EHMA >= prevHull.EHMAPrev;
-                    
-                    // Check if the condition to buy/sell is met based on 15-minute candles
-                    if (isHullCrossingUp || isHullCrossingDown)
+                    if (isHullCrossingUp)
                     {
-                        var signalTime = DateTimeOffset.FromUnixTimeMilliseconds(currentKline.CloseTime).UtcDateTime;
-
-                        if (isHullCrossingUp && isSMAPointingUp)
-                        {
-                            await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "Hull SMA", currentKline.CloseTime);
-                        }
-                        else if (isHullCrossingDown && isSMAPointingDown)
-                        {
-                            await OrderManager.PlaceShortOrderAsync(currentKline.Symbol,  currentKline.Close, "Hull SMA", currentKline.CloseTime);
-                        }
-                    }                    
+                        await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "Hull 20/100", currentKline.CloseTime);
+                    }
+                    else if (isHullCrossingDown)
+                    {
+                        await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "Hull 20/100", currentKline.CloseTime);
+                    }
 
                     if (currentKline.Symbol != null && currentKline.Close > 0)
                     {
@@ -174,8 +160,87 @@ namespace BinanceLive.Strategies
             }
         }
 
+        private List<HullSuiteResult> CalculateEHMA(List<BinanceTestnet.Models.Quote> quotes, int length)
+        {
+            var results = new List<HullSuiteResult>();
+            
+            var emaShort = Indicator.GetEma(quotes, length / 2).ToList();
+            var emaLong = Indicator.GetEma(quotes, length).ToList();
+            
+            for (int i = 0; i < quotes.Count; i++)
+            {
+                if (i < length)
+                {
+                    results.Add(new HullSuiteResult
+                    {
+                        Date = quotes[i].Date,
+                        EHMA = 0,
+                        EHMAPrev = 0
+                    });
+                    continue;
+                }
 
-        static async Task<decimal> GetCurrentPrice(RestClient client, string symbol)
+                var ehmaValue = emaShort[i].Ema * 2 - emaLong[i].Ema;
+                var ehmaprevValue = i > 0 ? emaShort[i - 1].Ema * 2 - emaLong[i - 1].Ema : ehmaValue;
+
+                results.Add(new HullSuiteResult
+                {
+                    Date = quotes[i].Date,
+                    EHMA = (decimal)ehmaValue!,
+                    EHMAPrev = (decimal)ehmaprevValue!
+                });
+            }
+
+            return results;
+        }
+
+        //private List<SmaResult> CalculateSMA(List<BinanceTestnet.Models.Quote> quotes, int period)
+        //{
+        //    return Indicator.GetSma(quotes, period).ToList();
+        //}
+
+        private List<Kline>? ParseKlines(string content)
+        {
+            try
+            {
+                return JsonConvert.DeserializeObject<List<List<object>>>(content)
+                    ?.Select(k =>
+                    {
+                        var kline = new Kline();
+                        if (k.Count >= 9)
+                        {
+                            kline.Open = ParseDecimal(k[1]);
+                            kline.High = ParseDecimal(k[2]);
+                            kline.Low = ParseDecimal(k[3]);
+                            kline.Close = ParseDecimal(k[4]);
+                            kline.OpenTime = Convert.ToInt64(k[0]);
+                            kline.CloseTime = Convert.ToInt64(k[6]);
+                            kline.NumberOfTrades = Convert.ToInt32(k[8]);
+                        }
+                        return kline;
+                    })
+                    .ToList();
+            }
+            catch (JsonException ex)
+            {
+                LogError($"JSON Deserialization error: {ex.Message}");
+                return null;
+            }
+        }
+        
+        private void LogError(string message)
+        {
+            Console.WriteLine($"Error: {message}");
+        }
+
+        private void HandleErrorResponse(string symbol, RestResponse response)
+        {
+            LogError($"Error for {symbol}: {response.ErrorMessage}");
+            LogError($"Status Code: {response.StatusCode}");
+            LogError($"Content: {response.Content}");
+        }
+
+               static async Task<decimal> GetCurrentPrice(RestClient client, string symbol)
         {
             var request = new RestRequest("/fapi/v1/ticker/price", Method.Get);
             request.AddParameter("symbol", symbol);
@@ -205,86 +270,6 @@ namespace BinanceLive.Strategies
             request.AddHeader("Accept", "application/json");
 
             return request;
-        }
-
-        private List<HullSuiteResult> CalculateEHMA(List<BinanceTestnet.Models.Quote> quotes, int length)
-        {
-            var results = new List<HullSuiteResult>();
-            
-            // Calculate EMA for half-length
-            var emaShort = Indicator.GetEma(quotes, length / 2).ToList();
-            
-            // Calculate EMA for full length
-            var emaLong = Indicator.GetEma(quotes, length).ToList();
-            
-            // Calculate EHMA
-            for (int i = 0; i < quotes.Count; i++)
-            {
-                if (i < length) // Skip until enough data points are available
-                {
-                    results.Add(new HullSuiteResult
-                    {
-                        Date = quotes[i].Date,
-                        EHMA = 0,
-                        EHMAPrev = 0
-                    });
-                    continue;
-                }
-
-                var ehmaValue = emaShort[i].Ema * 2 - emaLong[i].Ema;
-                var ehmaprevValue = i > 0 ? emaShort[i - 1].Ema * 2 - emaLong[i - 1].Ema : ehmaValue;
-
-                results.Add(new HullSuiteResult
-                {
-                    Date = quotes[i].Date,
-                    EHMA = (decimal)ehmaValue!,
-                    EHMAPrev = (decimal)ehmaprevValue!
-                });
-            }
-
-            return results;
-        }
-
-        private List<Kline>? ParseKlines(string content)
-        {
-            try
-            {
-                return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                    ?.Select(k =>
-                    {
-                        var kline = new Kline();
-                        if (k.Count >= 9)
-                        {
-                            kline.Open = ParseDecimal(k[1]);
-                            kline.High = ParseDecimal(k[2]);
-                            kline.Low = ParseDecimal(k[3]);
-                            kline.Close = ParseDecimal(k[4]);
-                            kline.OpenTime = Convert.ToInt64(k[0]);
-                            kline.CloseTime = Convert.ToInt64(k[6]);
-                            kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        }
-                        return kline;
-                    })
-                    .ToList();
-            }
-            catch (JsonException ex)
-            {
-                LogError($"JSON Deserialization error: {ex.Message}");
-                return null;
-            }
-        }        
-
-        private void LogError(string message)
-        {
-            Console.WriteLine($"Error: {message}");
-        }
-
-        private void HandleErrorResponse(string symbol, RestResponse response)
-        {
-            LogError($"Error for {symbol}: {response.ErrorMessage}");
-            LogError($"Status Code: {response.StatusCode}");
-            LogError($"Content: {response.Content}");
-
         }
     }
 }

@@ -24,7 +24,7 @@ namespace BinanceLive.Strategies
         {
             try
             {
-                var request = CreateRequest("/api/v3/klines");
+                var request = CreateRequest("/fapi/v1/klines");
                 request.AddParameter("symbol", symbol, ParameterType.QueryString);
                 request.AddParameter("interval", interval, ParameterType.QueryString);
                 request.AddParameter("limit", (_fvgLookbackPeriod + 1).ToString(), ParameterType.QueryString);
@@ -38,7 +38,6 @@ namespace BinanceLive.Strategies
                     {
                         var currentKline = klines.Last();
                         var previousKlines = klines.TakeLast(_fvgLookbackPeriod).ToList();
-
                         var fvgZones = IdentifyFVGs(previousKlines);
 
                         if (fvgZones.Count >= 2)
@@ -46,16 +45,27 @@ namespace BinanceLive.Strategies
                             var lastFVG = fvgZones.Last();
                             var secondLastFVG = fvgZones[fvgZones.Count - 2];
 
-                            // Long entry logic
+                            // Check for "strength of retest" condition
+                            var klineAfterLastFVG = klines[klines.Count - _fvgLookbackPeriod + 1];
+                            
+                            // Bullish entry condition
                             if (lastFVG.Type == FVGType.Bullish && secondLastFVG.Type == FVGType.Bullish &&
+                                klineAfterLastFVG.Low > lastFVG.UpperBound && 
                                 currentKline.Low < lastFVG.UpperBound && currentKline.Low > lastFVG.LowerBound)
                             {
+                                Console.WriteLine($"Price is in the first bullish FVG retest zone for {symbol}.");
+                                Console.WriteLine($"Low {currentKline.Low} is entering closest FVG between {lastFVG.LowerBound} and {lastFVG.UpperBound}.");
                                 await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "FVG", currentKline.CloseTime);
                             }
-                            // Short entry logic
+                            // Bearish entry condition
                             else if (lastFVG.Type == FVGType.Bearish && secondLastFVG.Type == FVGType.Bearish &&
-                                     currentKline.High > lastFVG.LowerBound && currentKline.High < lastFVG.UpperBound)
+                                    klineAfterLastFVG.High < lastFVG.LowerBound && 
+                                    currentKline.High > lastFVG.LowerBound && currentKline.High < lastFVG.UpperBound)
                             {
+                                Console.WriteLine($"There are two bearish FVGs.");                                
+                                Console.WriteLine($"Candle high {klineAfterLastFVG.High} after last FVG continued lower");
+                                Console.WriteLine($"Price is in the first bearish FVG retest zone for {symbol}.");
+                                Console.WriteLine($"High {currentKline.High} is entering closest FVG between {lastFVG.UpperBound} and {lastFVG.LowerBound}.");
                                 await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "FVG", currentKline.CloseTime);
                             }
                         }
@@ -103,20 +113,29 @@ namespace BinanceLive.Strategies
                         var lastFVG = fvgZones.Last();
                         var secondLastFVG = fvgZones[fvgZones.Count - 2];
 
-                        // Long entry logic
-                        if (lastFVG.Type == FVGType.Bullish && secondLastFVG.Type == FVGType.Bullish &&
-                            currentQuote.Low < lastFVG.UpperBound && currentQuote.Low > lastFVG.LowerBound)
+                        // "Strength of retest" condition
+                        var klineAfterLastFVG = historicalKlines.LastOrDefault();
+
+                        if (klineAfterLastFVG != null)
                         {
-                            await OrderManager.PlaceLongOrderAsync(historicalData.ElementAt(i).Symbol, currentQuote.Close, "FVG", historicalKlines.Last().CloseTime );
-                        }
-                        // Short entry logic
-                        else if (lastFVG.Type == FVGType.Bearish && secondLastFVG.Type == FVGType.Bearish &&
-                                currentQuote.High > lastFVG.LowerBound && currentQuote.High < lastFVG.UpperBound)
-                        {
-                            await OrderManager.PlaceShortOrderAsync(historicalData.ElementAt(i).Symbol, currentQuote.Close, "FVG", historicalKlines.Last().CloseTime );
+                            // Long entry condition (Bullish FVG)
+                            if (lastFVG.Type == FVGType.Bullish && secondLastFVG.Type == FVGType.Bullish &&
+                                klineAfterLastFVG.Low > lastFVG.UpperBound &&
+                                currentQuote.Low < lastFVG.UpperBound && currentQuote.Low > lastFVG.LowerBound)
+                            {
+                                await OrderManager.PlaceLongOrderAsync(historicalData.ElementAt(i).Symbol, currentQuote.Close, "FVG", klineAfterLastFVG.CloseTime);
+                            }
+                            // Short entry condition (Bearish FVG)
+                            else if (lastFVG.Type == FVGType.Bearish && secondLastFVG.Type == FVGType.Bearish &&
+                                    klineAfterLastFVG.High < lastFVG.LowerBound &&
+                                    currentQuote.High > lastFVG.LowerBound && currentQuote.High < lastFVG.UpperBound)
+                            {
+                                await OrderManager.PlaceShortOrderAsync(historicalData.ElementAt(i).Symbol, currentQuote.Close, "FVG", klineAfterLastFVG.CloseTime);
+                            }
                         }
                     }
 
+                    // Periodically check to close trades if currentQuote.Close is above zero
                     if (currentQuote.Close > 0)
                     {
                         var currentPrices = new Dictionary<string, decimal> { { historicalData.ElementAt(i).Symbol, currentQuote.Close } };
@@ -130,36 +149,43 @@ namespace BinanceLive.Strategies
         {
             var fvgZones = new List<FVGZone>();
 
-            for (int i = 1; i < klines.Count - 1; i++)
+            // Start from the third kline to ensure a three-candle sequence
+            for (int i = 2; i < klines.Count; i++)
             {
-                var previousKline = klines[i - 1];
-                var currentKline = klines[i];
-                var nextKline = klines[i + 1];
+                var firstKline = klines[i - 2];
+                var midKline = klines[i - 1];
+                var thirdKline = klines[i];
 
-                // Ensure all three candles are green for a bullish FVG
-                if (IsGreenCandle(previousKline) && IsGreenCandle(currentKline) && IsGreenCandle(nextKline))
+                // Bullish FVG condition: All three candles should be bullish
+                if (IsGreenCandle(firstKline) && IsGreenCandle(midKline) && IsGreenCandle(thirdKline))
                 {
-                    var gap = currentKline.High - previousKline.Low;
-                    if (gap > 0)
+                    var upperBound = firstKline.High;
+                    var lowerBound = thirdKline.Low;
+                    
+                    // Ensure there's a fair value gap by checking the difference
+                    if (upperBound < lowerBound)
                     {
                         fvgZones.Add(new FVGZone
                         {
-                            LowerBound = previousKline.Low,
-                            UpperBound = currentKline.High,
+                            LowerBound = upperBound,
+                            UpperBound = lowerBound,
                             Type = FVGType.Bullish
                         });
                     }
                 }
-                // Ensure all three candles are red for a bearish FVG
-                else if (IsRedCandle(previousKline) && IsRedCandle(currentKline) && IsRedCandle(nextKline))
+                // Bearish FVG condition: All three candles should be bearish
+                else if (IsRedCandle(firstKline) && IsRedCandle(midKline) && IsRedCandle(thirdKline))
                 {
-                    var gap = previousKline.High - currentKline.Low;
-                    if (gap > 0)
+                    var upperBound = thirdKline.High;
+                    var lowerBound = firstKline.Low;
+                    
+                    // Ensure there's a fair value gap by checking the difference
+                    if (upperBound < lowerBound)
                     {
                         fvgZones.Add(new FVGZone
                         {
-                            LowerBound = currentKline.Low,
-                            UpperBound = previousKline.High,
+                            LowerBound = upperBound,
+                            UpperBound = lowerBound,
                             Type = FVGType.Bearish
                         });
                     }
@@ -168,6 +194,8 @@ namespace BinanceLive.Strategies
 
             return fvgZones;
         }
+
+
 
         private bool IsGreenCandle(BinanceTestnet.Models.Kline kline)
         {

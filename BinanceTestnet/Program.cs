@@ -312,7 +312,7 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
         {
-            var backtestTakeProfits = new List<decimal> { 6.5M, 5.5M, 4.5M }; // Take profit percentages
+            var backtestTakeProfits = new List<decimal> { 3.5M, 4.5M }; // Take profit percentages
             var intervals = new[] { "5m" }; // Time intervals for backtesting
 
             foreach (var tp in backtestTakeProfits)
@@ -415,7 +415,7 @@ namespace BinanceLive
                 }
 
                 cycles++;
-                 if(cycles == 3)
+                 if(cycles == 20)
                  {
                     cycles = 0;
                     Stopwatch timer = new Stopwatch();

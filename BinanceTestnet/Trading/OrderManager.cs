@@ -184,28 +184,57 @@ namespace BinanceTestnet.Trading
 
             decimal takeProfitPrice;
             decimal stopLossPrice;
+            decimal riskDistance;
 
             if (takeProfit.HasValue)
             {
                 takeProfitPrice = takeProfit.Value;
-                decimal riskDistance = takeProfitPrice - price;
+                riskDistance = takeProfitPrice - price;
                 stopLossPrice = isLong ? price - (riskDistance / 2) : price + (riskDistance / 2);
             }
             else
             {
                 var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
-                if(tpPercent == -1 || slPercent == -1) return;
+                if (tpPercent == -1 || slPercent == -1) return;
 
-                takeProfitPrice = price * (isLong ? (1 + (tpPercent / 100)) : (1 - (tpPercent / 100)));
-                stopLossPrice = price * (isLong ? (1 - (slPercent / 100)) : (1 + (slPercent / 100)));
+                // Calculate the take profit and stop loss prices based on trade direction
+                if (isLong)
+                {
+                    takeProfitPrice = price * (1 + (tpPercent / 100));
+                    stopLossPrice = price * (1 - (slPercent / 100));
+                }
+                else // for short positions
+                {
+                    takeProfitPrice = price * (1 - (tpPercent / 100));
+                    stopLossPrice = price * (1 + (slPercent / 100));
+                }
+
+                // Calculate risk distance
+                riskDistance = isLong ? takeProfitPrice - price : price - takeProfitPrice;
+
+                // Adjust the trailing activation to be 1/3 of the entry-to-TP distance
+                // For longs, it's a percentage above the entry price
+                // For shorts, it's a percentage below the entry price
+                // Calculate trailing activation based on entry-to-TP distance
+
+                // Set Trailing Activation
+                trailingActivationPercent = isLong 
+                                            ? (riskDistance / 2) / price * 100  // Above entry for longs
+                                            : (riskDistance / 2) / price * 100; // Below entry for shorts
+
+                // Set Callback Rate
+                trailingCallbackPercent = isLong 
+                                        ? (riskDistance) / price * 100  // Closer for longs to prevent early exit
+                                        : (riskDistance) / price * 100; // Further away for shorts to avoid triggering too soon
             }
 
             decimal quantity = CalculateQuantity(price, symbol, _marginPerTrade);
             var trade = new Trade(_nextTradeId++, symbol, price, takeProfitPrice, stopLossPrice, quantity, isLong, _leverage, signal, _interval, timestampEntry);
 
             if (_operationMode == OperationMode.LiveRealTrading)
-            {
+            {            
                 await PlaceRealOrdersAsync(trade, trailingActivationPercent, trailingCallbackPercent); // Pass trailing params
+                Console.WriteLine($"Trade {trade.Symbol} - TP: {takeProfitPrice}, SL: {stopLossPrice}, Quantity: {quantity}, Trailing Activation % {trailingActivationPercent}, Callback rate %: {trailingCallbackPercent}");
             }
             else
             {
@@ -305,6 +334,9 @@ namespace BinanceTestnet.Trading
                     decimal leverageMultiplier = trade.Leverage;
                     decimal initialValue = trade.InitialMargin * leverageMultiplier;
                     decimal currentValue = trade.Quantity * currentPrices[trade.Symbol];
+                    if(currentValue <= 0 || initialValue <= 0 )
+                        break;
+
                     decimal realizedReturn = ((currentValue - initialValue) / initialValue) * 100;
 
                     var direction = trade.IsLong ? "LONG" : "SHORT";
@@ -403,8 +435,6 @@ namespace BinanceTestnet.Trading
                 await SetLeverageAsync(trade.Symbol, trade.Leverage, "ISOLATED");
 
                 var orderType = trade.IsLong ? "BUY" : "SELL";
-
-                // Calculate the quantity based on the current price
                 decimal price = trade.EntryPrice;
                 decimal quantity = CalculateQuantity(price, trade.Symbol, trade.InitialMargin);
                 int lotSizePrecision = GetLotSizePrecision(trade.Symbol);
@@ -416,11 +446,10 @@ namespace BinanceTestnet.Trading
                 var orderRequest = new RestRequest("/fapi/v1/order", Method.Post);
                 orderRequest.AddParameter("symbol", trade.Symbol);
                 orderRequest.AddParameter("side", orderType);
-                orderRequest.AddParameter("type", "MARKET"); // Market order
+                orderRequest.AddParameter("type", "MARKET");
                 orderRequest.AddParameter("quantity", formattedQuantity);
                 orderRequest.AddParameter("timestamp", serverTime);
 
-                // Generate signature for the request
                 var queryString = orderRequest.Parameters
                     .Where(p => p.Type == ParameterType.GetOrPost)
                     .Select(p => $"{p.Name}={p.Value}")
@@ -430,7 +459,6 @@ namespace BinanceTestnet.Trading
                 orderRequest.AddParameter("signature", signature);
                 orderRequest.AddHeader("X-MBX-APIKEY", apiKey);
 
-                // Execute the request and place the market order
                 var response = await _client.ExecuteAsync(orderRequest);
 
                 if (response.IsSuccessful)
@@ -440,8 +468,8 @@ namespace BinanceTestnet.Trading
                     var qtyInTrade = orderData.executedQty;
                     Console.WriteLine($"{orderType} Order placed for {trade.Symbol} at {trade.EntryPrice}. Quantity: {qtyInTrade}, Order ID: {orderId}");
 
-                    trade.IsInTrade = true; // Mark the trade as active in the system
-
+                    trade.IsInTrade = true;                    
+                    
                     // Regenerate timestamp for the next request
                     serverTime = await GetServerTimeAsync(5005);
 
@@ -464,7 +492,6 @@ namespace BinanceTestnet.Trading
                     stopLossRequest.AddParameter("closePosition", "true"); // Close the entire position
                     stopLossRequest.AddParameter("timestamp", serverTime);
 
-                    // Generate signature for stop loss
                     var stopLossQueryString = stopLossRequest.Parameters
                         .Where(p2 => p2.Type == ParameterType.GetOrPost)
                         .Select(p2 => $"{p2.Name}={p2.Value}")
@@ -494,16 +521,20 @@ namespace BinanceTestnet.Trading
                     serverTime = await GetServerTimeAsync(5005);
 
                     // Step 3: Place Take Profit as a LIMIT order
+                    pricePrecision = _lotSizeCache[trade.Symbol].pricePrecision;
+                    tickSize = GetTickSize(trade.Symbol);
+                    roundedTakeProfitPrice = Math.Floor(trade.TakeProfitPrice / tickSize) * tickSize;
+                    takeProfitPriceString = roundedTakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
+
                     var takeProfitRequest = new RestRequest("/fapi/v1/order", Method.Post);
                     takeProfitRequest.AddParameter("symbol", trade.Symbol);
-                    takeProfitRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY"); // Opposite direction for TP
+                    takeProfitRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY");
                     takeProfitRequest.AddParameter("type", "LIMIT");
-                    takeProfitRequest.AddParameter("price", takeProfitPriceString); // Adjusted take profit price
+                    takeProfitRequest.AddParameter("price", takeProfitPriceString);
                     takeProfitRequest.AddParameter("quantity", formattedQuantity);
-                    takeProfitRequest.AddParameter("timeInForce", "GTC"); // Good 'til canceled
+                    takeProfitRequest.AddParameter("timeInForce", "GTC");
                     takeProfitRequest.AddParameter("timestamp", serverTime);
 
-                    // Generate signature for take profit order
                     var takeProfitQueryString = takeProfitRequest.Parameters
                         .Where(p3 => p3.Type == ParameterType.GetOrPost)
                         .Select(p3 => $"{p3.Name}={p3.Value}")
@@ -518,6 +549,8 @@ namespace BinanceTestnet.Trading
                     if (takeProfitResponse.IsSuccessful)
                     {
                         Console.WriteLine($"Take Profit set for {trade.Symbol} at {roundedTakeProfitPrice}");
+                        Console.WriteLine($"Trying to put a trailing SL {trade.Symbol} triggered at {trailingActivationPercent} ");
+                        //await PlaceTrailingStopLossAsync(trade, trailingActivationPercent, trailingCallbackPercent, formattedQuantity, apiKey);
                     }
                     else
                     {
@@ -527,17 +560,68 @@ namespace BinanceTestnet.Trading
                 }
                 else
                 {
-                    // Enhanced debug information
                     Console.WriteLine($"Failed to place {orderType} Order for {trade.Symbol}. Error: {response.ErrorMessage}");
                     Console.WriteLine($"Response Status Code: {response.StatusCode}");
                     Console.WriteLine($"Response Content: {response.Content}");
                 }
             }
+        } 
+
+        private async Task PlaceTrailingStopLossAsync(Trade trade, decimal? trailingActivationPercent, decimal? trailingCallbackPercent, string formattedQuantity, string apiKey)
+        {
+            long serverTime = await GetServerTimeAsync();
+            
+            // Check if _lotSizeCache has the necessary price precision
+            if (!_lotSizeCache.TryGetValue(trade.Symbol, out var symbolInfo))
+            {
+                throw new Exception($"No precision data found for {trade.Symbol}");
+            }
+
+            int pricePrecision = symbolInfo.pricePrecision;
+
+            // Set up the trailing stop loss parameters
+            var trailingStopLossRequest = new RestRequest("/fapi/v1/order", Method.Post);
+            trailingStopLossRequest.AddParameter("symbol", trade.Symbol);
+            trailingStopLossRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY");
+            trailingStopLossRequest.AddParameter("type", "TRAILING_STOP_MARKET");            
+            trailingStopLossRequest.AddParameter("quantity", formattedQuantity);
+
+            decimal activationPrice = trade.EntryPrice * (1 + (trailingActivationPercent.Value / 100)); // Use .Value
+            string activationPriceString = activationPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
+            string callbackRateString = trailingCallbackPercent.Value.ToString("F2", CultureInfo.InvariantCulture); // Use .Value
+            
+            trailingStopLossRequest.AddParameter("activationPrice", activationPriceString);
+            trailingStopLossRequest.AddParameter("callbackRate", callbackRateString);
+            //trailingStopLossRequest.AddParameter("closePosition", "TRUE");
+            trailingStopLossRequest.AddParameter("timestamp", serverTime);
+
+            // Generate signature and send request...
+            var stopLossQueryString = trailingStopLossRequest.Parameters
+                .Where(p => p.Type == ParameterType.GetOrPost)
+                .Select(p => $"{p.Name}={p.Value}")
+                .Aggregate((current, next) => $"{current}&{next}");
+
+            var stopLossSignature = GenerateSignature(stopLossQueryString);
+            trailingStopLossRequest.AddParameter("signature", stopLossSignature);
+            trailingStopLossRequest.AddHeader("X-MBX-APIKEY", apiKey);
+
+            var stopLossResponse = await _client.ExecuteAsync(trailingStopLossRequest);
+
+            if (stopLossResponse.IsSuccessful)
+            {
+                Console.WriteLine($"Trailing SL activates for {trade.Symbol} at {activationPriceString}");                 
+            }
+            else
+            {
+                Console.WriteLine($"Failed to place trail SL for {trade.Symbol}. Error: {stopLossResponse.ErrorMessage}");
+                Console.WriteLine($"Response Content: {stopLossResponse.Content}");
+            }
         }
-               
 
         private async Task<bool> IsSymbolInOpenPositionAsync(string symbol)
         {
+            // CleanupResidualOrders(symbol);
+
             string? apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
             string? secretKey = Environment.GetEnvironmentVariable("BINANCE_API_SECRET");   
 
@@ -577,6 +661,7 @@ namespace BinanceTestnet.Trading
                 return false;
             }
         }
+        
 
         // Helper method to get the tick size for a symbol from the exchange info
         private decimal GetTickSize(string symbol)
@@ -649,12 +734,12 @@ namespace BinanceTestnet.Trading
 
 
             // Log the request details
-            Console.WriteLine("Setting margin type:");
-            Console.WriteLine($"Symbol: {symbol}, Margin Type: {marginType}, Timestamp: {DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+            //Console.WriteLine("Setting margin type:");
+           //Console.WriteLine($"Symbol: {symbol}, Margin Type: {marginType}, Timestamp: {DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
 
             // Execute the request and log the response
             var marginTypeResponse = await client.ExecuteAsync(marginTypeRequest);
-            Console.WriteLine("Response Content: " + marginTypeResponse.Content);
+            //Console.WriteLine("Response Content: " + marginTypeResponse.Content);
 
             if (!marginTypeResponse.IsSuccessful)
             {
