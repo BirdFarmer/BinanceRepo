@@ -262,26 +262,29 @@ namespace BinanceTestnet.Database
                     WITH ExcludedSymbols AS (
                         SELECT Symbol
                         FROM CoinPairData
+                        WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
                         ORDER BY VolumeInUSDT ASC
                         LIMIT 150
                     )
-                    ";
+                ";
 
                 // Get top coin pairs by highest USDT volume (VolumeInUSDT)
                 string topVolumeQuery = excludeLowestVolumeQuery + @"
                     SELECT Symbol
                     FROM CoinPairData
-                    WHERE Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
+                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
                     ORDER BY VolumeInUSDT DESC
                     LIMIT @limit;";
 
                 // Get top coin pairs by biggest price change percentage (PricePercentChange)
                 string topPriceChangeQuery = excludeLowestVolumeQuery + @"
-                     SELECT Symbol
-                     FROM CoinPairData
-                     WHERE Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
-                     ORDER BY ABS(PricePercentChange) DESC
-                     LIMIT @limit;";
+                    SELECT Symbol
+                    FROM CoinPairData
+                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
+                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+                    ORDER BY ABS(PricePercentChange) DESC
+                    LIMIT @limit;";
 
                 // Add symbols from VolumeInUSDT
                 int addedFromVolume = AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topVolumeQuery, volumeLimit);
@@ -301,7 +304,8 @@ namespace BinanceTestnet.Database
                     string topVolumeChangeQuery = excludeLowestVolumeQuery + @"
                         SELECT Symbol
                         FROM CoinPairData
-                        WHERE Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+                        WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
+                        AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
                         ORDER BY ABS(VolumePercentChange) DESC
                         LIMIT @limit;";
 
@@ -311,6 +315,7 @@ namespace BinanceTestnet.Database
 
             return topCoinPairs;
         }
+
 
         private int AddSymbolsToList(SqliteConnection connection, List<string> topCoinPairs, HashSet<string> uniqueSymbols, string query, int limit)
         {
@@ -335,9 +340,5 @@ namespace BinanceTestnet.Database
 
             return addedCount; // Return how many were added from this query
         }
-
-
-
-
     }
 }
