@@ -190,7 +190,7 @@ namespace BinanceTestnet.Trading
             {
                 takeProfitPrice = takeProfit.Value;
                 riskDistance = takeProfitPrice - price;
-                stopLossPrice = isLong ? price - (riskDistance / 2) : price + (riskDistance / 2);
+                stopLossPrice = isLong ? price - (riskDistance / 1.5m) : price + (riskDistance / 1.5m);
             }
             else
             {
@@ -774,7 +774,7 @@ namespace BinanceTestnet.Trading
             }
         }
 
-        public async Task<long> GetServerTimeAsync(int delayMilliseconds = 0)
+        public async Task<long> GetServerTimeAsync(int delayMilliseconds = 100)
         {
             // Introduce a delay if specified
             if (delayMilliseconds > 0)

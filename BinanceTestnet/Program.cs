@@ -15,6 +15,8 @@ using System.Security.Cryptography;
 using System.Text;
 using BinanceTestnet.Database;
 using System.Diagnostics;
+using BinanceTestnet.Services;
+using System.Linq.Expressions;
 
 namespace BinanceLive
 {
@@ -312,8 +314,8 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
         {
-            var backtestTakeProfits = new List<decimal> { 3.5M, 4.5M }; // Take profit percentages
-            var intervals = new[] { "5m" }; // Time intervals for backtesting
+            var backtestTakeProfits = new List<decimal> { 5 }; // Take profit percentages
+            var intervals = new[] { "1m", "5m", "15m" }; // Time intervals for backtesting
 
             foreach (var tp in backtestTakeProfits)
             {
@@ -328,6 +330,8 @@ namespace BinanceLive
                     {
                         var historicalData = await FetchHistoricalData(client, symbol, intervals[i]);
                         
+
+
                         foreach (var kline in historicalData)
                         {
                             kline.Symbol = symbol;
@@ -393,10 +397,17 @@ namespace BinanceLive
             var startTime = DateTime.Now;
             int cycles = 0;
 
+            BinanceActivities onBinance = new BinanceActivities(client);
             while (true)
             {
                 try
                 {                    
+                    bool handledOrders = await onBinance.HandleOpenOrdersAndActiveTrades(symbols);
+                    if (!handledOrders)
+                    {
+                        Console.WriteLine("Failed to handle open orders and trades.");
+                        // Consider handling the error or retrying
+                    }
                     // Fetch current prices for symbols
                     var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
 
@@ -463,20 +474,29 @@ namespace BinanceLive
                 request.AddParameter("timestamp", timestamp.ToString());
                 request.AddParameter("signature", signature);
 
-                // Send the request
-                var response = await client.ExecuteAsync(request);
-
-                if (response.IsSuccessful && response.Content != null)
+                try
                 {
-                    var priceData = JsonConvert.DeserializeObject<PriceResponse>(response.Content);
-                    prices[symbol] = priceData.Price;
+                   // Send the request
+                    var response = await client.ExecuteAsync(request);
+
+                    if (response.IsSuccessful && response.Content != null)
+                    {
+                        var priceData = JsonConvert.DeserializeObject<PriceResponse>(response.Content);
+                        prices[symbol] = priceData.Price;
+                    }
+                    else
+                    {
+                        // Log the response details for debugging
+                        Console.WriteLine($"Error fetching price for {symbol}: {response.StatusCode} - {response.Content}");
+                    }
                 }
-                else
+                catch (System.Exception)
                 {
                     // Log the response details for debugging
-                    Console.WriteLine($"Error fetching price for {symbol}: {response.StatusCode} - {response.Content}");
-                    throw new Exception($"Failed to fetch price for {symbol}: {response.Content}");
+                    Console.WriteLine($"Error fetching price for {symbol}");
+                   
                 }
+                
             }
 
             return prices;

@@ -166,11 +166,9 @@ namespace BinanceLive.Strategies
 
         private void LogTradeSignal(string direction, string symbol, decimal price)
         {
-            /*
             Console.WriteLine($"****** EMA-StochRSI Strategy ******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
             Console.WriteLine($"************************************************");
-            */
         }
 
         private void HandleErrorResponse(string symbol, RestResponse response)

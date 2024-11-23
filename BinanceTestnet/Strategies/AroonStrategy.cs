@@ -26,7 +26,7 @@ namespace BinanceLive.Strategies
         {
             try
             {
-                var request = CreateRequest("/api/v3/klines");
+                var request = CreateRequest("/fapi/v1/klines");
                 request.AddParameter("symbol", symbol, ParameterType.QueryString);
                 request.AddParameter("interval", interval, ParameterType.QueryString);
                 request.AddParameter("limit", "800", ParameterType.QueryString);  // Fetch 750 data points

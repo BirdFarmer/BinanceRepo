@@ -155,7 +155,7 @@ public class SimpleSMA375Strategy : StrategyBase
 
     private async Task<List<Kline>> FetchKlines(string symbol, string interval, int dataPoints)
     {
-        var request = CreateRequest("/api/v3/klines");
+        var request = CreateRequest("/fapi/v1/klines");
         request.AddParameter("symbol", symbol, ParameterType.QueryString);
         request.AddParameter("interval", interval, ParameterType.QueryString);
         request.AddParameter("limit", dataPoints.ToString(), ParameterType.QueryString);
