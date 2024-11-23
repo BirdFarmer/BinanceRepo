@@ -29,8 +29,8 @@ public class VolatilityBasedTPandSL
         }
 
         // Print ATR values for debugging
-        Console.WriteLine($"Current ATR for {symbol}: {currentAtr}");
-        Console.WriteLine($"Current Price for {symbol}: {currentPrice}");
+        // Console.WriteLine($"Current ATR for {symbol}: {currentAtr}");
+        // Console.WriteLine($"Current Price for {symbol}: {currentPrice}");
 
         // Calculate ATR for BTCUSDT as the baseline
         var btcAtrs = btcHistory.GetAtr(AtrPeriod).Where(a => a.Atr.HasValue).Select(a => a.Atr.GetValueOrDefault()).ToList();
@@ -43,8 +43,8 @@ public class VolatilityBasedTPandSL
         }
 
         // Print BTC ATR values for debugging
-        Console.WriteLine($"Current ATR for BTCUSDT: {btcAtr}");
-        Console.WriteLine($"Current Price for BTCUSDT: {btcPrice}");
+        // Console.WriteLine($"Current ATR for BTCUSDT: {btcAtr}");
+        // Console.WriteLine($"Current Price for BTCUSDT: {btcPrice}");
 
         // Normalize ATR by price
         var normalizedAtr = (decimal)currentAtr / currentPrice;
@@ -52,15 +52,15 @@ public class VolatilityBasedTPandSL
 
         // Calculate ATR ratio
         var atrRatio = normalizedAtr / normalizedBtcAtr;
-        Console.WriteLine($"ATR Ratio (Normalized Target / Normalized BTC): {atrRatio}");
+        // Console.WriteLine($"ATR Ratio (Normalized Target / Normalized BTC): {atrRatio}");
 
         // Adjust TP and SL percentages based on ATR ratio
         var tpPercent = defaultTpPercent * atrRatio;
         var slPercent = defaultSlPercent * atrRatio;
 
         // Print TP and SL percentages for debugging
-        Console.WriteLine($"Adjusted TP Percent: {tpPercent}");
-        Console.WriteLine($"Adjusted SL Percent: {slPercent}");
+        // Console.WriteLine($"Adjusted TP Percent: {tpPercent}");
+        // Console.WriteLine($"Adjusted SL Percent: {slPercent}");
 
         return (tpPercent, slPercent);
     }
@@ -84,7 +84,7 @@ public class VolatilityBasedTPandSL
                 throw new InvalidOperationException("Current ATR is zero, which is invalid for calculation.");
             }
             // Print ATR values for debugging
-            Console.WriteLine($"Current ATR for {symbol}: {currentAtr}");
+            // Console.WriteLine($"Current ATR for {symbol}: {currentAtr}");
 
             var atrToPrice = currentAtr / (double)history.Last().Close;
 
@@ -92,11 +92,11 @@ public class VolatilityBasedTPandSL
             var tpPercent = (decimal)atrToPrice * tpMultiplier * 100;
 
             // SL is half of TP to maintain 2:1 risk-reward ratio
-            var slPercent = tpPercent / 1.5M;
+            var slPercent = tpPercent / 3M;
 
             // Print TP and SL percentages for debugging
-            Console.WriteLine($"Adjusted TP Percent (ATR * {tpMultiplier}): {tpPercent}");
-            Console.WriteLine($"Adjusted SL Percent (TP / 3): {slPercent}");
+            // Console.WriteLine($"Adjusted TP Percent (ATR * {tpMultiplier}): {tpPercent}");
+            // Console.WriteLine($"Adjusted SL Percent (TP / 3): {slPercent}");
 
             return (tpPercent, slPercent);
         }

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BinanceTestnet.Trading;
 using System.Diagnostics;
+using BinanceTestnet.Strategies;
 
 namespace BinanceLive.Strategies
 {
@@ -32,7 +33,8 @@ namespace BinanceLive.Strategies
 
         public async Task RunStrategiesAsync()
         {
-            var strategies = GetStrategies();
+            //var strategies = GetStrategies();
+            var strategies = GetRandomStrategies(3);
             var tasks = new List<Task>();
 
             foreach (var symbol in _symbols)
@@ -47,40 +49,27 @@ namespace BinanceLive.Strategies
             await Task.WhenAll(tasks);
         }
 
-        public async Task<Dictionary<string, decimal>> GetCurrentPricesAsync()
-        {
-            var currentPrices = new Dictionary<string, decimal>();
-
-            foreach (var symbol in _symbols)
-            {
-                var request = new RestRequest($"/api/v3/ticker/price?symbol={symbol}");
-                var response = await _client.ExecuteGetAsync<PriceResponse>(request);
-
-                if (response.IsSuccessful && response.Data != null)
-                {
-                    currentPrices[symbol] = response.Data.Price;
-                }
-            }
-
-            return currentPrices;
-        }
-
         public async Task RunStrategiesOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
         {
-            var strategies = GetStrategies();
-            var lastKline = historicalData.Last();
-            var closePrice = lastKline.Close;
+            try{
 
-            foreach (var strategy in strategies)
-            {
-                Stopwatch timer = new Stopwatch();
-                timer.Start();
-                await strategy.RunOnHistoricalDataAsync(historicalData);
-                var elapsed = timer.Elapsed;
-                Console.WriteLine($"------------------Strategy {strategy.ToString()} lasted {elapsed} " );
-                // Close all active trades with the last Kline's close price
-                _orderManager.CloseAllActiveTrades(closePrice);
+                var strategies = GetStrategies();
+                var lastKline = historicalData.Last();
+                var closePrice = lastKline.Close;            
+
+                foreach (var strategy in strategies)
+                {
+                    Stopwatch timer = new Stopwatch();
+                    timer.Start();
+                    await strategy.RunOnHistoricalDataAsync(historicalData);
+                    var elapsed = timer.Elapsed;
+                    Console.WriteLine($"------------------Strategy {strategy.ToString()} lasted {elapsed} " );
+                    // Close all active trades with the last Kline's close price
+                    _orderManager.CloseAllActiveTrades(closePrice);
+                } 
             }
+            catch(Exception e)
+            {}
 
         }
 
@@ -90,28 +79,43 @@ namespace BinanceLive.Strategies
 
             if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.All)
             {
-                //strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
+                strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
                 strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
             }
             
             if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.All)
             {
-                //strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));//MACDStandardStrategy
+                strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));//MACDStandardStrategy
                 strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
-                //strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
-
+                strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
+                strategies.Add(new IchimokuCloudStrategy(_client, _apiKey, _orderManager, _wallet));                
             }
             
             if (_selectedStrategy == SelectedTradingStrategy.Aroon || _selectedStrategy == SelectedTradingStrategy.All)
             {
                 strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
-                //strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
-                //strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
+                strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
+                strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
+                strategies.Add(new FibonacciRetracementStrategy(_client, _apiKey, _orderManager, _wallet)); 
             }
 
 
             return strategies;
         }
+
+        private List<StrategyBase> GetRandomStrategies(int noStrategies)
+        {
+            // Get the full list of strategies
+            var allStrategies = GetStrategies();
+
+            // Shuffle the list of strategies
+            var random = new Random();
+            var shuffledStrategies = allStrategies.OrderBy(x => random.Next()).ToList();
+
+            // Select the specified number of strategies
+            return shuffledStrategies.Take(noStrategies).ToList();
+        }
+
 
         private class PriceResponse
         {

@@ -60,7 +60,7 @@ namespace BinanceLive.Strategies
                                 && lastEmaShort.Ema > lastEmaLong.Ema
                                 )
                             {
-                                Console.WriteLine($"MACd crossed over Signal and fast EMA is above slow EMA, trying to go LONG");
+                                Console.WriteLine($"MACd crossed over Signal and fast EMA is above slow EMA, {symbol} trying to go LONG");
                                 await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().CloseTime);
                                 LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
@@ -70,7 +70,7 @@ namespace BinanceLive.Strategies
                                      && lastEmaShort.Ema < lastEmaLong.Ema
                                      )
                             {   
-                                Console.WriteLine($"MACd crossed below Signal and fast EMA is below slow EMA, trying to go SHORT");
+                                Console.WriteLine($"MACd crossed below Signal and fast EMA is below slow EMA, {symbol} trying to go SHORT");
                                 await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().CloseTime);
                                 LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
