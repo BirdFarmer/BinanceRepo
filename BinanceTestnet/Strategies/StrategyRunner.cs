@@ -33,8 +33,10 @@ namespace BinanceLive.Strategies
 
         public async Task RunStrategiesAsync()
         {
-            //var strategies = GetStrategies();
-            var strategies = GetRandomStrategies(3);
+            var strategies = GetStrategies();
+            // var strategies = GetRandomStrategies(3);
+            
+            //Console.WriteLine($"------------------Loop over 3 random strategies\n* {strategies[0].ToString()} *  \n* {strategies[1].ToString()} * \n* {strategies[2].ToString()} * " );
             var tasks = new List<Task>();
 
             foreach (var symbol in _symbols)
@@ -77,33 +79,24 @@ namespace BinanceLive.Strategies
         {
             var strategies = new List<StrategyBase>();
 
-            if (_selectedStrategy == SelectedTradingStrategy.SMAExpansion || _selectedStrategy == SelectedTradingStrategy.All)
-            {
-                strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
-                strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
-            }
-            
-            if (_selectedStrategy == SelectedTradingStrategy.MACD || _selectedStrategy == SelectedTradingStrategy.All)
-            {
-                strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));//MACDStandardStrategy
-                strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
-                strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
-                strategies.Add(new IchimokuCloudStrategy(_client, _apiKey, _orderManager, _wallet));                
-            }
-            
-            if (_selectedStrategy == SelectedTradingStrategy.Aroon || _selectedStrategy == SelectedTradingStrategy.All)
-            {
-                strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
-                strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
-                strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
-                strategies.Add(new FibonacciRetracementStrategy(_client, _apiKey, _orderManager, _wallet)); 
-            }
+            //strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
+            //strategies.Add(new RSIMomentumStrategy(_client, _apiKey, _orderManager, _wallet));
+            //no thanks strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
+            strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
+            strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));
+            //strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
+            //no thanks strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
+            //strategies.Add(new IchimokuCloudStrategy(_client, _apiKey, _orderManager, _wallet));                
+            //no thanks strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
+            //strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
+            //no thanks strategies.Add(new FibonacciRetracementStrategy(_client, _apiKey, _orderManager, _wallet)); 
+
 
 
             return strategies;
         }
 
-        private List<StrategyBase> GetRandomStrategies(int noStrategies)
+        private List<StrategyBase> GetRandomStrategies(int numberOfStrategies)
         {
             // Get the full list of strategies
             var allStrategies = GetStrategies();
@@ -113,7 +106,8 @@ namespace BinanceLive.Strategies
             var shuffledStrategies = allStrategies.OrderBy(x => random.Next()).ToList();
 
             // Select the specified number of strategies
-            return shuffledStrategies.Take(noStrategies).ToList();
+            
+            return shuffledStrategies.Take(numberOfStrategies).ToList();
         }
 
 

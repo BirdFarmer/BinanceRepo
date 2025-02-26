@@ -29,7 +29,7 @@ public class BinanceActivities
 
             await CancelInactiveOpenOrders(activeTrades, openOrders);
                     
-             return true; // Indicates success
+            return true; // Indicates success
         }
         catch (Exception ex)
         {
@@ -186,6 +186,124 @@ public class BinanceActivities
 
         return openOrders;
     }
+
+    public async Task UpdateStopLossAndTakeProfit(decimal trailingStopPercentage, decimal dynamicTakeProfitMultiplier)
+    {
+        try
+        {
+            var activeTrades = await GetActiveTradesFromBinance();
+            if (activeTrades == null || !activeTrades.Any())
+            {
+                Console.WriteLine("No active trades found.");
+                return;
+            }
+
+            foreach (var trade in activeTrades)
+            {
+                // Calculate current market price (MarkPrice) for the position
+                decimal markPrice = trade.MarkPrice;
+                decimal unrealizedProfit = trade.UnrealizedProfit;
+                decimal currentPositionAmt = trade.PositionAmt;
+
+                // Calculate new stop-loss price
+                decimal newStopLossPrice = markPrice * (1 - trailingStopPercentage / 100);
+
+                // Calculate new take-profit price
+                decimal newTakeProfitPrice = markPrice * dynamicTakeProfitMultiplier;
+
+                Console.WriteLine($"Symbol: {trade.Symbol}, MarkPrice: {markPrice}, Unrealized Profit: {unrealizedProfit}");
+
+                // Update stop-loss if the new price is above the current liquidation price
+                if (newStopLossPrice > trade.LiquidationPrice)
+                {
+                    await UpdateStopLossOrder(trade.Symbol, newStopLossPrice);
+                    Console.WriteLine($"Updated Stop-Loss for {trade.Symbol}: {newStopLossPrice}");
+                }
+
+                // Optionally update take-profit if the dynamic multiplier is applied
+                if (dynamicTakeProfitMultiplier > 1)
+                {
+                    await UpdateTakeProfitOrder(trade.Symbol, newTakeProfitPrice);
+                    Console.WriteLine($"Updated Take-Profit for {trade.Symbol}: {newTakeProfitPrice}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating stop-loss and take-profit: {ex.Message}");
+        }
+    }
+
+    public async Task UpdateStopLossOrder(string symbol, decimal stopLossPrice)
+    {
+        try
+        {
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var queryString = $"symbol={symbol}&stopPrice={stopLossPrice}&timestamp={timestamp}";
+            var signature = GenerateSignature(queryString);
+
+            var request = new RestRequest($"/fapi/v1/order?{queryString}&signature={signature}", Method.Post);
+            request.AddHeader("X-MBX-APIKEY", _apiKey);
+
+            // Add parameters for a stop-loss order
+            request.AddParameter("symbol", symbol);
+            request.AddParameter("stopPrice", stopLossPrice);
+            request.AddParameter("side", "SELL");
+            request.AddParameter("type", "STOP_MARKET");
+            request.AddParameter("timestamp", timestamp);
+
+            var response = await _client.ExecuteAsync(request);
+
+            if (response.IsSuccessful)
+            {
+                Console.WriteLine($"Successfully updated stop-loss for {symbol} to {stopLossPrice}");
+            }
+            else
+            {
+                Console.WriteLine($"Failed to update stop-loss for {symbol}: {response.ErrorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating stop-loss for {symbol}: {ex.Message}");
+        }
+    }
+
+    public async Task UpdateTakeProfitOrder(string symbol, decimal takeProfitPrice)
+    {
+        try
+        {
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var queryString = $"symbol={symbol}&stopPrice={takeProfitPrice}&timestamp={timestamp}";
+            var signature = GenerateSignature(queryString);
+
+            var request = new RestRequest($"/fapi/v1/order?{queryString}&signature={signature}", Method.Post);
+            request.AddHeader("X-MBX-APIKEY", _apiKey);
+
+            // Add parameters for a take-profit order
+            request.AddParameter("symbol", symbol);
+            request.AddParameter("stopPrice", takeProfitPrice);
+            request.AddParameter("side", "SELL");
+            request.AddParameter("type", "TAKE_PROFIT_MARKET");
+            request.AddParameter("timestamp", timestamp);
+
+            var response = await _client.ExecuteAsync(request);
+
+            if (response.IsSuccessful)
+            {
+                Console.WriteLine($"Successfully updated take-profit for {symbol} to {takeProfitPrice}");
+            }
+            else
+            {
+                Console.WriteLine($"Failed to update take-profit for {symbol}: {response.ErrorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating take-profit for {symbol}: {ex.Message}");
+        }
+    }
+
 
     private string GenerateSignature(string queryString)
     {

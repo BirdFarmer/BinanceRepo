@@ -57,20 +57,16 @@ namespace BinanceLive.Strategies
 
                             // Long Signal
                             if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal 
-                                && lastEmaShort.Ema > lastEmaLong.Ema
-                                )
+                                && lastEmaShort.Ema > lastEmaLong.Ema)
                             {
-                                Console.WriteLine($"MACd crossed over Signal and fast EMA is above slow EMA, {symbol} trying to go LONG");
                                 await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().CloseTime);
                                 LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
 
                             // Short Signal
                             else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal 
-                                     && lastEmaShort.Ema < lastEmaLong.Ema
-                                     )
+                                     && lastEmaShort.Ema < lastEmaLong.Ema)
                             {   
-                                Console.WriteLine($"MACd crossed below Signal and fast EMA is below slow EMA, {symbol} trying to go SHORT");
                                 await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().CloseTime);
                                 LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
@@ -186,11 +182,15 @@ namespace BinanceLive.Strategies
 
         private void LogTradeSignal(string direction, string symbol, decimal price)
         {
-/*
+
             Console.WriteLine($"****** Enhanced MACD Strategy ******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
+            if(direction == "LONG")
+                Console.WriteLine($"MACd crossed over Signal and fast EMA is above slow EMA, {symbol} trying to go LONG");
+            else   
+                Console.WriteLine($"MACd crossed below Signal and fast EMA is below slow EMA, {symbol} trying to go SHORT");
             Console.WriteLine($"************************************************");
-*/
+
         }
 
         private void HandleErrorResponse(string symbol, RestResponse response)

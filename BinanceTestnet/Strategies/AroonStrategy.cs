@@ -283,6 +283,23 @@ namespace BinanceLive.Strategies
             return 0; // No signal
         }
 
+        private void LogTradeSignal(string direction, string symbol, decimal price)
+        {
+            Console.WriteLine($"****** Aroon Strategy ******************");
+            Console.WriteLine($"Go {direction} on {symbol} @ {price} with at {DateTime.Now:HH:mm:ss}");
+            if(direction == "LONG")
+            {
+                Console.WriteLine($"There are two bullish FVGs.");    
+                Console.WriteLine($"Price is in the first bullish FVG retest zone for {symbol}.");
+            }
+            else
+            {
+                Console.WriteLine($"There are two bearish FVGs.");                                
+                Console.WriteLine($"Price is in the first bearish FVG retest zone for {symbol}.");
+            }
+            Console.WriteLine($"**************************************");
+        }
+
         private void LogError(string message)
         {
             Console.WriteLine($"Error: {message}");

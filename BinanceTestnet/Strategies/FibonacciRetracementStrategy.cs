@@ -26,7 +26,7 @@ namespace BinanceLive.Strategies
                 var request = CreateRequest("/fapi/v1/klines");
                 request.AddParameter("symbol", symbol, ParameterType.QueryString);
                 request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "80", ParameterType.QueryString);
+                request.AddParameter("limit", "200", ParameterType.QueryString);
 
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful && response.Content != null)
@@ -40,7 +40,7 @@ namespace BinanceLive.Strategies
                         decimal fibLow = klines[0].Low;
                         int fibHighIndex = 0, fibLowIndex = 0;
 
-                        // Find highest high and lowest low within the 200 candles
+                        // Find the highest high and lowest low within the lookback period
                         for (int i = 1; i < klines.Count; i++)
                         {
                             var kline = klines[i];
@@ -57,42 +57,49 @@ namespace BinanceLive.Strategies
                             }
                         }
 
-                        // Determine trade direction based on the sequence of fibHighIndex and fibLowIndex
-                        bool lookForLongReversals = fibLowIndex > fibHighIndex;  // Low before High
-                        bool lookForShortReversals = fibHighIndex > fibLowIndex; // High before Low
+                        // Determine trade direction
+                        bool lookForLongReversals = fibLowIndex > fibHighIndex;
+                        bool lookForShortReversals = fibHighIndex > fibLowIndex;
 
+                        // Calculate Stochastic Oscillator values
+                        var stochasticResults = CalculateStochastic(klines, 14, 3, 3);
 
-                        // Ensure valid high and low points were found and proceed with Fibonacci levels
                         if (fibLow < fibHigh)
                         {
                             var fibLevels = GetFibonacciLevels(fibHigh, fibLow);
 
-                            // Get the latest (current) and previous klines for trading decisions
                             var currentKline = klines.Last();
-                            var prevKline = klines[^2]; // Second-to-last kline for previous values
+                            var prevKline = klines[^2];
 
                             decimal lastPrice = currentKline.Close;
                             decimal candleLow = currentKline.Low;
                             decimal candleHigh = currentKline.High;
                             decimal prevLow = prevKline.Low;
                             decimal prevHigh = prevKline.High;
-                            long closeTime = currentKline.CloseTime;
 
-                            // Trade logic based on Fibonacci retracement levels
-                            if (lookForLongReversals && candleLow <= fibLevels[61.8m] && prevLow > fibLevels[61.8m])
+                            var currentStoch = stochasticResults.Last();
+                            var prevStoch = stochasticResults[^2];
+
+                            // Long Entry Condition
+                            if (lookForLongReversals &&
+                                candleLow <= fibLevels[61.8m] &&
+                                prevLow > fibLevels[61.8m] &&
+                                currentStoch.K < 10)
                             {
-                                // Long Entry: Price retraces down to 38.2% level and bounces off
-                                await OrderManager.PlaceLongOrderAsync(symbol, lastPrice, "FibonacciRetracement", closeTime);
+                                await OrderManager.PlaceLongOrderAsync(symbol, lastPrice, "Fibonacci-Stochastic", currentKline.CloseTime);
                                 LogTradeSignal("LONG", symbol, lastPrice, fibHigh, fibLow);
                             }
-                            else if (lookForShortReversals && candleHigh >= fibLevels[38.2m] && prevHigh < fibLevels[38.2m])
+                            // Short Entry Condition
+                            else if (lookForShortReversals &&
+                                    candleHigh >= fibLevels[38.2m] &&
+                                    prevHigh < fibLevels[38.2m] &&
+                                    currentStoch.K > 90)
                             {
-                                // Short Entry: Price retraces up to 61.8% level and gets rejected
-                                await OrderManager.PlaceShortOrderAsync(symbol, lastPrice, "FibonacciRetracement", closeTime);
+                                await OrderManager.PlaceShortOrderAsync(symbol, lastPrice, "Fibonacci-Stochastic", currentKline.CloseTime);
                                 LogTradeSignal("SHORT", symbol, lastPrice, fibHigh, fibLow);
                             }
 
-                            // Check for open trade closing conditions after the trade decision
+                            // Check for trade closures
                             var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
                             await OrderManager.CheckAndCloseTrades(currentPrices);
                         }
@@ -116,6 +123,7 @@ namespace BinanceLive.Strategies
                 Console.WriteLine($"Error processing {symbol}: {ex.Message}");
             }
         }
+
 
         private List<StochasticResult> CalculateStochastic(List<Kline> klines, int kPeriod, int kSmoothing, int dSmoothing)
         {
@@ -181,15 +189,12 @@ namespace BinanceLive.Strategies
                     return;
                 }
 
-                // Get the last 200 candles for lookback logic
                 var recentData = historicalData.Skip(Math.Max(0, historicalData.Count() - 300)).ToList();
 
-                // Initialize fibHigh and fibLow with values from the recent data
                 decimal fibHigh = recentData[0].High;
                 decimal fibLow = recentData[0].Low;
                 int fibHighIndex = 0, fibLowIndex = 0;
 
-                // Find the highest high and lowest low within the lookback period
                 for (int i = 1; i < recentData.Count; i++)
                 {
                     var kline = recentData[i];
@@ -205,21 +210,19 @@ namespace BinanceLive.Strategies
                     }
                 }
 
-                // Determine trade direction
-                bool lookForLongReversals = fibLowIndex > fibHighIndex;  // Low occurs after High
-                bool lookForShortReversals = fibHighIndex > fibLowIndex; // High occurs after Low
+                bool lookForLongReversals = fibLowIndex > fibHighIndex;
+                bool lookForShortReversals = fibHighIndex > fibLowIndex;
 
-                // Ensure valid Fibonacci levels
+                var stochasticResults = CalculateStochastic(recentData, 14, 3, 3);
+
                 if (fibHigh > fibLow)
                 {
-                    // Calculate Fibonacci retracement levels
                     var fibLevels = GetFibonacciLevels(fibHigh, fibLow);
 
-                    // Loop through all historical data, starting from the second candle
-                    for (int i = 1; i < historicalData.Count(); i++)
+                    for (int i = 1; i < recentData.Count; i++)
                     {
-                        var currentKline = historicalData.ElementAt(i);
-                        var prevKline = historicalData.ElementAt(i - 1);
+                        var currentKline = recentData[i];
+                        var prevKline = recentData[i - 1];
 
                         decimal lastPrice = currentKline.Close;
                         decimal candleLow = currentKline.Low;
@@ -227,26 +230,28 @@ namespace BinanceLive.Strategies
                         decimal prevLow = prevKline.Low;
                         decimal prevHigh = prevKline.High;
                         string symbol = currentKline.Symbol;
-                        long closeTime = currentKline.CloseTime;
 
-                        // Long Entry Condition: Price bounces off 61.8% retracement level
+                        var currentStoch = stochasticResults[i];
+                        var prevStoch = stochasticResults[i - 1];
+
+                        // Long Entry Condition
                         if (lookForLongReversals &&
-                            candleLow <= fibLevels[61.8m] && prevLow > fibLevels[61.8m])
+                            candleLow <= fibLevels[61.8m] &&
+                            prevLow > fibLevels[61.8m] &&
+                            currentStoch.K < 10)
                         {
-                            await OrderManager.PlaceLongOrderAsync(symbol, lastPrice, "FibonacciRetracement", closeTime);
+                            await OrderManager.PlaceLongOrderAsync(symbol, lastPrice, "Fibonacci-Stochastic", currentKline.CloseTime);
                             LogTradeSignal("LONG", symbol, lastPrice, fibHigh, fibLow);
                         }
-                        // Short Entry Condition: Price gets rejected from 38.2% retracement level
+                        // Short Entry Condition
                         else if (lookForShortReversals &&
-                                candleHigh >= fibLevels[38.2m] && prevHigh < fibLevels[38.2m])
+                                candleHigh >= fibLevels[38.2m] &&
+                                prevHigh < fibLevels[38.2m] &&
+                                currentStoch.K > 90)
                         {
-                            await OrderManager.PlaceShortOrderAsync(symbol, lastPrice, "FibonacciRetracement", closeTime);
+                            await OrderManager.PlaceShortOrderAsync(symbol, lastPrice, "Fibonacci-Stochastic", currentKline.CloseTime);
                             LogTradeSignal("SHORT", symbol, lastPrice, fibHigh, fibLow);
                         }
-
-                        // Simulate checking for trade closures
-                        var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
-                        await OrderManager.CheckAndCloseTrades(currentPrices);
                     }
                 }
                 else
@@ -259,6 +264,8 @@ namespace BinanceLive.Strategies
                 Console.WriteLine($"Error during historical data backtest: {ex.Message}");
             }
         }
+
+
         
         private List<decimal> CalculateRsi(List<BinanceTestnet.Models.Quote> quotes, int period)
         {

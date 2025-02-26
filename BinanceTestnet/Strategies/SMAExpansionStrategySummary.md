@@ -32,7 +32,7 @@ This method determines an upward or downward expansion based on the relative pos
 - **Downward Expansion**: 
   - Condition: `SMA50 < SMA100 < SMA200`
   - All averages (SMA50, SMA100, and SMA200) show negative change over the last index.
-  - The SMA25 should not indicate a downward change.
+  - The SMA25 should not indicate a downward change.  
 
 **Return Values**:
 - `1` for upward expansion

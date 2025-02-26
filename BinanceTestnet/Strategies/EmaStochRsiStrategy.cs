@@ -168,6 +168,19 @@ namespace BinanceLive.Strategies
         {
             Console.WriteLine($"****** EMA-StochRSI Strategy ******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
+            if(direction == "LONG")
+            {
+                Console.WriteLine("Long entry condition: ");
+                Console.WriteLine("Price is above EMA8, which is above EMA14, which is above EMA50.");
+                Console.WriteLine("Stochastic RSI crosses above its signal line from below.");
+
+            }
+            else
+            {
+                Console.WriteLine("Short entry condition: ");
+                Console.WriteLine("Price is below EMA8, which is below EMA14, which is below EMA50.");
+                Console.WriteLine("Stochastic RSI crosses below its signal line from above.");
+            }
             Console.WriteLine($"************************************************");
         }
 

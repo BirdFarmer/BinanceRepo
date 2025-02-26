@@ -154,6 +154,7 @@ namespace BinanceTestnet.Trading
         public async Task PlaceLongOrderAsync(string symbol, decimal price, string signal, long timestamp, decimal? takeProfit = null)
         {
             await PlaceOrderAsync(symbol, price, true, signal, timestamp, takeProfit);
+
         }
 
         public async Task PlaceShortOrderAsync(string symbol, decimal price, string signal, long timestamp, decimal? takeProfit = null)
@@ -171,7 +172,7 @@ namespace BinanceTestnet.Trading
                     return; // Skipping trade due to trade direction preference
                 }
 
-                if (_activeTrades.Count >= 2)
+                if (_activeTrades.Count >= 25)
                 {
                     return; // Max active trades limit reached
                 }
@@ -190,7 +191,7 @@ namespace BinanceTestnet.Trading
             {
                 takeProfitPrice = takeProfit.Value;
                 riskDistance = takeProfitPrice - price;
-                stopLossPrice = isLong ? price - (riskDistance / 1.5m) : price + (riskDistance / 1.5m);
+                stopLossPrice = isLong ? price - (riskDistance / 1m) : price + (riskDistance / 1m);
             }
             else
             {
@@ -398,8 +399,8 @@ namespace BinanceTestnet.Trading
                         ? (trade.Quantity * (closePrice - trade.EntryPrice)) + trade.InitialMargin
                         : (trade.Quantity * (trade.EntryPrice - closePrice)) + trade.InitialMargin;
 
-                    Console.WriteLine($"Trade for {trade.Symbol} closed.");
-                    Console.WriteLine($"Realized Return for {trade.Symbol}: {trade.Profit:P2}");
+                    Console.WriteLine($"-----------Trade for {trade.Symbol} closed.");
+                    Console.WriteLine($"-----------Realized Return for {trade.Symbol}: {trade.Profit:P2}");
                     _wallet.AddFunds(profit);
                     profitOfClosed += profit;
                     _activeTrades.TryRemove(trade.Id, out _);

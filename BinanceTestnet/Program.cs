@@ -228,8 +228,8 @@ namespace BinanceLive
             }
 
             // Query the database to get the top 50 symbols by volume
-            //var top50SymbolsHighestVolume = dbManager.GetTopCoinPairsByVolume(50);
-            var top50SymbolsByPriceChange = dbManager.GetTopCoinPairs(75);
+            //var top50SymbolsHighestVolume = dbManager.GetTopCoinPairsByVolume(150);
+            var top50SymbolsByPriceChange = dbManager.GetTopCoinPairs(80);
 
             return top50SymbolsByPriceChange;
         }
@@ -314,8 +314,9 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
         {
-            var backtestTakeProfits = new List<decimal> { 5 }; // Take profit percentages
-            var intervals = new[] { "1m", "5m", "15m" }; // Time intervals for backtesting
+            var backtestTakeProfits = new List<decimal> {3.2m}; // Take profit percentages 1.5m, 2.5m, 
+            var intervals = new[] {"5m" }; // Time intervals for backtesting
+            var leverage = 15;
 
             foreach (var tp in backtestTakeProfits)
             {
@@ -324,14 +325,15 @@ namespace BinanceLive
                     wallet = new Wallet(300); // Reset wallet balance
 
                     orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
-                    orderManager.UpdateSettings(5, intervals[i]); // Update OrderManager settings (leverage, etc.)
+                    orderManager.UpdateSettings(leverage, intervals[i]); // Update OrderManager settings (leverage, etc.)
 
                     foreach (var symbol in symbols)
                     {
+                        if(symbol.Equals("SOLUSDT") || symbol.Equals("TSTUSDT"))
+                            continue;
+                            
                         var historicalData = await FetchHistoricalData(client, symbol, intervals[i]);
                         
-
-
                         foreach (var kline in historicalData)
                         {
                             kline.Symbol = symbol;
@@ -343,12 +345,15 @@ namespace BinanceLive
                         await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
 
                         // After backtest, get final price and volume for the symbol
-                        var finalKline = historicalData.Last();
-                        decimal finalPrice = finalKline.Close;
-                        decimal volume = historicalData.Sum(k => k.Volume);
+                        if(historicalData.Any())
+                        {
+                            var finalKline = historicalData.Last();
+                            decimal finalPrice = finalKline.Close;
+                            decimal volume = historicalData.Sum(k => k.Volume);
 
-                        // Insert or update the coin pair data in the database
-                        orderManager.DatabaseManager.UpsertCoinPairData(symbol, finalPrice, volume);
+                            // Insert or update the coin pair data in the database
+                            orderManager.DatabaseManager.UpsertCoinPairData(symbol, finalPrice, volume);
+                        }
                     }
 
                     orderManager.PrintWalletBalance();
@@ -408,6 +413,9 @@ namespace BinanceLive
                         Console.WriteLine("Failed to handle open orders and trades.");
                         // Consider handling the error or retrying
                     }
+
+                    //await onBinance.UpdateStopLossAndTakeProfit(trailingStopPercentage: 4m, dynamicTakeProfitMultiplier: 1.1m);
+
                     // Fetch current prices for symbols
                     var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
 
@@ -431,8 +439,8 @@ namespace BinanceLive
                     cycles = 0;
                     Stopwatch timer = new Stopwatch();
                     timer.Start();
-                    symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
-                    Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
+                    //symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                    //Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
                  }
 
                 // Determine delay based on the selected interval

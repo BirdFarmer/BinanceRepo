@@ -244,6 +244,7 @@ public class SMAExpansionStrategy : StrategyBase
                         //Console.WriteLine($"Placing Long Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
                         OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        LogTradeSignal("LONG", symbol, currentPrice);
                         
                     //}
                 }
@@ -255,6 +256,7 @@ public class SMAExpansionStrategy : StrategyBase
                         //Console.WriteLine($"Placing Short Order for {symbol} at {currentPrice}");
                         //OrderManager.PlaceLongOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, (decimal)sma100Value).GetAwaiter().GetResult();
                         OrderManager.PlaceShortOrderAsync(symbol, currentPrice, "SMAExpansion", entryTimeStamp, null).GetAwaiter().GetResult();
+                        LogTradeSignal("SHORT", symbol, currentPrice);
                     //}
                 }
             }
@@ -371,6 +373,19 @@ public class SMAExpansionStrategy : StrategyBase
     {
         Console.WriteLine($"****** Enhanced SMA Expansion Strategy ******************");
         Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
+        if(direction == "LONG")
+        {
+            Console.WriteLine("Condition: `SMA50 > SMA100 > SMA200`");
+            Console.WriteLine("All averages (SMA50, SMA100, and SMA200) show positive change over the last index.");
+            Console.WriteLine("The shorter-term SMA25 should not indicate an upward change.");
+        }            
+        else
+        {
+            Console.WriteLine("Condition: `SMA50 < SMA100 < SMA200`");
+            Console.WriteLine("All averages (SMA50, SMA100, and SMA200) show negative change over the last index.");
+            Console.WriteLine("The SMA25 should not indicate a downward change.");
+        }
+            
         Console.WriteLine($"*********************************************************");
     }
 
