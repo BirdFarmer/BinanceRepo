@@ -116,7 +116,7 @@ public class ExcelWriter
                 worksheet.Cells[nextTradeRow, 2].Value = trade.Symbol;
                 worksheet.Cells[nextTradeRow, 3].Value = trade.Leverage;
                 worksheet.Cells[nextTradeRow, 4].Value = trade.IsLong ? "Long" : "Short";
-                worksheet.Cells[nextTradeRow, 5].Value = trade.Signal;
+                worksheet.Cells[nextTradeRow, 5].Value = trade.Strategy;
                 worksheet.Cells[nextTradeRow, 6].Value = TimeZoneInfo.ConvertTimeFromUtc(trade.KlineTimestamp, TimeZoneInfo.FindSystemTimeZoneById("W. Europe Standard Time")).ToString("MM/dd HH:mm"); // Write the Kline timestamp in CET
                 worksheet.Cells[nextTradeRow, 7].Value = Math.Round(trade.Duration.TotalMinutes);
                 worksheet.Cells[nextTradeRow, 8].Value = trade.Profit.HasValue ? trade.Profit : 0;
@@ -197,8 +197,12 @@ public class ExcelWriter
                 worksheet.Cells[30, 17].Value = "Worst Coin";
                 worksheet.Cells[30, 18].Formula = "=IFERROR(INDEX(B2:B1000, MATCH(MIN(Z2:Z1000), Z2:Z1000, 0)) & \" \" & TEXT(MIN(Z2:Z1000), \"#.00\"), \"N/A\")";
 
+                worksheet.Cells[32, 17].Value = "Losing Streak Start";
+                worksheet.Cells[32, 18].Formula = "=IFERROR(INDEX(F:F, MATCH(MAX(FREQUENCY(ROW(H:H), (H:H>0)*ROW(H:H))), FREQUENCY(ROW(H:H), (H:H>0)*ROW(H:H)), 0)), \"N/A\")";
+ 
                 // Save the package
-                _package.Save();    
+                //_package.Save();    
+                SavePackage();
             }
         }
         catch (InvalidOperationException ex)
@@ -211,6 +215,25 @@ public class ExcelWriter
         {
             // Catch any other exceptions and handle them appropriately
             Console.WriteLine($"Unexpected error occurred: {ex.Message}");
+        }
+    }
+
+    public void SavePackage()
+    {
+        try
+        {
+            using (var stream = new FileStream(_filePath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                _package.SaveAs(stream);
+            }
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"File access error: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Unexpected error: {ex.Message}");
         }
     }
 
@@ -247,7 +270,7 @@ public class ExcelWriter
                 worksheet.Cells[nextTradeRow, 1].Value = trade.Id;
                 worksheet.Cells[nextTradeRow, 2].Value = trade.Symbol;
                 worksheet.Cells[nextTradeRow, 3].Value = trade.IsLong ? "Long" : "Short";
-                worksheet.Cells[nextTradeRow, 4].Value = trade.Signal;
+                worksheet.Cells[nextTradeRow, 4].Value = trade.Strategy;
                 worksheet.Cells[nextTradeRow, 5].Value = TimeZoneInfo.ConvertTimeFromUtc(trade.KlineTimestamp, TimeZoneInfo.FindSystemTimeZoneById("W. Europe Standard Time")).ToString("MM/dd HH:mm"); // Write the Kline timestamp in CET
                 worksheet.Cells[nextTradeRow, 6].Value = trade.EntryPrice;
                 worksheet.Cells[nextTradeRow, 7].Value = trade.TakeProfitPrice;
@@ -257,7 +280,8 @@ public class ExcelWriter
                 nextTradeRow++;
             }
 
-            _package.Save();
+            SavePackage();
+            //_package.Save();
         }
         catch (InvalidOperationException ex)
         {

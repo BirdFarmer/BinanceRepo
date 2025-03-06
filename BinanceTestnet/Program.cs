@@ -31,11 +31,11 @@ namespace BinanceLive
 
             // Get User Inputs
             var tradeDirection = GetTradeDirection();
-            var selectedStrategy = GetTradingStrategy();
+            var selectedStrategies = GetTradingStrategy();
             var interval = GetInterval(operationMode);
             var (entrySize, leverage) = GetEntrySizeAndLeverage(operationMode);
             var takeProfit = GetTakeProfit(operationMode);
-            var fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategy, takeProfit);
+            var fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategies, takeProfit);
 
             Console.WriteLine($"Excel File: {fileName}");
 
@@ -69,20 +69,20 @@ namespace BinanceLive
             timer.Stop();
 
             // Initialize OrderManager and StrategyRunner
-            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client, takeProfit, entrySize, databasePath);
-            var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
+            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategies, client, takeProfit, entrySize, databasePath);
+            var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategies);
 
             if (operationMode == OperationMode.Backtest)
             {
-                await RunBacktest(client, symbols, intervals[0], wallet, fileName, selectedStrategy, orderManager, runner);
+                await RunBacktest(client, symbols, intervals[0], wallet, fileName, selectedStrategies, orderManager, runner);
             }
             else if (operationMode == OperationMode.LiveRealTrading)
             {
-                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);
+                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, orderManager, runner);
             }
             else // LivePaperTrading
             {
-                await RunLivePaperTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);
+                await RunLivePaperTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, orderManager, runner);
             }
         }
 
@@ -314,7 +314,7 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
         {
-            var backtestTakeProfits = new List<decimal> {3.2m}; // Take profit percentages 1.5m, 2.5m, 
+            var backtestTakeProfits = new List<decimal> {2.5m}; // Take profit percentages 1.5m, 2.5m, 
             var intervals = new[] {"5m" }; // Time intervals for backtesting
             var leverage = 15;
 

@@ -157,7 +157,7 @@ namespace BinanceTestnet.Trading
 
         }
 
-        public async Task PlaceShortOrderAsync(string symbol, decimal price, string signal, long timestamp, decimal? takeProfit = null)
+        public async Task PlaceShortOrderAsync(string symbol, decimal price, string signal, long timestamp, decimal? takeProfit = null )
         {
             await PlaceOrderAsync(symbol, price, false, signal, timestamp, takeProfit);
         }
@@ -172,7 +172,7 @@ namespace BinanceTestnet.Trading
                     return; // Skipping trade due to trade direction preference
                 }
 
-                if (_activeTrades.Count >= 25)
+                if (_activeTrades.Count >= 10)
                 {
                     return; // Max active trades limit reached
                 }

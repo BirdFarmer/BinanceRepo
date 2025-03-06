@@ -1,4 +1,5 @@
 using System;
+using BinanceTestnet.Trading;
 using Microsoft.Data.Sqlite;
 
 namespace BinanceTestnet.Database
@@ -6,6 +7,14 @@ namespace BinanceTestnet.Database
     public class DatabaseManager
     {
         private readonly string _connectionString;
+        
+        // Define your database path
+        private readonly string databasePath = @"C:\Repo\BinanceAPI\db\DataBase.db";
+
+        public DatabaseManager()
+        {
+            var databaseManager = new DatabaseManager(databasePath);
+        }
 
         public DatabaseManager(string databasePath)
         {
@@ -71,6 +80,24 @@ namespace BinanceTestnet.Database
                         LastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP
                     );";
 
+
+                string createTradesDataTable = @"
+                        CREATE TABLE IF NOT EXISTS Trades (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        Symbol TEXT NOT NULL,
+                        IsLong BOOLEAN NOT NULL,
+                        Signal TEXT NOT NULL,
+                        EntryTime DATETIME NOT NULL,
+                        Duration INTEGER, -- Duration in minutes
+                        Profit REAL,
+                        EntryPrice REAL,
+                        TakeProfitPrice REAL,
+                        StopLossPrice REAL,
+                        ExitTime DATETIME,
+                        Strategy TEXT,
+                        Leverage INTEGER
+                    );";
+
                 using var command = new SqliteCommand(createUsersTable, connection);
                 command.ExecuteNonQuery();
 
@@ -78,6 +105,9 @@ namespace BinanceTestnet.Database
                 command.ExecuteNonQuery();
 
                 command.CommandText = createCoinPairDataTable; // Create CoinPairData table
+                command.ExecuteNonQuery();
+
+                command.CommandText = createTradesDataTable; 
                 command.ExecuteNonQuery();
             });
         }
@@ -339,6 +369,61 @@ namespace BinanceTestnet.Database
             }
 
             return addedCount; // Return how many were added from this query
+        }
+
+        public void SaveTradeToDatabase(Trade trade)
+        {
+            
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();                
+                
+                string insertQuery = @"
+                    INSERT INTO Trades (Symbol, IsLong, Signal, EntryTime, Duration, Profit, EntryPrice, TakeProfitPrice, StopLossPrice, ExitTime, Strategy, Leverage)
+                    VALUES (@Symbol, @IsLong, @Signal, @EntryTime, @Duration, @Profit, @EntryPrice, @TakeProfitPrice, @StopLossPrice, @ExitTime, @Strategy, @Leverage);";
+
+                
+                using (var command = new SqliteCommand(insertQuery, connection))
+                {
+                    command.Parameters.AddWithValue("@Symbol", trade.Symbol);
+                    command.Parameters.AddWithValue("@IsLong", trade.IsLong);
+                    command.Parameters.AddWithValue("@Signal", trade.Strategy);
+                    command.Parameters.AddWithValue("@EntryTime", trade.KlineTimestamp);
+                    command.Parameters.AddWithValue("@Duration", trade.Duration.TotalMinutes);
+                    command.Parameters.AddWithValue("@Profit", trade.Profit);
+                    command.Parameters.AddWithValue("@EntryPrice", trade.EntryPrice);
+                    command.Parameters.AddWithValue("@TakeProfitPrice", trade.TakeProfitPrice);
+                    command.Parameters.AddWithValue("@StopLossPrice", trade.StopLossPrice);
+                    command.Parameters.AddWithValue("@ExitTime", trade.ExitTime);
+                    command.Parameters.AddWithValue("@Strategy", trade.Strategy);
+                    command.Parameters.AddWithValue("@Leverage", trade.Leverage);
+
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public void UpdateTradeInDatabase(Trade trade)
+        {
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                var command = new SqliteCommand(@"
+                    UPDATE Trades
+                    SET ExitTime = @ExitTime,
+                        Duration = @Duration,
+                        Profit = @Profit,
+                        IsClosed = @IsClosed
+                    WHERE Id = @Id;", connection);
+
+                command.Parameters.AddWithValue("@ExitTime", trade.ExitTime);
+                command.Parameters.AddWithValue("@Duration", trade.Duration.TotalMinutes);
+                command.Parameters.AddWithValue("@Profit", trade.Profit);
+                command.Parameters.AddWithValue("@IsClosed", trade.IsClosed);
+                command.Parameters.AddWithValue("@Id", trade.Id);
+
+                command.ExecuteNonQuery();
+            }
         }
     }
 }
