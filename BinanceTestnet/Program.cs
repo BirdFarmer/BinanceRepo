@@ -29,13 +29,55 @@ namespace BinanceLive
             // Choose Mode
             var operationMode = GetOperationMode();
 
+            DateTime startDate = DateTime.UtcNow.AddDays(-7); // Default: Last 7 days
+            DateTime endDate = DateTime.UtcNow; // Default: Now
+
+            string backtestSessionName = string.Empty;
+
+            // If mode is backtest, prompt for start and end datetime
+            if (operationMode == OperationMode.Backtest)
+            {
+                Console.Write("Enter a name for the backtest session: ");
+                backtestSessionName = Console.ReadLine();
+
+                Console.Write("Enter start datetime (yyyy-MM-dd HH:mm): ");
+                string startDateInput = Console.ReadLine();
+                if (DateTime.TryParseExact(startDateInput, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedStartDate))
+                {
+                    startDate = parsedStartDate;
+                }
+                else
+                {
+                    Console.WriteLine("Invalid datetime format. Using default start datetime (last 7 days).");
+                }
+
+                Console.Write("Enter end datetime (yyyy-MM-dd HH:mm) or press Enter to use current time: ");
+                string endDateInput = Console.ReadLine();
+                if (!string.IsNullOrEmpty(endDateInput)
+                    && DateTime.TryParseExact(endDateInput, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedEndDate))
+                {
+                    endDate = parsedEndDate;
+                }
+                else
+                {
+                    Console.WriteLine("Using current time as end datetime.");
+                }
+
+                // Validate the datetime range
+                if (startDate >= endDate)
+                {
+                    Console.WriteLine("Error: Start date must be before end date.");
+                    return;
+                }
+            }
+
             // Get User Inputs
             var tradeDirection = GetTradeDirection();
-            var selectedStrategy = GetTradingStrategy();
+            var selectedStrategies = GetTradingStrategy();
             var interval = GetInterval(operationMode);
             var (entrySize, leverage) = GetEntrySizeAndLeverage(operationMode);
             var takeProfit = GetTakeProfit(operationMode);
-            var fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategy, takeProfit);
+            var fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategies, takeProfit, backtestSessionName);
 
             Console.WriteLine($"Excel File: {fileName}");
 
@@ -63,29 +105,42 @@ namespace BinanceLive
             string databasePath = @"C:\Repo\BinanceAPI\db\DataBase.db";
             var databaseManager = new DatabaseManager(databasePath);
             databaseManager.InitializeDatabase();
-            //var symbols = GetSymbols(); // List of more than 30 coin pairs
             var symbols = await GetBestListOfSymbols(client, databaseManager);
             Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
             timer.Stop();
 
             // Initialize OrderManager and StrategyRunner
-            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategy, client, takeProfit, entrySize, databasePath);
-            var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategy);
+            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategies, client, takeProfit, entrySize, databasePath);
+            var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategies);
 
             if (operationMode == OperationMode.Backtest)
             {
-                await RunBacktest(client, symbols, intervals[0], wallet, fileName, selectedStrategy, orderManager, runner);
+                await RunBacktest(client, symbols, intervals[0], wallet, fileName, selectedStrategies, orderManager, runner, startDate, endDate);
             }
             else if (operationMode == OperationMode.LiveRealTrading)
             {
-                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);
+                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, orderManager, runner);
             }
             else // LivePaperTrading
             {
-                await RunLivePaperTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategy, takeProfit, orderManager, runner);
+                await RunLivePaperTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, orderManager, runner);
             }
         }
 
+        private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit, string backtestSessionName)
+        {
+            string title = $"{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Direction{tradeDirection}_Strategy{selectedStrategy}_";
+            if (operationMode == OperationMode.LivePaperTrading)
+            {
+                title += $"_TakeProfitPercent{takeProfit}_";
+            }
+            if (!string.IsNullOrEmpty(backtestSessionName))
+            {
+                title += $"_Session{backtestSessionName}_";
+            }
+            title += $"{DateTime.Now:yyyyMMdd-HH-mm}";
+            return title.Replace(" ", "_").Replace("%", "Percent").Replace(".", "p") + ".xlsx";
+        }
         private static string GetInterval(OperationMode operationMode)
         {
             if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
@@ -312,54 +367,54 @@ namespace BinanceLive
             return 0;
         }
 
-        private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner)
+    private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner, DateTime startDate, DateTime endDate)
+    {
+        var backtestTakeProfits = new List<decimal> { 2.5m }; // Take profit percentages
+        var intervals = new[] { "5m" }; // Time intervals for backtesting
+        var leverage = 15;
+
+        foreach (var tp in backtestTakeProfits)
         {
-            var backtestTakeProfits = new List<decimal> {3.2m}; // Take profit percentages 1.5m, 2.5m, 
-            var intervals = new[] {"5m" }; // Time intervals for backtesting
-            var leverage = 15;
-
-            foreach (var tp in backtestTakeProfits)
+            for (int i = 0; i < intervals.Length; i++)
             {
-                for (int i = 0; i < intervals.Length; i++)
+                wallet = new Wallet(3000); // Reset wallet balance
+
+                orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
+                orderManager.UpdateSettings(leverage, intervals[i]); // Update OrderManager settings (leverage, etc.)
+
+                foreach (var symbol in symbols)
                 {
-                    wallet = new Wallet(300); // Reset wallet balance
+                    if (symbol.Equals("SOLUSDT") || symbol.Equals("TSTUSDT"))
+                        continue;
 
-                    orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
-                    orderManager.UpdateSettings(leverage, intervals[i]); // Update OrderManager settings (leverage, etc.)
+                    var historicalData = await FetchHistoricalData(client, symbol, intervals[i], startDate, endDate);
 
-                    foreach (var symbol in symbols)
+                    foreach (var kline in historicalData)
                     {
-                        if(symbol.Equals("SOLUSDT") || symbol.Equals("TSTUSDT"))
-                            continue;
-                            
-                        var historicalData = await FetchHistoricalData(client, symbol, intervals[i]);
-                        
-                        foreach (var kline in historicalData)
-                        {
-                            kline.Symbol = symbol;
-                        }
-
-                        Console.WriteLine($" -- Coin: {symbol} TF: {intervals[i]} Lev: 15 TP: {tp} -- ");
-
-                        // Run the strategy on the historical data
-                        await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
-
-                        // After backtest, get final price and volume for the symbol
-                        if(historicalData.Any())
-                        {
-                            var finalKline = historicalData.Last();
-                            decimal finalPrice = finalKline.Close;
-                            decimal volume = historicalData.Sum(k => k.Volume);
-
-                            // Insert or update the coin pair data in the database
-                            orderManager.DatabaseManager.UpsertCoinPairData(symbol, finalPrice, volume);
-                        }
+                        kline.Symbol = symbol;
                     }
 
-                    orderManager.PrintWalletBalance();
+                    Console.WriteLine($" -- Coin: {symbol} TF: {intervals[i]} Lev: 15 TP: {tp} -- ");
+
+                    // Run the strategy on the historical data
+                    await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
+
+                    // After backtest, get final price and volume for the symbol
+                    if (historicalData.Any())
+                    {
+                        var finalKline = historicalData.Last();
+                        decimal finalPrice = finalKline.Close;
+                        decimal volume = historicalData.Sum(k => k.Volume);
+
+                        // Insert or update the coin pair data in the database
+                        orderManager.DatabaseManager.UpsertCoinPairData(symbol, finalPrice, volume);
+                    }
                 }
+
+                orderManager.PrintWalletBalance();
             }
         }
+    }
 
 
         private static async Task RunLivePaperTrading(RestClient client, List<string> symbols, 
@@ -546,13 +601,14 @@ namespace BinanceLive
             public decimal Price { get; set; }
         }
 
-        static async Task<List<Kline>> FetchHistoricalData(RestClient client, string symbol, string interval)
+        static async Task<List<Kline>> FetchHistoricalData(RestClient client, string symbol, string interval, DateTime startDate, DateTime endDate)
         {
             var historicalData = new List<Kline>();
             var request = new RestRequest("/fapi/v1/klines", Method.Get);
             request.AddParameter("symbol", symbol);
             request.AddParameter("interval", interval);
-            request.AddParameter("limit", 1000);
+            request.AddParameter("startTime", new DateTimeOffset(startDate).ToUnixTimeMilliseconds());
+            request.AddParameter("endTime", new DateTimeOffset(endDate).ToUnixTimeMilliseconds());
 
             var response = await client.ExecuteAsync<List<List<object>>>(request);
 
@@ -568,7 +624,7 @@ namespace BinanceLive
                         High = decimal.Parse(kline[2].ToString(), CultureInfo.InvariantCulture),
                         Low = decimal.Parse(kline[3].ToString(), CultureInfo.InvariantCulture),
                         Close = decimal.Parse(kline[4].ToString(), CultureInfo.InvariantCulture),
-                        Volume = decimal.Parse(kline[5].ToString(), CultureInfo.InvariantCulture), // Add volume parsing                
+                        Volume = decimal.Parse(kline[5].ToString(), CultureInfo.InvariantCulture),
                         CloseTime = (long)kline[6],
                         NumberOfTrades = int.Parse(kline[8].ToString(), CultureInfo.InvariantCulture)
                     });
@@ -579,8 +635,8 @@ namespace BinanceLive
                 Console.WriteLine($"Failed to fetch historical data for {symbol}: {response.ErrorMessage}");
             }
             return historicalData;
-        }
-
+        }        
+        
         public class CoinPairInfo
         {
             public string Symbol { get; set; }

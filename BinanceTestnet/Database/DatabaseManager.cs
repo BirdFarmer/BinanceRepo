@@ -293,7 +293,7 @@ namespace BinanceTestnet.Database
                 int addedFromPriceChange = AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topPriceChangeQuery, priceChangeLimit);
 
                 // Total unique symbols after prioritizing VolumeInUSDT and PricePercentChange
-                int totalAdded = addedFromVolume + addedFromPriceChange;
+                //int totalAdded = addedFromVolume + addedFromPriceChange;
 
                 // If the total is less than 80, fill the remaining slots with Volume Percent Change (filler)
                 if (topCoinPairs.Count < totalLimit)
