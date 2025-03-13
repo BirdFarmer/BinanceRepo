@@ -146,7 +146,7 @@ public class SimpleSMA375Strategy : StrategyBase
             }
                     // Check and close existing trades
             var currentPrices = new Dictionary<string, decimal> { { klines[i].Symbol, currentPriceClose } };
-            await OrderManager.CheckAndCloseTrades(currentPrices);
+            await OrderManager.CheckAndCloseTrades(currentPrices, historicalData.Last().CloseTime);
         }
     }
 

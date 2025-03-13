@@ -59,7 +59,7 @@ namespace BinanceLive.Strategies
                             if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal 
                                 && lastEmaShort.Ema > lastEmaLong.Ema)
                             {
-                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().CloseTime);
+                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().OpenTime);
                                 LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
 
@@ -67,7 +67,7 @@ namespace BinanceLive.Strategies
                             else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal 
                                      && lastEmaShort.Ema < lastEmaLong.Ema)
                             {   
-                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().CloseTime);
+                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().OpenTime);
                                 LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
                         }
@@ -112,9 +112,7 @@ namespace BinanceLive.Strategies
                 var lastEmaShort = emaShort[i];
                 var lastEmaLong = emaLong[i];
                 var kline = historicalData.ElementAt(i);
-
-
-
+                
                 // Long Signal
                 if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal 
                     && lastRsi.Rsi > prevRsi.Rsi
@@ -122,7 +120,7 @@ namespace BinanceLive.Strategies
                     && (double)kline.Low > lastEmaLong.Ema
                     )
                 {
-                    await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.CloseTime);
+                    await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.OpenTime);
                     LogTradeSignal("LONG", kline.Symbol, kline.Close);
                 }
 
@@ -133,12 +131,12 @@ namespace BinanceLive.Strategies
                          && (double)kline.High < lastEmaLong.Ema
                          )
                 {
-                    await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.CloseTime);
+                    await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.OpenTime);
                     LogTradeSignal("SHORT", kline.Symbol, kline.Close);
                 }
 
                 var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices);
+                await OrderManager.CheckAndCloseTrades(currentPrices, kline.OpenTime);
             }
         }
 

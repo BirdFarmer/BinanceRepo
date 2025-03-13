@@ -73,7 +73,7 @@ public class SMAExpansionStrategy : StrategyBase
             TrackExpansion(symbol, currentPrice, expansionResult);
 
             // Check trading conditions after tracking expansion
-            await CheckTradingConditions(symbol, currentPrice, klines.Last().CloseTime, sma100[sma100.Count - 1]);
+            await CheckTradingConditions(symbol, currentPrice, klines.Last().OpenTime, sma100[sma100.Count - 1]);
         }
     }
 
@@ -273,7 +273,7 @@ public class SMAExpansionStrategy : StrategyBase
             }
 
             var currentPrices = new Dictionary<string, decimal> { { symbol, currentPrice } };
-            OrderManager.CheckAndCloseTrades(currentPrices).GetAwaiter().GetResult();
+            OrderManager.CheckAndCloseTrades(currentPrices, entryTimeStamp).GetAwaiter().GetResult();
         }
     }
 

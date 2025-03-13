@@ -127,6 +127,7 @@ public class FVGStrategy : StrategyBase
                                     currentQuote.Close,
                                     "FVG",
                                     new DateTimeOffset(currentQuote.Date).ToUnixTimeMilliseconds());
+                                continue;
                             }
                         }
                         else if (lastFVG.Type == FVGType.Bearish)
@@ -141,10 +142,15 @@ public class FVGStrategy : StrategyBase
                                     currentQuote.Close,
                                     "FVG",
                                     new DateTimeOffset(currentQuote.Date).ToUnixTimeMilliseconds());
+                                continue;    
                             }
                         }
                     }
-                }
+                }            
+
+                // Check for open trade closing conditions
+                var currentPrices = new Dictionary<string, decimal> { { historicalData.ElementAt(i).Symbol, currentQuote.Close } };
+                await OrderManager.CheckAndCloseTrades(currentPrices, historicalData.ElementAt(i).OpenTime);
             }
         }
     }

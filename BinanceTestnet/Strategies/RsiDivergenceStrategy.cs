@@ -54,7 +54,7 @@ namespace BinanceLive.Strategies
                             if (IsBullishDivergence(klines, rsiResults, stochasticResults) && lastStochastic.K <= 10)
                             {
                                 Console.WriteLine($"Bullish RSI divergence and Stochastic is below 10. Going LONG");
-                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "RSI Divergence", klines.Last().CloseTime);
+                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "RSI Divergence", klines.Last().OpenTime);
                                 LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
 
@@ -62,7 +62,7 @@ namespace BinanceLive.Strategies
                             else if (IsBearishDivergence(klines, rsiResults, stochasticResults) && lastStochastic.K >= 90)
                             {
                                 Console.WriteLine($"Bearish RSI divergence and Stochastic is above 90. Going SHORT");
-                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "RSI Divergence", klines.Last().CloseTime);
+                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "RSI Divergence", klines.Last().OpenTime);
                                 LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
                         }
@@ -212,7 +212,7 @@ namespace BinanceLive.Strategies
 
                 // Check and close active trades after placing new orders
                 var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices);
+                await OrderManager.CheckAndCloseTrades(currentPrices, kline.CloseTime);
             }
         }
 

@@ -23,6 +23,7 @@ namespace BinanceTestnet.Database
         {
             CreateConnection(connection =>
             {
+                // Existing table creation queries
                 string createUsersTable = @"
                     CREATE TABLE IF NOT EXISTS Users (
                         Id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,13 +72,38 @@ namespace BinanceTestnet.Database
                         LastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP
                     );";
 
+                string createTradesTable = @"
+                    CREATE TABLE IF NOT EXISTS Trades (
+                        TradeId INTEGER PRIMARY KEY AUTOINCREMENT,
+                        SessionId TEXT NOT NULL,              -- Unique identifier for the backtest/live session
+                        Symbol TEXT NOT NULL,                -- Coin pair (e.g., BTCUSDT)
+                        TradeType TEXT NOT NULL,             -- 'Long' or 'Short'
+                        Signal TEXT NOT NULL,                -- Strategy name (e.g., RSI, MACD)
+                        EntryTime DATETIME NOT NULL,         -- Time the trade was opened
+                        ExitTime DATETIME,                   -- Time the trade was closed
+                        EntryPrice REAL NOT NULL,            -- Price at entry
+                        ExitPrice REAL,                     -- Price at exit
+                        Profit REAL,                         -- Profit or loss
+                        Leverage INTEGER,                   -- Leverage used
+                        TakeProfit REAL,                     -- Take profit level
+                        StopLoss REAL,                      -- Stop loss level
+                        Duration INTEGER,                    -- Duration of the trade in minutes
+                        FundsAdded REAL,                    -- Funds added to the wallet
+                        Interval TEXT,                        -- Interval (e.g., 1m, 5m, 1h)
+                        KlineTimestamp DATETIME             -- Timestamp of the kline data (nullable)
+                    );";
+
                 using var command = new SqliteCommand(createUsersTable, connection);
                 command.ExecuteNonQuery();
 
                 command.CommandText = createOpenOrdersTable;
                 command.ExecuteNonQuery();
 
-                command.CommandText = createCoinPairDataTable; // Create CoinPairData table
+                command.CommandText = createCoinPairDataTable;
+                command.ExecuteNonQuery();
+
+                // Execute the query to create the Trades table
+                command.CommandText = createTradesTable;
                 command.ExecuteNonQuery();
             });
         }

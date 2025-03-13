@@ -1,60 +1,78 @@
-using System;
-
-namespace BinanceTestnet.Trading
+public class Trade
 {
-    public class Trade
+    // Trade properties
+    public int TradeId { get; } // Matches the database column name
+    public string SessionId { get; set; } // Identifier for the backtest/live session
+    public string Symbol { get; }
+    public string TradeType => IsLong ? "Long" : "Short"; // Derived property for database
+    public string Signal { get; }
+    public DateTime EntryTime { get; } // Matches the database column name (UTC)
+    public DateTime? ExitTime { get; set; } // Matches the database column name (UTC)
+    public decimal EntryPrice { get; }
+    public decimal? ExitPrice { get; set; } // Matches the database column name
+    public decimal? Profit { get; set; }
+    public decimal Leverage { get; }
+    public decimal TakeProfit { get; } // Matches the database column name
+    public decimal StopLoss { get; } // Matches the database column name
+    public int Duration { get; set; } // Duration in minutes (matches the database column name)
+    public decimal FundsAdded => Profit.HasValue ? Profit.Value * InitialMargin : 0; // Derived property for database
+    public bool IsLong { get; }
+    public bool IsInTrade { get; set; }
+    public bool IsClosed { get; private set; }
+    public string Interval { get; } // Matches the database column name
+    public DateTime KlineTimestamp { get; set; } // Matches the database column name (UTC)
+
+    // Derived properties
+    public decimal InitialMargin => Quantity * EntryPrice / Leverage;
+    public decimal Quantity { get; }
+
+    public Trade(int tradeId, string sessionId, string symbol, decimal entryPrice, decimal takeProfitPrice, decimal stopLossPrice, 
+                    decimal quantity, bool isLong, decimal leverage, string signal, string interval, long timestamp)
     {
-        public int Id { get; }
-        public string Symbol { get; }
-        public decimal EntryPrice { get; }
-        public decimal TakeProfitPrice { get; }
-        public decimal StopLossPrice { get; }
-        public decimal Quantity { get; }
-        public bool IsLong { get; }
-        public decimal Leverage { get; }
-        public string Signal { get; }
-        public DateTime EntryTimestamp { get; }
-        
-        public DateTime KlineTimestamp { get; set; }
-        public bool IsInTrade { get; set; }
-        public TimeSpan Duration { get; private set; }
-        public decimal? Profit { get; private set; }
+        TradeId = tradeId;
+        SessionId = sessionId;
+        Symbol = symbol;
+        EntryPrice = entryPrice;
+        TakeProfit = takeProfitPrice;
+        StopLoss = stopLossPrice;
+        Quantity = quantity;
+        IsLong = isLong;
+        Leverage = leverage;
+        Signal = signal;
+        Interval = interval;
+        KlineTimestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp).UtcDateTime; // Ensure KlineTimestamp is UTC
+        EntryTime = KlineTimestamp; // Use UTC for EntryTime
+        IsInTrade = false;
+        IsClosed = false;
+    }
 
-        // New property to track if the trade is closed
-        public bool IsClosed { get; private set; }
-        public string Interval { get; } // Add this property
+    /// <summary>
+    /// Closes the trade with the specified exit price and exit time.
+    /// </summary>
+    /// <param name="exitPrice">The price at which the trade is closed.</param>
+    /// <param name="exitTime">The timestamp of the exit candle (for backtesting).</param>
+    public void CloseTrade(decimal exitPrice, DateTime? exitTime = null)
+    {
+        // Use the provided exitTime for backtesting (ensure it's UTC), or DateTime.UtcNow for live trading
+        ExitTime = exitTime?.ToUniversalTime() ?? DateTime.UtcNow;
+        ExitPrice = exitPrice;
 
-        public Trade(int id, string symbol, decimal entryPrice, decimal takeProfitPrice, decimal stopLossPrice, decimal quantity, bool isLong, decimal leverage, string signal, string interval, long timestamp)
-        {
-            Id = id;
-            Symbol = symbol;
-            EntryPrice = entryPrice;
-            TakeProfitPrice = takeProfitPrice;
-            StopLossPrice = stopLossPrice;
-            Quantity = quantity;
-            IsLong = isLong;
-            Leverage = leverage;
-            Signal = signal;
-            EntryTimestamp = DateTime.Now;
-            IsInTrade = false;
-            IsClosed = false; // Initialize as not closed
-            Interval = interval; // Set the interval
-            KlineTimestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp).DateTime;
-        }
+        // Calculate duration as TimeSpan first
+        TimeSpan duration = ExitTime.Value - EntryTime;
 
-        public void CloseTrade(decimal exitPrice)
-        {
-            Duration = DateTime.Now - EntryTimestamp;
-            IsInTrade = false;
-            IsClosed = true; // Mark as closed
-            Profit = CalculateRealizedReturn(exitPrice);
-        }
+        // Convert duration to minutes (as int)
+        Duration = (int)duration.TotalMinutes;
 
-        public decimal InitialMargin => Quantity * EntryPrice / Leverage;
+        // Calculate profit
+        Profit = CalculateRealizedReturn(exitPrice);
 
-        public decimal CalculateRealizedReturn(decimal closingPrice)
-        {
-            return ((closingPrice - EntryPrice) / EntryPrice) * (IsLong ? 1 : -1) * Leverage;
-        }
+        // Update trade status
+        IsInTrade = false;
+        IsClosed = true;
+    }
+
+    public decimal CalculateRealizedReturn(decimal closingPrice)
+    {
+        return ((closingPrice - EntryPrice) / EntryPrice) * (IsLong ? 1 : -1) * Leverage;
     }
 }

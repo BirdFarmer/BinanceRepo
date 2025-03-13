@@ -4,13 +4,13 @@ using System.IO;
 using BinanceTestnet.Trading;
 using System.Collections.Concurrent;
 using OfficeOpenXml.Drawing.Chart;
+using BinanceTestnet.Database;
+using static BinanceTestnet.Database.TradeLogger;
 
 public class ExcelWriter
 {
     private readonly string _folderPath;
     private readonly string _filePath;
-    private ExcelPackage? _package;
-    public string FilePath => _filePath;
 
     public ExcelWriter(string folderPath = "C:\\Repo\\BinanceAPI\\BinanceTestnet\\Excels", string fileName = "ClosedTrades.xlsx")
     {
@@ -41,6 +41,89 @@ public class ExcelWriter
         }
     }
 
+    /// <summary>
+    /// Writes a summary report to the Excel file.
+    /// </summary>
+    public void WriteSummaryReport(
+        PerformanceMetrics metrics,
+        SessionOverview sessionOverview,
+        Dictionary<string, decimal> strategyPerformance,
+        Dictionary<string, decimal> coinPerformance,
+        TradeDistribution tradeDistribution)
+    {
+        try
+        {
+            using (var package = new ExcelPackage(new FileInfo(_filePath)))
+            {
+                // Create or get the Summary Report worksheet
+                string sheetName = "Summary Report";
+                var worksheet = package.Workbook.Worksheets[sheetName] ?? package.Workbook.Worksheets.Add(sheetName);
+
+                // Clear existing data
+                worksheet.Cells.Clear();
+
+                // Write Session Overview
+                worksheet.Cells[1, 1].Value = "Session Overview";
+                worksheet.Cells[2, 1].Value = "Session ID";
+                worksheet.Cells[2, 2].Value = sessionOverview.SessionId;
+                worksheet.Cells[3, 1].Value = "Start Time";
+                worksheet.Cells[3, 2].Value = sessionOverview.StartTime;
+                worksheet.Cells[4, 1].Value = "End Time";
+                worksheet.Cells[4, 2].Value = sessionOverview.EndTime;
+                worksheet.Cells[5, 1].Value = "Total Duration";
+                worksheet.Cells[5, 2].Value = sessionOverview.TotalDuration;
+
+                // Write Key Metrics
+                worksheet.Cells[7, 1].Value = "Key Metrics";
+                worksheet.Cells[8, 1].Value = "Win Rate";
+                worksheet.Cells[8, 2].Value = $"{metrics.WinRate:F2}%";
+                worksheet.Cells[9, 1].Value = "Net Profit";
+                worksheet.Cells[9, 2].Value = metrics.NetProfit;
+                worksheet.Cells[10, 1].Value = "Max Drawdown";
+                worksheet.Cells[10, 2].Value = metrics.MaximumDrawdown;
+                worksheet.Cells[11, 1].Value = "Profit Factor";
+                worksheet.Cells[11, 2].Value = metrics.ProfitFactor;
+
+                // Write Strategy Performance
+                worksheet.Cells[13, 1].Value = "Strategy Performance";
+                int row = 14;
+                foreach (var strategy in strategyPerformance)
+                {
+                    worksheet.Cells[row, 1].Value = strategy.Key;
+                    worksheet.Cells[row, 2].Value = strategy.Value;
+                    row++;
+                }
+
+                // Write Coin Performance
+                worksheet.Cells[row + 1, 1].Value = "Coin Performance";
+                row += 2;
+                foreach (var coin in coinPerformance)
+                {
+                    worksheet.Cells[row, 1].Value = coin.Key;
+                    worksheet.Cells[row, 2].Value = coin.Value;
+                    row++;
+                }
+
+                // Write Trade Distribution
+                worksheet.Cells[row + 1, 1].Value = "Trade Distribution";
+                worksheet.Cells[row + 2, 1].Value = "Long Trades";
+                worksheet.Cells[row + 2, 2].Value = tradeDistribution.LongTrades;
+                worksheet.Cells[row + 3, 1].Value = "Short Trades";
+                worksheet.Cells[row + 3, 2].Value = tradeDistribution.ShortTrades;
+                worksheet.Cells[row + 4, 1].Value = "Average Duration (minutes)";
+                worksheet.Cells[row + 4, 2].Value = tradeDistribution.AverageDuration;
+
+                // Save the file
+                package.Save();
+                Console.WriteLine($"Summary report written to: {_filePath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error writing summary report: {ex.Message}");
+        }
+    }
+/*
     public void Initialize(string fileName)
     {
         var fileInfo = new FileInfo(fileName);
@@ -112,18 +195,18 @@ public class ExcelWriter
 
                 decimal fundsAdded = trade.Profit.HasValue ? trade.Profit.Value * trade.InitialMargin : 0;
 
-                worksheet.Cells[nextTradeRow, 1].Value = trade.Id;
+                worksheet.Cells[nextTradeRow, 1].Value = trade.TradeId;
                 worksheet.Cells[nextTradeRow, 2].Value = trade.Symbol;
                 worksheet.Cells[nextTradeRow, 3].Value = trade.Leverage;
                 worksheet.Cells[nextTradeRow, 4].Value = trade.IsLong ? "Long" : "Short";
                 worksheet.Cells[nextTradeRow, 5].Value = trade.Signal;
                 worksheet.Cells[nextTradeRow, 6].Value = TimeZoneInfo.ConvertTimeFromUtc(trade.KlineTimestamp, TimeZoneInfo.FindSystemTimeZoneById("W. Europe Standard Time")).ToString("MM/dd HH:mm"); // Write the Kline timestamp in CET
-                worksheet.Cells[nextTradeRow, 7].Value = Math.Round(trade.Duration.TotalMinutes);
+                //worksheet.Cells[nextTradeRow, 7].Value = Math.Round(trade.Duration.TotalMinutes);
                 worksheet.Cells[nextTradeRow, 8].Value = trade.Profit.HasValue ? trade.Profit : 0;
                 worksheet.Cells[nextTradeRow, 9].Value = fundsAdded;
                 worksheet.Cells[nextTradeRow, 10].Value = trade.EntryPrice;
-                worksheet.Cells[nextTradeRow, 11].Value = trade.TakeProfitPrice;
-                worksheet.Cells[nextTradeRow, 12].Value = trade.StopLossPrice;
+                // worksheet.Cells[nextTradeRow, 11].Value = trade.TakeProfitPrice;
+                // worksheet.Cells[nextTradeRow, 12].Value = trade.StopLossPrice;
                 worksheet.Cells[nextTradeRow, 13].Formula = $"=F{nextTradeRow} + TIME(0, G{nextTradeRow}, 0)";
 
                 worksheet.Cells[nextTradeRow, 26].Formula = $"=AVERAGEIFS(I:I, B:B, B{nextTradeRow})";
@@ -244,14 +327,14 @@ public class ExcelWriter
             int nextTradeRow = 2;
             foreach (var trade in activeTrades)
             {
-                worksheet.Cells[nextTradeRow, 1].Value = trade.Id;
+                worksheet.Cells[nextTradeRow, 1].Value = trade.TradeId;
                 worksheet.Cells[nextTradeRow, 2].Value = trade.Symbol;
                 worksheet.Cells[nextTradeRow, 3].Value = trade.IsLong ? "Long" : "Short";
                 worksheet.Cells[nextTradeRow, 4].Value = trade.Signal;
                 worksheet.Cells[nextTradeRow, 5].Value = TimeZoneInfo.ConvertTimeFromUtc(trade.KlineTimestamp, TimeZoneInfo.FindSystemTimeZoneById("W. Europe Standard Time")).ToString("MM/dd HH:mm"); // Write the Kline timestamp in CET
                 worksheet.Cells[nextTradeRow, 6].Value = trade.EntryPrice;
-                worksheet.Cells[nextTradeRow, 7].Value = trade.TakeProfitPrice;
-                worksheet.Cells[nextTradeRow, 8].Value = trade.StopLossPrice;
+                // worksheet.Cells[nextTradeRow, 7].Value = trade.TakeProfitPrice;
+                // worksheet.Cells[nextTradeRow, 8].Value = trade.StopLossPrice;
                 worksheet.Cells[nextTradeRow, 9].Formula = "=IF(C" + nextTradeRow + "= \"Long\", (G" + nextTradeRow + "-F" + nextTradeRow + ")/F" + nextTradeRow + ", (F" + nextTradeRow + "-G" + nextTradeRow + ")/F" + nextTradeRow + ") * 100";
                 worksheet.Cells[nextTradeRow, 10].Value = setTP;
                 nextTradeRow++;
@@ -271,5 +354,6 @@ public class ExcelWriter
             Console.WriteLine($"Unexpected error occurred: {ex.Message}");
         }
     }
+    */
 }
 

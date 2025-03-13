@@ -154,7 +154,7 @@ namespace BinanceLive.Strategies
                     if (currentKline.Symbol != null && currentKline.Close > 0)
                     {
                         var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
-                        await OrderManager.CheckAndCloseTrades(currentPrices);
+                        await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.CloseTime);
                     }
                 }
             }

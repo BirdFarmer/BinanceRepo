@@ -63,7 +63,7 @@ namespace BinanceTestnet.Strategies
 
                     // Check for open trade closing conditions
                     var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
-                    await OrderManager.CheckAndCloseTrades(currentPrices);
+                    await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.CloseTime);
                 }
             }
             catch (Exception ex)
