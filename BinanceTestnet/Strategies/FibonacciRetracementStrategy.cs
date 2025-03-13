@@ -101,7 +101,7 @@ namespace BinanceLive.Strategies
 
                             // Check for trade closures
                             var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
-                            await OrderManager.CheckAndCloseTrades(currentPrices);
+                            await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.CloseTime);
                         }
                         else
                         {

@@ -22,10 +22,19 @@ namespace BinanceLive
 {
     class Program
     {
+        
+        private static TradeLogger _tradeLogger;
+        private static string _sessionId;
+
+        private static OrderManager _orderManager;
+
         static async Task Main(string[] args)
         {
             Console.WriteLine("Welcome to the Trade Input Program!");
-
+            
+            // Set up the termination handler
+            Console.CancelKeyPress += OnTermination;
+            
             // Choose Mode
             var operationMode = GetOperationMode();
 
@@ -33,6 +42,10 @@ namespace BinanceLive
             DateTime endDate = DateTime.UtcNow; // Default: Now
 
             string backtestSessionName = string.Empty;
+
+            // Generate a unique SessionId        
+            _sessionId = GenerateSessionId();
+            Console.WriteLine($"SessionId: {_sessionId}");    
 
             // If mode is backtest, prompt for start and end datetime
             if (operationMode == OperationMode.Backtest)
@@ -105,26 +118,86 @@ namespace BinanceLive
             string databasePath = @"C:\Repo\BinanceAPI\db\DataBase.db";
             var databaseManager = new DatabaseManager(databasePath);
             databaseManager.InitializeDatabase();
-            var symbols = await GetBestListOfSymbols(client, databaseManager);
+            
+            _tradeLogger = new TradeLogger(databasePath);
+
+            var symbols = new List<string>();
+
+            if (operationMode == OperationMode.Backtest)
+            {
+                // Use the hardcoded list of symbols
+                symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
+            }
+            else
+            {
+                // Get the list of symbols dynamically
+                symbols = await GetBestListOfSymbols(client, databaseManager);
+            }
+
+            // Now you can use the `symbols` list as needed
             Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
             timer.Stop();
 
             // Initialize OrderManager and StrategyRunner
-            var orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategies, client, takeProfit, entrySize, databasePath);
-            var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, orderManager, selectedStrategies);
+            _orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategies, client, takeProfit, entrySize, databasePath, _sessionId);
+            var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, _orderManager, selectedStrategies);
 
             if (operationMode == OperationMode.Backtest)
             {
-                await RunBacktest(client, symbols, intervals[0], wallet, fileName, selectedStrategies, orderManager, runner, startDate, endDate);
+                await RunBacktest(client, symbols, intervals[0], wallet, fileName, selectedStrategies, _orderManager, runner, startDate, endDate);
             }
             else if (operationMode == OperationMode.LiveRealTrading)
             {
-                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, orderManager, runner);
+                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, _orderManager, runner);
             }
             else // LivePaperTrading
             {
-                await RunLivePaperTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, orderManager, runner);
+                await RunLivePaperTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, _orderManager, runner);
             }
+
+            GenerateReport();
+        }
+        private static void OnTermination(object sender, ConsoleCancelEventArgs e)
+        {
+            e.Cancel = true; // Prevent the program from terminating immediately
+            Console.WriteLine("\nTermination detected. Closing all open trades...");
+
+            // Get the current market prices (replace this with your actual method to fetch prices)
+            //var currentPrices = _restClient.GetCurrentPrices(); // Example method to fetch current prices
+
+            // Close all open trades
+            _orderManager.CloseAllActiveTrades(-1, 0); // Use -1 for closePrice to use EntryPrice, and 0 for closeTime to use DateTime.UtcNow
+
+            Console.WriteLine("Generating report...");
+            GenerateReport();
+            Environment.Exit(0);
+        }
+
+        private static void GenerateReport()
+        {
+            // Calculate performance metrics
+            var metrics = _tradeLogger.CalculatePerformanceMetrics(_sessionId);
+
+            // Generate and save the report
+            var reportGenerator = new ReportGenerator(_tradeLogger);
+
+            // Define the output folder
+            string reportsFolder = @"C:\Repo\BinanceAPI\BinanceTestnet\Excels";
+
+            // Ensure the folder exists
+            if (!Directory.Exists(reportsFolder))
+            {
+                Directory.CreateDirectory(reportsFolder);
+            }
+
+            // Define the report file path
+            string reportPath = Path.Combine(reportsFolder, $"performance_report_{_sessionId}.txt");
+
+            // Generate the report
+            reportGenerator.GenerateSummaryReport(_sessionId, reportPath);
+
+            // Log the report location
+            Console.WriteLine($"Report generated successfully at: {reportPath}");
         }
 
         private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit, string backtestSessionName)
@@ -141,6 +214,7 @@ namespace BinanceLive
             title += $"{DateTime.Now:yyyyMMdd-HH-mm}";
             return title.Replace(" ", "_").Replace("%", "Percent").Replace(".", "p") + ".xlsx";
         }
+
         private static string GetInterval(OperationMode operationMode)
         {
             if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
@@ -636,6 +710,11 @@ namespace BinanceLive
             }
             return historicalData;
         }        
+
+        public static string GenerateSessionId()
+        {
+            return $"{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N").Substring(0, 6)}";
+        }
         
         public class CoinPairInfo
         {

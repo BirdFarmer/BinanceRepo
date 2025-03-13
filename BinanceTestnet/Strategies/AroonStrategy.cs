@@ -83,14 +83,14 @@ namespace BinanceLive.Strategies
                                     && isSMAPointingUp
                                 )
                             {
-                                await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
+                                await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.OpenTime);
                             }
                             else if (isHullCrossingDown
                                     && isPriceAboveSMA
                                     && isSMAPointingDown
                                     )
                             {
-                                await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
+                                await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.OpenTime);
                             }
                         }
                         else
@@ -165,14 +165,14 @@ namespace BinanceLive.Strategies
                             && isPriceBelowSMA
                             )
                         {
-                            await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
+                            await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.OpenTime);
                         }
                         else if (isHullCrossingDown 
                                 && isSMAPointingDown
                                 && isPriceAboveSMA
                                 )
                         {
-                            await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.CloseTime);
+                            await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "Aroon + EHMA", currentKline.OpenTime);
                         }
                     }
                 }
@@ -180,7 +180,7 @@ namespace BinanceLive.Strategies
                 if (currentKline.Symbol != null && currentKline.Close > 0)
                 {
                     var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
-                    await OrderManager.CheckAndCloseTrades(currentPrices);
+                    await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
                 }
             }
         }

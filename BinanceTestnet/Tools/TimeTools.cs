@@ -36,5 +36,20 @@ namespace BinanceLive.Tools
         }
 
         // Add more time-related utility methods here as needed
+        public static string FormatTimestamp(DateTime timestamp, string timeZoneId = "W. Europe Standard Time")
+        {
+            // Ensure the timestamp is treated as UTC
+            if (timestamp.Kind != DateTimeKind.Utc)
+            {
+                timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
+            }
+
+            // Convert the timestamp to the specified time zone
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            var localTime = TimeZoneInfo.ConvertTimeFromUtc(timestamp, timeZone);
+
+            // Format the time as "HH:mm" (e.g., "14:30")
+            return localTime.ToString("HH:mm");
+        }
     }
 }

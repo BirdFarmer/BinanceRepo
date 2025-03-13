@@ -36,6 +36,7 @@ namespace BinanceLive.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
+                        var lastKline = klines.Last();
                         var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
                         {
                             Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
@@ -50,7 +51,6 @@ namespace BinanceLive.Strategies
 
                         if (ema8.Count > 0 && ema14.Count > 0 && ema50.Count > 0 && stochRsi.Count > 1)
                         {
-                            var lastKline = klines.Last();
                             var lastEma8 = ema8.Last();
                             var lastEma14 = ema14.Last();
                             var lastEma50 = ema50.Last();
@@ -65,7 +65,7 @@ namespace BinanceLive.Strategies
                                 lastStochRsi.StochRsi > lastStochRsi.Signal &&
                                 prevStochRsi.StochRsi <= prevStochRsi.Signal)
                             {
-                                await OrderManager.PlaceLongOrderAsync(symbol, lastKline.Close, "EMA-StochRSI", lastKline.CloseTime);
+                                await OrderManager.PlaceLongOrderAsync(symbol, lastKline.Close, "EMA-StochRSI", lastKline.OpenTime);
                                 LogTradeSignal("LONG", symbol, lastKline.Close);
                             }
                             // Short Signal
@@ -75,7 +75,7 @@ namespace BinanceLive.Strategies
                                      lastStochRsi.StochRsi < lastStochRsi.Signal &&
                                      prevStochRsi.StochRsi >= prevStochRsi.Signal)
                             {
-                                await OrderManager.PlaceShortOrderAsync(symbol, lastKline.Close, "EMA-StochRSI", lastKline.CloseTime);
+                                await OrderManager.PlaceShortOrderAsync(symbol, lastKline.Close, "EMA-StochRSI", lastKline.OpenTime);
                                 LogTradeSignal("SHORT", symbol, lastKline.Close);
                             }
                         }                        
@@ -134,7 +134,7 @@ namespace BinanceLive.Strategies
                         currentStochRsi.StochRsi > currentStochRsi.Signal &&
                         prevStochRsi.StochRsi <= prevStochRsi.Signal)
                     {
-                        await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "EMA-StochRSI", currentKline.CloseTime);
+                        await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, "EMA-StochRSI", currentKline.OpenTime);
                         LogTradeSignal("LONG", currentKline.Symbol, currentKline.Close);
                     }
                     // Short Signal
@@ -144,14 +144,14 @@ namespace BinanceLive.Strategies
                              currentStochRsi.StochRsi < currentStochRsi.Signal &&
                              prevStochRsi.StochRsi >= prevStochRsi.Signal)
                     {
-                        await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "EMA-StochRSI", currentKline.CloseTime);
+                        await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, "EMA-StochRSI", currentKline.OpenTime);
                         LogTradeSignal("SHORT", currentKline.Symbol, currentKline.Close);
                     }
                 }   
                 else continue;   
                 
                 var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices);
+                await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
             }
         }
 

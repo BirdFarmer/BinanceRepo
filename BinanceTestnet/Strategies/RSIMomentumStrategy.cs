@@ -100,7 +100,7 @@ public class RSIMomentumStrategy : StrategyBase
 
                 // Check for open trade closing conditions
                 var currentPrices = new Dictionary<string, decimal> { { symbol, kline.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices);
+                await OrderManager.CheckAndCloseTrades(currentPrices, kline.CloseTime);
             }
         }
 

@@ -48,12 +48,12 @@ namespace BinanceLive.Strategies
                         {
                             if (divergence == 1)
                             {
-                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "MAC-D", klines.Last().CloseTime);
+                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "MAC-D", klines.Last().OpenTime);
                                 //LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
                             else if (divergence == -1)
                             {
-                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "MAC-D", klines.Last().CloseTime);
+                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "MAC-D", klines.Last().OpenTime);
                                 //LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
                         }
@@ -108,6 +108,10 @@ namespace BinanceLive.Strategies
                         //LogTradeSignal("SHORT", kline.Symbol, kline.Close);
                     }
                 }
+
+                    // Check for open trade closing conditions
+                var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
+                await OrderManager.CheckAndCloseTrades(currentPrices, kline.CloseTime);
 
                 // Update MACD results for the next iteration
                 macdResults = Indicator.GetMacd(currentQuotes, 25, 125, 9).ToList();
