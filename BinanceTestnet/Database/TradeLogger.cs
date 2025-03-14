@@ -15,46 +15,30 @@ namespace BinanceTestnet.Database
             _connectionString = $"Data Source={databasePath};";
         }
 
-        public void LogOpenTrade(Trade trade, string sessionId)
+        public int LogOpenTrade(Trade trade, string sessionId)
         {
             try
             {
-                // Validate required fields
-                if (string.IsNullOrEmpty(trade.Symbol) || string.IsNullOrEmpty(trade.TradeType) || string.IsNullOrEmpty(trade.Signal))
-                {
-                    Console.WriteLine("Error: Required fields (Symbol, TradeType, Signal) are missing.");
-                    return;
-                }
-
-                // Ensure EntryPrice is a valid decimal
-                string entryPriceString = trade.EntryPrice.ToString("F6", CultureInfo.InvariantCulture); // Ensure 6 decimal places
-                if (!decimal.TryParse(entryPriceString, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal entryPrice))
-                {
-                    Console.WriteLine($"Error: EntryPrice is not a valid decimal. Value: {entryPriceString}");
-                    return;
-                }
-
                 using (var connection = new SqliteConnection(_connectionString))
                 {
                     connection.Open();
                     string insertQuery = @"
                         INSERT INTO Trades (
-                            TradeId, SessionId, Symbol, TradeType, Signal, EntryTime, 
+                            SessionId, Symbol, TradeType, Signal, EntryTime, 
                             EntryPrice, TakeProfit, StopLoss, Leverage, Interval, KlineTimestamp)
                         VALUES (
-                            @TradeId, @SessionId, @Symbol, @TradeType, @Signal, @EntryTime, 
+                            @SessionId, @Symbol, @TradeType, @Signal, @EntryTime, 
                             @EntryPrice, @TakeProfit, @StopLoss, @Leverage, @Interval, @KlineTimestamp);";
 
                     using (var command = new SqliteCommand(insertQuery, connection))
                     {
-                        // Add parameters
-                        command.Parameters.AddWithValue("@TradeId", trade.TradeId);
+                        // Add parameters (do not include TradeId)
                         command.Parameters.AddWithValue("@SessionId", sessionId);
                         command.Parameters.AddWithValue("@Symbol", trade.Symbol);
                         command.Parameters.AddWithValue("@TradeType", trade.TradeType);
                         command.Parameters.AddWithValue("@Signal", trade.Signal);
-                        command.Parameters.AddWithValue("@EntryTime", trade.KlineTimestamp);
-                        command.Parameters.AddWithValue("@EntryPrice", entryPrice);
+                        command.Parameters.AddWithValue("@EntryTime", trade.EntryTime);
+                        command.Parameters.AddWithValue("@EntryPrice", trade.EntryPrice);
                         command.Parameters.AddWithValue("@TakeProfit", trade.TakeProfit);
                         command.Parameters.AddWithValue("@StopLoss", trade.StopLoss);
                         command.Parameters.AddWithValue("@Leverage", trade.Leverage);
@@ -63,12 +47,25 @@ namespace BinanceTestnet.Database
 
                         int rowsAffected = command.ExecuteNonQuery();
                         Console.WriteLine($"Rows affected: {rowsAffected}"); // Debugging output
+
+                        if (rowsAffected > 0)
+                        {
+                            // Retrieve the auto-generated TradeId
+                            command.CommandText = "SELECT last_insert_rowid();";
+                            int tradeId = Convert.ToInt32(command.ExecuteScalar());
+                            return tradeId;
+                        }
+                        else
+                        {
+                            return -1; // Indicate failure
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error logging open trade: {ex.Message}"); // Debugging output
+                return -1; // Indicate failure
             }
         }
 

@@ -1,7 +1,8 @@
 public class Trade
 {
     // Trade properties
-    public int TradeId { get; } // Matches the database column name
+
+    public int TradeId { get; set; } // Make TradeId settable // Matches the database column name
     public string SessionId { get; set; } // Identifier for the backtest/live session
     public string Symbol { get; }
     public string TradeType => IsLong ? "Long" : "Short"; // Derived property for database
