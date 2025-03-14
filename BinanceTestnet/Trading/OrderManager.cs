@@ -206,7 +206,12 @@ namespace BinanceTestnet.Trading
             else
             {
                 var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
-                if (tpPercent == -1 || slPercent == -1) return;
+                if (tpPercent <= 0 || slPercent <= 0 || double.IsNaN((double) tpPercent) || 
+                    double.IsNaN((double) slPercent) || double.IsInfinity((double) tpPercent) || 
+                    double.IsInfinity((double) slPercent))
+                {
+                    return; // Skip the trade if values are invalid
+                }
 
                 if (isLong)
                 {
@@ -226,9 +231,9 @@ namespace BinanceTestnet.Trading
 
             decimal quantity = CalculateQuantity(price, symbol, _marginPerTrade);
 
-            // Create a new Trade object with the required tradeId
+            // Create a new Trade object without specifying TradeId
             var trade = new Trade(
-                tradeId: _nextTradeId++, // Provide the tradeId
+                tradeId: 0, // Let SQLite generate the TradeId
                 sessionId: _sessionId,
                 symbol: symbol,
                 entryPrice: price,
@@ -258,10 +263,14 @@ namespace BinanceTestnet.Trading
                         if (trade.IsLong) longs++;
                         else shorts++;
                         noOfTrades++;
-                        _activeTrades[trade.TradeId] = trade;
 
-                        // Log the trade to the database
-                        _tradeLogger.LogOpenTrade(trade, _sessionId);
+                        // Log the trade to the database and retrieve the auto-generated TradeId
+                        int tradeId = _tradeLogger.LogOpenTrade(trade, _sessionId);
+                        if (tradeId != -1)
+                        {
+                            trade.TradeId = tradeId; // Update the Trade object with the new TradeId
+                            _activeTrades[trade.TradeId] = trade; // Add the trade to active trades
+                        }
                     }
                 }
             }

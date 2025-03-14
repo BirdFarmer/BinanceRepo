@@ -42,10 +42,10 @@ namespace BinanceTestnet.Database
 
             // Add rows for key metrics
             reportTable.Rows.Add("Win Rate", $"{metrics.WinRate:F2}%".Replace(",", ".")); // Format win rate
-            reportTable.Rows.Add("Net Profit", metrics.NetProfit.ToString("F8").Replace(",", ".")); // Format net profit
-            reportTable.Rows.Add("Max Drawdown", metrics.MaximumDrawdown.ToString("F8").Replace(",", ".")); // Format max drawdown
+            reportTable.Rows.Add("Net Profit", metrics.NetProfit.ToString("F2").Replace(",", ".")); // Format net profit
+            reportTable.Rows.Add("Max Drawdown", metrics.MaximumDrawdown.ToString("F2").Replace(",", ".")); // Format max drawdown
             reportTable.Rows.Add("Profit Factor", metrics.ProfitFactor.ToString("F4").Replace(",", ".")); // Format profit factor
-            reportTable.Rows.Add($"Sharpe Ratio,{metrics.SharpeRatio:F4}"); // Include Sharpe Ratio
+            reportTable.Rows.Add($"Sharpe Ratio", $"{metrics.SharpeRatio:F4}".Replace(",", ".")); // Include Sharpe Ratio
 
             // Add rows for strategy performance
             foreach (var strategy in strategyPerformance)
