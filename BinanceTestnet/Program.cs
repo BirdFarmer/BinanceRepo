@@ -22,19 +22,21 @@ namespace BinanceLive
 {
     class Program
     {
-        
         private static TradeLogger _tradeLogger;
         private static string _sessionId;
-
         private static OrderManager _orderManager;
+        private static RestClient _client; // Lift client to class level
+        private static Wallet _wallet; // Lift wallet to class level
 
         static async Task Main(string[] args)
         {
             Console.WriteLine("Welcome to the Trade Input Program!");
-            
-            // Set up the termination handler
-            Console.CancelKeyPress += OnTermination;
-            
+            Console.WriteLine("Press 'Q' to quit gracefully (or type 'exit' and press Enter).");
+
+            // Generate a unique SessionId        
+            _sessionId = GenerateSessionId();
+            Console.WriteLine($"SessionId: {_sessionId}");
+
             // Choose Mode
             var operationMode = GetOperationMode();
 
@@ -42,10 +44,6 @@ namespace BinanceLive
             DateTime endDate = DateTime.UtcNow; // Default: Now
 
             string backtestSessionName = string.Empty;
-
-            // Generate a unique SessionId        
-            _sessionId = GenerateSessionId();
-            Console.WriteLine($"SessionId: {_sessionId}");    
 
             // If mode is backtest, prompt for start and end datetime
             if (operationMode == OperationMode.Backtest)
@@ -108,17 +106,18 @@ namespace BinanceLive
             }
 
             // Initialize Client, Symbols, Wallet
-            var client = new RestClient("https://fapi.binance.com");
+            _client = new RestClient("https://fapi.binance.com");
             var intervals = new[] { interval }; // Default interval
             var wallet = new Wallet(300); // Initial wallet size
 
             Stopwatch timer = new Stopwatch();
             timer.Start();
+
             // Define your database path
             string databasePath = @"C:\Repo\BinanceAPI\db\DataBase.db";
             var databaseManager = new DatabaseManager(databasePath);
             databaseManager.InitializeDatabase();
-            
+
             _tradeLogger = new TradeLogger(databasePath);
 
             var symbols = new List<string>();
@@ -131,7 +130,9 @@ namespace BinanceLive
             else
             {
                 // Get the list of symbols dynamically
-                symbols = await GetBestListOfSymbols(client, databaseManager);
+                symbols = await GetBestListOfSymbols(_client, databaseManager);
+                //symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
+            
             }
 
             // Now you can use the `symbols` list as needed
@@ -139,36 +140,81 @@ namespace BinanceLive
             timer.Stop();
 
             // Initialize OrderManager and StrategyRunner
-            _orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategies, client, takeProfit, entrySize, databasePath, _sessionId);
-            var runner = new StrategyRunner(client, apiKey, symbols, intervals[0], wallet, _orderManager, selectedStrategies);
+            _orderManager = new OrderManager(wallet, leverage, new ExcelWriter(fileName: fileName), operationMode, intervals[0], fileName, takeProfit, tradeDirection, selectedStrategies, _client, takeProfit, entrySize, databasePath, _sessionId);
+            var runner = new StrategyRunner(_client, apiKey, symbols, intervals[0], wallet, _orderManager, selectedStrategies);
 
+            // Run the appropriate mode
             if (operationMode == OperationMode.Backtest)
             {
-                await RunBacktest(client, symbols, intervals[0], wallet, fileName, selectedStrategies, _orderManager, runner, startDate, endDate);
+                await RunBacktest(_client, symbols, intervals[0], wallet, fileName, selectedStrategies, _orderManager, runner, startDate, endDate);
             }
             else if (operationMode == OperationMode.LiveRealTrading)
             {
-                await RunLiveTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, _orderManager, runner);
+                await RunLiveTrading(_client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, _orderManager, runner);
             }
             else // LivePaperTrading
             {
-                await RunLivePaperTrading(client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, _orderManager, runner);
+                await RunLivePaperTrading(_client, symbols, intervals[0], wallet, fileName, selectedStrategies, takeProfit, _orderManager, runner);
             }
 
             GenerateReport();
+            Console.WriteLine("Program terminated gracefully.");
         }
+
         private static void OnTermination(object sender, ConsoleCancelEventArgs e)
         {
-            e.Cancel = true; // Prevent the program from terminating immediately
+            if (e != null)
+            {
+                e.Cancel = true; // Prevent the program from terminating immediately
+            }
+
             Console.WriteLine("\nTermination detected. Closing all open trades...");
 
-            // Get the current market prices (replace this with your actual method to fetch prices)
-            //var currentPrices = _restClient.GetCurrentPrices(); // Example method to fetch current prices
+            // Check if _client is initialized
+            if (_client == null)
+            {
+                Console.WriteLine("Error: RestClient is not initialized.");
+                return;
+            }
 
-            // Close all open trades
-            _orderManager.CloseAllActiveTrades(-1, 0); // Use -1 for closePrice to use EntryPrice, and 0 for closeTime to use DateTime.UtcNow
+            // Check if _orderManager is initialized
+            if (_orderManager == null)
+            {
+                Console.WriteLine("Error: OrderManager is not initialized.");
+                return;
+            }
 
-            Console.WriteLine("Generating report...");
+            // Fetch all active trades
+            var openTrades = _orderManager.GetActiveTrades();
+            Console.WriteLine($"Number of open trades: {openTrades.Count}");
+
+            var symbols = openTrades.Select(t => t.Symbol).Distinct().ToList();
+            Console.WriteLine($"Symbols to fetch prices for: {string.Join(", ", symbols)}");
+
+            // Fetch current prices for these symbols
+            Dictionary<string, decimal> currentPrices = null;
+            try
+            {
+                currentPrices = FetchCurrentPrices(_client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret).Result;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fetching current prices: {ex.Message}");
+                return;
+            }
+
+            if (currentPrices == null || currentPrices.Count == 0)
+            {
+                Console.WriteLine("Error: Failed to fetch current prices or no prices returned.");
+                return;
+            }
+
+            Console.WriteLine($"Fetched prices: {string.Join(", ", currentPrices.Select(kv => $"{kv.Key}: {kv.Value}"))}");
+
+            // Close all open trades using the fetched prices
+            _orderManager.CloseAllActiveTrades(currentPrices, DateTime.UtcNow.Ticks);
+
+            Console.WriteLine("All open trades closed.");
             GenerateReport();
             Environment.Exit(0);
         }
@@ -441,66 +487,99 @@ namespace BinanceLive
             return 0;
         }
 
-    private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner, DateTime startDate, DateTime endDate)
-    {
-        var backtestTakeProfits = new List<decimal> { 2.5m }; // Take profit percentages
-        var intervals = new[] { "5m" }; // Time intervals for backtesting
-        var leverage = 15;
-
-        foreach (var tp in backtestTakeProfits)
+        private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner, DateTime startDate, DateTime endDate)
         {
-            for (int i = 0; i < intervals.Length; i++)
+            var backtestTakeProfits = new List<decimal> { 2.5m }; // Take profit percentages
+            var intervals = new[] { "5m" }; // Time intervals for backtesting
+            var leverage = 15;
+
+            foreach (var tp in backtestTakeProfits)
             {
-                wallet = new Wallet(3000); // Reset wallet balance
-
-                orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
-                orderManager.UpdateSettings(leverage, intervals[i]); // Update OrderManager settings (leverage, etc.)
-
-                foreach (var symbol in symbols)
+                for (int i = 0; i < intervals.Length; i++)
                 {
-                    if (symbol.Equals("SOLUSDT") || symbol.Equals("TSTUSDT"))
-                        continue;
+                    wallet = new Wallet(3000); // Reset wallet balance
 
-                    var historicalData = await FetchHistoricalData(client, symbol, intervals[i], startDate, endDate);
+                    orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
+                    orderManager.UpdateSettings(leverage, intervals[i]); // Update OrderManager settings (leverage, etc.)
 
-                    foreach (var kline in historicalData)
+                    foreach (var symbol in symbols)
                     {
-                        kline.Symbol = symbol;
+                        if (symbol.Equals("SOLUSDT") || symbol.Equals("TSTUSDT"))
+                            continue;
+
+                        var historicalData = await FetchHistoricalData(client, symbol, intervals[i], startDate, endDate);
+
+                        foreach (var kline in historicalData)
+                        {
+                            kline.Symbol = symbol;
+                        }
+
+                        Console.WriteLine($" -- Coin: {symbol} TF: {intervals[i]} Lev: 15 TP: {tp} -- ");
+
+                        // Run the strategy on the historical data
+                        await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
+
+                        // After backtest, get final price and volume for the symbol
+                        if (historicalData.Any())
+                        {
+                            var finalKline = historicalData.Last();
+                            decimal finalPrice = finalKline.Close;
+                            decimal volume = historicalData.Sum(k => k.Volume);
+
+                            // Insert or update the coin pair data in the database
+                            orderManager.DatabaseManager.UpsertCoinPairData(symbol, finalPrice, volume);
+                        }
                     }
 
-                    Console.WriteLine($" -- Coin: {symbol} TF: {intervals[i]} Lev: 15 TP: {tp} -- ");
-
-                    // Run the strategy on the historical data
-                    await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
-
-                    // After backtest, get final price and volume for the symbol
-                    if (historicalData.Any())
-                    {
-                        var finalKline = historicalData.Last();
-                        decimal finalPrice = finalKline.Close;
-                        decimal volume = historicalData.Sum(k => k.Volume);
-
-                        // Insert or update the coin pair data in the database
-                        orderManager.DatabaseManager.UpsertCoinPairData(symbol, finalPrice, volume);
-                    }
+                    orderManager.PrintWalletBalance();
                 }
-
-                orderManager.PrintWalletBalance();
             }
         }
-    }
 
-
-        private static async Task RunLivePaperTrading(RestClient client, List<string> symbols, 
-                                                      string interval, Wallet wallet, string fileName, 
-                                                      SelectedTradingStrategy selectedStrategy, decimal takeProfit, 
-                                                      OrderManager orderManager, StrategyRunner runner)
+        private static async Task RunLivePaperTrading(RestClient client, List<string> symbols,
+                                                    string interval, Wallet wallet, string fileName,
+                                                    SelectedTradingStrategy selectedStrategy, decimal takeProfit,
+                                                    OrderManager orderManager, StrategyRunner runner)
         {
             var startTime = DateTime.Now;
-            while (true)
+            var running = true;
+
+            while (running)
             {
                 try
                 {
+                    // Check for termination command
+                    try
+                    {
+                        if (Console.KeyAvailable) // Try using KeyAvailable first
+                        {
+                            var key = Console.ReadKey(intercept: true).Key;
+                            if (key == ConsoleKey.Q)
+                            {
+                                Console.WriteLine("Q key pressed. Terminating gracefully...");
+                                OnTermination(null, null); // Manually trigger termination
+                                running = false;
+                                break; // Exit the loop
+                            }
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Fallback to command-based termination if KeyAvailable is not supported
+                        if (Console.In.Peek() != -1) // Check if input is available
+                        {
+                            var input = Console.ReadLine();
+                            if (input?.ToLower() == "exit")
+                            {
+                                Console.WriteLine("Exit command received. Terminating gracefully...");
+                                OnTermination(null, null); // Manually trigger termination
+                                running = false;
+                                break; // Exit the loop
+                            }
+                        }
+                    }
+
+                    // Fetch current prices and run strategies
                     var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
                     await runner.RunStrategiesAsync();
 
@@ -521,9 +600,13 @@ namespace BinanceLive
                     Console.WriteLine($"An error occurred: {ex.Message}");
                     Console.WriteLine($"Stack Trace: {ex.StackTrace}");
                 }
-                var delay = TimeTools.GetTimeSpanFromInterval(interval);//"1m"
+
+                // Simulate delay based on the interval
+                var delay = TimeTools.GetTimeSpanFromInterval(interval); // e.g., "1m"
                 await Task.Delay(delay);
             }
+
+            Console.WriteLine("Live paper trading terminated gracefully.");
         }
 
         private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner)
@@ -568,8 +651,9 @@ namespace BinanceLive
                     cycles = 0;
                     Stopwatch timer = new Stopwatch();
                     timer.Start();
-                    //symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
-                    //Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
+                    symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                    Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
+                    timer.Stop();
                  }
 
                 // Determine delay based on the selected interval
@@ -593,6 +677,8 @@ namespace BinanceLive
         {
             var prices = new Dictionary<string, decimal>();
 
+            Console.WriteLine($"Fetching prices for symbols: {string.Join(", ", symbols)}");
+
             foreach (var symbol in symbols)
             {
                 var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -611,15 +697,30 @@ namespace BinanceLive
                 request.AddParameter("timestamp", timestamp.ToString());
                 request.AddParameter("signature", signature);
 
+                // Log the request URL and parameters
+                var requestUrl = client.BuildUri(request).ToString();
+                //Console.WriteLine($"Request URL for {symbol}: {requestUrl}");
+
                 try
                 {
-                   // Send the request
+                    // Send the request
                     var response = await client.ExecuteAsync(request);
+
+                    // Log the response details
+                    //Console.WriteLine($"Response for {symbol}: {response.StatusCode} - {response.Content}");
 
                     if (response.IsSuccessful && response.Content != null)
                     {
                         var priceData = JsonConvert.DeserializeObject<PriceResponse>(response.Content);
-                        prices[symbol] = priceData.Price;
+                        if (priceData != null)
+                        {
+                            prices[symbol] = priceData.Price;
+                            //Console.WriteLine($"Fetched price for {symbol}: {priceData.Price}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Failed to deserialize price data for {symbol}.");
+                        }
                     }
                     else
                     {
@@ -627,13 +728,11 @@ namespace BinanceLive
                         Console.WriteLine($"Error fetching price for {symbol}: {response.StatusCode} - {response.Content}");
                     }
                 }
-                catch (System.Exception)
+                catch (Exception ex)
                 {
-                    // Log the response details for debugging
-                    Console.WriteLine($"Error fetching price for {symbol}");
-                   
+                    // Log the exception details for debugging
+                    Console.WriteLine($"Exception fetching price for {symbol}: {ex.Message}");
                 }
-                
             }
 
             return prices;

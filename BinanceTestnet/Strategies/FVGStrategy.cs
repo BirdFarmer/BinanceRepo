@@ -335,7 +335,7 @@ public class FVGStrategy : StrategyBase
         // Define a significance threshold (e.g., 5% of the total volume)
         const decimal significanceThreshold = 5.0m;
 
-        Console.WriteLine($"Imbalance: {imbalance}, Total Volume: {totalVolume}, Imbalance %: {imbalancePercentage}");
+        //Console.WriteLine($"Imbalance: {imbalance}, Total Volume: {totalVolume}, Imbalance %: {imbalancePercentage}");
 
         var isBullish = fvgZone.Type == FVGType.Bullish;
 
@@ -354,7 +354,7 @@ public class FVGStrategy : StrategyBase
             }
         }
 
-        Console.WriteLine("Imbalance not significant enough to validate FVG signal.");
+        //Console.WriteLine("Imbalance not significant enough to validate FVG signal.");
         return false;
     }
 

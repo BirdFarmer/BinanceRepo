@@ -307,6 +307,14 @@ namespace BinanceTestnet.Trading
             return VolatilityBasedTPandSL.CalculateTpAndSlBasedOnAtrMultiplier(symbol, symbolQuotes, _takeProfit);
         }
 
+        public List<Trade> GetActiveTrades()
+        {
+            lock (_activeTrades)
+            {
+                return _activeTrades.Values.Where(t => t.IsInTrade).ToList();
+            }
+        }
+
         public async Task CheckAndCloseTrades(Dictionary<string, decimal> currentPrices, long closeTime = 0)
         {
             foreach (var trade in _activeTrades.Values.ToList())
@@ -427,14 +435,13 @@ namespace BinanceTestnet.Trading
             PrintWalletBalance();
         }
 
-        public void CloseAllActiveTrades(decimal closePrice, long closeTime)
+        public void CloseAllActiveTrades(Dictionary<string, decimal> currentPrices, long closeTime)
         {
-            foreach (var trade in _activeTrades.Values.ToList())
+            // Create a copy of _activeTrades for iteration
+            var tradesToClose = _activeTrades.Values.ToList();
+
+            foreach (var trade in tradesToClose)
             {
-                if(closePrice == -1)
-                {
-                    closePrice = trade.EntryPrice;
-                }
                 if (!trade.IsClosed)
                 {
                     // Determine the exit time
@@ -446,25 +453,97 @@ namespace BinanceTestnet.Trading
                     }
                     else
                     {
-                        // Backtesting: Use the provided closeTime (convert to UTC)
-                        exitTime = DateTimeOffset.FromUnixTimeMilliseconds(closeTime).UtcDateTime;
+                        // Determine if closeTime is in Ticks or Unix timestamp
+                        if (closeTime > 253402300799999) // If closeTime is in Ticks
+                        {
+                            // Convert Ticks to DateTime
+                            exitTime = new DateTime(closeTime, DateTimeKind.Utc);
+                        }
+                        else // If closeTime is a Unix timestamp
+                        {
+                            // Convert Unix timestamp to DateTime
+                            exitTime = DateTimeOffset.FromUnixTimeMilliseconds(closeTime).UtcDateTime;
+                        }
                     }
 
-                    trade.CloseTrade(closePrice, exitTime);
-                    
+                    // Get the closePrice for this trade's symbol
+                    if (currentPrices.TryGetValue(trade.Symbol, out decimal closePrice))
+                    {
+                        trade.CloseTrade(closePrice, exitTime);
+
+                        var profit = trade.IsLong
+                            ? (trade.Quantity * (closePrice - trade.EntryPrice)) + trade.InitialMargin
+                            : (trade.Quantity * (trade.EntryPrice - closePrice)) + trade.InitialMargin;
+
+                        Console.WriteLine($"-----------Trade for {trade.Symbol} closed.");
+                        Console.WriteLine($"-----------Realized Return for {trade.Symbol}: {trade.Profit:P2}");
+                        _wallet.AddFunds(profit);
+                        profitOfClosed += profit;
+
+                        // Remove the trade from _activeTrades after closing it
+                        _activeTrades.TryRemove(trade.TradeId, out _);
+
+                        // Log the closed trade to the database
+                        _tradeLogger.LogCloseTrade(trade, _sessionId);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Error: No price found for symbol {trade.Symbol}.");
+                    }
+                }
+            }
+        }      
+
+        public void CloseAllActiveTradesForBacktest(decimal closePrice, long closeTime)
+        {
+            // Create a copy of _activeTrades for iteration
+            var tradesToClose = _activeTrades.Values.ToList();
+
+            foreach (var trade in tradesToClose)
+            {
+                if (!trade.IsClosed)
+                {
+                    // Determine the exit time
+                    DateTime exitTime;
+                    if (closeTime == 0)
+                    {
+                        // Live trading: Use current UTC time
+                        exitTime = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        // Determine if closeTime is in Ticks or Unix timestamp
+                        if (closeTime > 253402300799999) // If closeTime is in Ticks
+                        {
+                            // Convert Ticks to DateTime
+                            exitTime = new DateTime(closeTime, DateTimeKind.Utc);
+                        }
+                        else // If closeTime is a Unix timestamp
+                        {
+                            // Convert Unix timestamp to DateTime
+                            exitTime = DateTimeOffset.FromUnixTimeMilliseconds(closeTime).UtcDateTime;
+                        }
+                    }
+
+                    // Use the closePrice passed to the method
+                    decimal actualClosePrice = closePrice == -1 ? trade.EntryPrice : closePrice;
+
+                    trade.CloseTrade(actualClosePrice, exitTime);
+
                     var profit = trade.IsLong
-                        ? (trade.Quantity * (closePrice - trade.EntryPrice)) + trade.InitialMargin
-                        : (trade.Quantity * (trade.EntryPrice - closePrice)) + trade.InitialMargin;
+                        ? (trade.Quantity * (actualClosePrice - trade.EntryPrice)) + trade.InitialMargin
+                        : (trade.Quantity * (trade.EntryPrice - actualClosePrice)) + trade.InitialMargin;
 
                     Console.WriteLine($"-----------Trade for {trade.Symbol} closed.");
                     Console.WriteLine($"-----------Realized Return for {trade.Symbol}: {trade.Profit:P2}");
                     _wallet.AddFunds(profit);
                     profitOfClosed += profit;
+
+                    // Remove the trade from _activeTrades after closing it
                     _activeTrades.TryRemove(trade.TradeId, out _);
 
                     // Log the closed trade to the database
                     _tradeLogger.LogCloseTrade(trade, _sessionId);
-                    //_excelWriter.WriteClosedTradeToExcel(trade, _takeProfit, _tpIteration, _activeTrades, _interval);
                 }
             }
         }
