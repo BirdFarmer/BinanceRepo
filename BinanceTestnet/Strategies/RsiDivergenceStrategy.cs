@@ -198,14 +198,14 @@ namespace BinanceLive.Strategies
                     // Check for Bullish Divergence and place Long order
                     if (IsBullishDivergence(klinesSubset, rsiSubset, stochasticSubset) && stochasticK <= 10)
                     {
-                        await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "RSI Bullish Divergence", kline.CloseTime);
+                        await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "RSI Divergence", kline.CloseTime);
                         LogTradeSignal("LONG", kline.Symbol, kline.Close);
                     }
 
                     // Check for Bearish Divergence and place Short order
                     else if (IsBearishDivergence(klinesSubset, rsiSubset, stochasticSubset) && stochasticK >= 90)
                     {
-                        await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "RSI Bearish Divergence", kline.CloseTime);
+                        await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "RSI Divergence", kline.CloseTime);
                         LogTradeSignal("SHORT", kline.Symbol, kline.Close);
                     }
                 }

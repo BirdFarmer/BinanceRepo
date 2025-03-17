@@ -319,49 +319,69 @@ namespace BinanceTestnet.Trading
         {
             foreach (var trade in _activeTrades.Values.ToList())
             {
-                if (currentPrices != null && trade != null &&
-                    currentPrices.ContainsKey(trade.Symbol) &&
-                    ShouldCloseTrade(trade, currentPrices[trade.Symbol]))
+                if (trade == null || currentPrices == null || !currentPrices.ContainsKey(trade.Symbol))
                 {
-                    var closingPrice = currentPrices[trade.Symbol];
-
-                    // Determine the exit time
-                    DateTime exitTime;
-                    if (closeTime == 0)
-                    {
-                        // Live trading: Use current UTC time
-                        exitTime = DateTime.UtcNow;
-                    }
-                    else
-                    {
-                        // Backtesting: Use the provided closeTime (convert to UTC)
-                        exitTime = DateTimeOffset.FromUnixTimeMilliseconds(closeTime).UtcDateTime;
-                    }
-
-                    // Close the trade with the calculated exit time
-                    trade.CloseTrade(closingPrice, exitTime);
-
-                    // Calculate profit
-                    var profit = trade.IsLong
-                        ? (trade.Quantity * (closingPrice - trade.EntryPrice)) + trade.InitialMargin
-                        : (trade.Quantity * (trade.EntryPrice - closingPrice)) + trade.InitialMargin;
-
-                    // Output trade closure details
-                    Console.WriteLine($"Trade for {trade.Symbol} closed.");
-                    Console.WriteLine($"Realized Return for {trade.Symbol}: {trade.Profit:P2}");
-
-                    // Update wallet and profit tracking
-                    _wallet.AddFunds(profit);
-                    profitOfClosed += profit;
-
-                    // Remove the trade from active trades
-                    _activeTrades.TryRemove(trade.TradeId, out _);
-
-                    // Log the closed trade to the database
-                    _tradeLogger.LogCloseTrade(trade, _sessionId);
-
-                    await Task.CompletedTask;
+                    continue; // Skip invalid trades or missing price data
                 }
+
+                var closingPrice = currentPrices[trade.Symbol];
+
+                // Validate closing price
+                if (closingPrice <= 0)
+                {
+                    Console.WriteLine($"Invalid closing price for {trade.Symbol}. Skipping trade closure.");
+                    continue;
+                }
+
+                // Check if the trade should be closed based on strategy logic
+                if (!ShouldCloseTrade(trade, closingPrice))
+                {
+                    continue; // Skip if the trade should not be closed
+                }
+
+                // Determine the exit time
+                DateTime exitTime;
+                if (closeTime == 0)
+                {
+                    // Live trading: Use current UTC time
+                    exitTime = DateTime.UtcNow;
+                }
+                else
+                {
+                    // Backtesting: Use the provided closeTime (convert to UTC)
+                    exitTime = DateTimeOffset.FromUnixTimeMilliseconds(closeTime).UtcDateTime;
+                }
+
+                // Validate exit time
+                if (exitTime < trade.EntryTime)
+                {
+                    Console.WriteLine($"Invalid exit time for {trade.Symbol}. Exit time cannot be before entry time. Skipping trade closure.");
+                    continue;
+                }
+
+                // Close the trade with the calculated exit time and price
+                trade.CloseTrade(closingPrice, exitTime);
+
+                // Calculate profit
+                var profit = trade.IsLong
+                    ? (trade.Quantity * (closingPrice - trade.EntryPrice)) + trade.InitialMargin
+                    : (trade.Quantity * (trade.EntryPrice - closingPrice)) + trade.InitialMargin;
+
+                // Output trade closure details
+                Console.WriteLine($"Trade for {trade.Symbol} closed.");
+                Console.WriteLine($"Realized Return for {trade.Symbol}: {trade.Profit:P2}");
+
+                // Update wallet and profit tracking
+                _wallet.AddFunds(profit);
+                profitOfClosed += profit;
+
+                // Remove the trade from active trades
+                _activeTrades.TryRemove(trade.TradeId, out _);
+
+                // Log the closed trade to the database
+                _tradeLogger.LogCloseTrade(trade, _sessionId);
+
+                await Task.CompletedTask;
             }
         }
 

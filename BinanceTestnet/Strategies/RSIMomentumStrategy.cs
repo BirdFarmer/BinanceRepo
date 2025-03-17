@@ -174,12 +174,12 @@ public class RSIMomentumStrategy : StrategyBase
         {
             if (side == "LONG")
             {
-                await OrderManager.PlaceLongOrderAsync(symbol, price, "RSI", timestamp);
+                await OrderManager.PlaceLongOrderAsync(symbol, price, "RSI Momentum", timestamp);
                 LogTradeSignal("LONG", symbol, price);
             }
             else if (side == "SHORT")
             {
-                await OrderManager.PlaceShortOrderAsync(symbol, price, "RSI", timestamp);
+                await OrderManager.PlaceShortOrderAsync(symbol, price, "RSI Momentum", timestamp);
                 LogTradeSignal("LONG", symbol, price);
             }
         }
