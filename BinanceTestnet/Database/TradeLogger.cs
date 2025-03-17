@@ -113,6 +113,7 @@ namespace BinanceTestnet.Database
         /// <summary>
         /// Fetches all trades for a specific session.
         /// </summary>
+        /// 
         public List<Trade> GetTrades(string sessionId)
         {
             var trades = new List<Trade>();
@@ -139,12 +140,27 @@ namespace BinanceTestnet.Database
                             decimal entryPrice = reader.GetDecimal(reader.GetOrdinal("EntryPrice"));
                             decimal takeProfitPrice = reader.GetDecimal(reader.GetOrdinal("TakeProfit"));
                             decimal stopLossPrice = reader.GetDecimal(reader.GetOrdinal("StopLoss"));
-                            decimal quantity = reader.GetDecimal(reader.GetOrdinal("FundsAdded")) / entryPrice;
+
+                            // Handle NULL in FundsAdded
+                            decimal fundsAdded = reader.IsDBNull(reader.GetOrdinal("FundsAdded")) 
+                                ? 0 
+                                : reader.GetDecimal(reader.GetOrdinal("FundsAdded"));
+                            decimal quantity = fundsAdded / entryPrice;
+
                             bool isLong = reader.GetString(reader.GetOrdinal("TradeType")) == "Long";
                             decimal leverage = reader.GetDecimal(reader.GetOrdinal("Leverage"));
                             string signal = reader.GetString(reader.GetOrdinal("Signal"));
-                            string interval = reader.IsDBNull(reader.GetOrdinal("Interval")) ? "N/A" : reader.GetString(reader.GetOrdinal("Interval"));
-                            long timestamp = new DateTimeOffset(reader.GetDateTime(reader.GetOrdinal("EntryTime"))).ToUnixTimeMilliseconds();
+                            string interval = reader.IsDBNull(reader.GetOrdinal("Interval")) 
+                                ? "N/A" 
+                                : reader.GetString(reader.GetOrdinal("Interval"));
+
+                            // Ensure EntryTime is treated as UTC
+                            DateTime entryTime = reader.GetDateTime(reader.GetOrdinal("EntryTime"));
+                            if (entryTime.Kind != DateTimeKind.Utc)
+                            {
+                                entryTime = DateTime.SpecifyKind(entryTime, DateTimeKind.Utc);
+                            }
+                            long timestamp = new DateTimeOffset(entryTime).ToUnixTimeMilliseconds();
 
                             // Create the Trade object
                             var trade = new Trade(
@@ -163,10 +179,25 @@ namespace BinanceTestnet.Database
                             );
 
                             // Set additional properties
-                            trade.ExitTime = reader.IsDBNull(reader.GetOrdinal("ExitTime")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("ExitTime"));
-                            trade.ExitPrice = reader.IsDBNull(reader.GetOrdinal("ExitPrice")) ? (decimal?)null : reader.GetDecimal(reader.GetOrdinal("ExitPrice"));
-                            trade.Profit = reader.IsDBNull(reader.GetOrdinal("Profit")) ? (decimal?)null : reader.GetDecimal(reader.GetOrdinal("Profit"));
-                            trade.Duration = reader.GetInt32(reader.GetOrdinal("Duration"));
+                            trade.ExitTime = reader.IsDBNull(reader.GetOrdinal("ExitTime")) 
+                                ? (DateTime?)null 
+                                : reader.GetDateTime(reader.GetOrdinal("ExitTime"));
+                            if (trade.ExitTime.HasValue && trade.ExitTime.Value.Kind != DateTimeKind.Utc)
+                            {
+                                trade.ExitTime = DateTime.SpecifyKind(trade.ExitTime.Value, DateTimeKind.Utc);
+                            }
+
+                            trade.ExitPrice = reader.IsDBNull(reader.GetOrdinal("ExitPrice")) 
+                                ? (decimal?)null 
+                                : reader.GetDecimal(reader.GetOrdinal("ExitPrice"));
+                            trade.Profit = reader.IsDBNull(reader.GetOrdinal("Profit")) 
+                                ? (decimal?)null 
+                                : reader.GetDecimal(reader.GetOrdinal("Profit"));
+
+                            // Handle NULL in Duration
+                            trade.Duration = reader.IsDBNull(reader.GetOrdinal("Duration")) 
+                                ? 0 
+                                : reader.GetInt32(reader.GetOrdinal("Duration"));
 
                             trades.Add(trade);
                         }
@@ -176,7 +207,6 @@ namespace BinanceTestnet.Database
 
             return trades;
         }
-
         /// <summary>
         /// Calculates performance metrics for a specific session.
         /// </summary>
@@ -512,5 +542,112 @@ namespace BinanceTestnet.Database
 
             return tradeDistribution;
         }
+
+        /// <summary>
+        /// Calculates the first exit time for streaks of winning or losing trades.
+        /// </summary>
+        public (DateTime? LongestWinStreakStart, DateTime? LongestLossStreakStart, int MaxConsecutiveWins, int MaxConsecutiveLosses) CalculateStreakTimes(string sessionId)
+        {
+            var trades = GetTrades(sessionId).OrderBy(t => t.EntryTime).ToList();
+
+            DateTime? longestWinStreakStart = null;
+            DateTime? longestLossStreakStart = null;
+            int maxConsecutiveWins = 0;
+            int maxConsecutiveLosses = 0;
+
+            int currentWinStreak = 0;
+            int currentLossStreak = 0;
+            DateTime? currentWinStreakStart = null;
+            DateTime? currentLossStreakStart = null;
+
+            foreach (var trade in trades)
+            {
+                if (trade.Profit > 0) // Winning trade
+                {
+                    currentWinStreak++;
+                    currentLossStreak = 0;
+
+                    if (currentWinStreak == 1) // Start of a new win streak
+                    {
+                        currentWinStreakStart = trade.EntryTime;
+                    }
+
+                    if (currentWinStreak > maxConsecutiveWins)
+                    {
+                        maxConsecutiveWins = currentWinStreak;
+                        longestWinStreakStart = currentWinStreakStart;
+                    }
+                }
+                else if (trade.Profit <= 0) // Losing trade
+                {
+                    currentLossStreak++;
+                    currentWinStreak = 0;
+
+                    if (currentLossStreak == 1) // Start of a new loss streak
+                    {
+                        currentLossStreakStart = trade.EntryTime;
+                    }
+
+                    if (currentLossStreak > maxConsecutiveLosses)
+                    {
+                        maxConsecutiveLosses = currentLossStreak;
+                        longestLossStreakStart = currentLossStreakStart;
+                    }
+                }
+            }
+
+            return (longestWinStreakStart, longestLossStreakStart, maxConsecutiveWins, maxConsecutiveLosses);
+        }
+        public (decimal AvgWinSize, decimal AvgLossSize, decimal LargestWin, decimal LargestLoss, int MaxConsecutiveWins, 
+                int MaxConsecutiveLosses, double AvgTradeDuration, double MinTradeDuration, double MaxTradeDuration, int WinningTradesCount, int LosingTradesCount) 
+                CalculateAdditionalMetrics(string sessionId)
+        {
+            var trades = GetTrades(sessionId).OrderBy(t => t.EntryTime).ToList();
+
+            var winningTrades = trades.Where(t => t.Profit > 0).ToList();
+            var losingTrades = trades.Where(t => t.Profit <= 0).ToList();
+
+            decimal avgWinSize = winningTrades.Any() ? winningTrades.Average(t => t.Profit ?? 0) : 0; // Handle null values
+            decimal avgLossSize = losingTrades.Any() ? losingTrades.Average(t => t.Profit ?? 0) : 0; // Handle null values
+
+            decimal largestWin = winningTrades.Any() ? winningTrades.Max(t => t.Profit ?? 0) : 0; // Handle null values
+            decimal largestLoss = losingTrades.Any() ? losingTrades.Min(t => t.Profit ?? 0) : 0; // Handle null values
+
+            int maxConsecutiveWins = CalculateMaxConsecutive(winningTrades);
+            int maxConsecutiveLosses = CalculateMaxConsecutive(losingTrades);
+
+            double avgTradeDuration = trades.Any() ? trades.Average(t => t.Duration) : 0;
+            double minTradeDuration = trades.Any() ? trades.Min(t => t.Duration) : 0;
+            double maxTradeDuration = trades.Any() ? trades.Max(t => t.Duration) : 0;
+
+            int winningTradesCount = winningTrades.Count;
+            int losingTradesCount = losingTrades.Count;
+
+            return (avgWinSize, avgLossSize, largestWin, largestLoss, maxConsecutiveWins, maxConsecutiveLosses, avgTradeDuration, minTradeDuration, maxTradeDuration, winningTradesCount, losingTradesCount);
+        }
+
+        private int CalculateMaxConsecutive(List<Trade> trades)
+        {
+            int maxStreak = 0;
+            int currentStreak = 0;
+
+            foreach (var trade in trades)
+            {
+                if (trade.Profit > 0) // Only consider trades with Profit > 0
+                {
+                    currentStreak++;
+                    if (currentStreak > maxStreak)
+                    {
+                        maxStreak = currentStreak;
+                    }
+                }
+                else
+                {
+                    currentStreak = 0; // Reset the streak if the trade is not a win
+                }
+            }
+
+            return maxStreak;
+        }  
     }
 }

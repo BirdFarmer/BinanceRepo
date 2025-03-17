@@ -124,8 +124,10 @@ namespace BinanceLive
 
             if (operationMode == OperationMode.Backtest)
             {
+                
+                symbols = await GetBestListOfSymbols(_client, databaseManager);
                 // Use the hardcoded list of symbols
-                symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
+                //symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
             }
             else
             {
@@ -357,20 +359,6 @@ namespace BinanceLive
                 return decimal.TryParse(tpInput, out var parsedTP) ? parsedTP : (decimal)5.0M;
             }
             return 1.5M; // Default for backtesting
-        }
-
-        private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit)
-        {
-            //Maybe later Entry{entrySize}_Leverage{leverage}_
-            //TakeProfitPercent{takeProfit}_ only for live trading, backtest loops through all of them
-            string title = $"{(operationMode == OperationMode.Backtest ? "Backtest" : "PaperTrade")}_Direction{tradeDirection}_Strategy{selectedStrategy}_";
-            if(operationMode == OperationMode.LivePaperTrading)
-            {
-                title += $"_TakeProfitPercent{takeProfit}_";
-            }            
-            
-            title += $"{DateTime.Now:yyyyMMdd-HH-mm}";
-            return title.Replace(" ", "_").Replace("%", "Percent").Replace(".", "p") + ".xlsx";
         }
 
         private static (string apiKey, string apiSecret) GetApiKeys()

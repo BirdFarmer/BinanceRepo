@@ -79,13 +79,13 @@ namespace BinanceLive.Strategies
         {
             var strategies = new List<StrategyBase>();
 
-            // strategies.Add(new RSIMomentumStrategy(_client, _apiKey, _orderManager, _wallet));
+            strategies.Add(new RSIMomentumStrategy(_client, _apiKey, _orderManager, _wallet));
             // strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
-             strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
-             strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));
+            //  strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
+            //  strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));
             // strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
-             strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
-            // strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
+              strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
+              strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
             // strategies.Add(new IchimokuCloudStrategy(_client, _apiKey, _orderManager, _wallet));         
             // strategies.Add(new FibonacciRetracementStrategy(_client, _apiKey, _orderManager, _wallet));        
             // strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));

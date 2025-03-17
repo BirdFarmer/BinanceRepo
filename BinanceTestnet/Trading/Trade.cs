@@ -54,6 +54,18 @@ public class Trade
     /// <param name="exitTime">The timestamp of the exit candle (for backtesting).</param>
     public void CloseTrade(decimal exitPrice, DateTime? exitTime = null)
     {
+        if (exitPrice <= 0)
+        {
+            return;
+        }
+
+        if (exitTime < EntryTime)
+        {
+            return;
+        }
+
+        ExitPrice = exitPrice;
+        ExitTime = exitTime;
         // Use the provided exitTime for backtesting (ensure it's UTC), or DateTime.UtcNow for live trading
         ExitTime = exitTime?.ToUniversalTime() ?? DateTime.UtcNow;
         ExitPrice = exitPrice;
