@@ -708,7 +708,7 @@ namespace BinanceTestnet.Trading
                     if (takeProfitResponse.IsSuccessful)
                     {
                         Console.WriteLine($"Take Profit set for {trade.Symbol} at {roundedTakeProfitPrice}");
-                        Console.WriteLine($"Trying to put a trailing SL {trade.Symbol} triggered at {trailingActivationPercent} ");
+                        //Console.WriteLine($"Trying to put a trailing SL {trade.Symbol} triggered at {trailingActivationPercent} ");
                         //await PlaceTrailingStopLossAsync(trade, trailingActivationPercent, trailingCallbackPercent, formattedQuantity, apiKey);
                     }
                     else

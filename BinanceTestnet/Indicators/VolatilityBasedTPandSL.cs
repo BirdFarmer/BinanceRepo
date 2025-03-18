@@ -92,7 +92,7 @@ public class VolatilityBasedTPandSL
             var tpPercent = (decimal)atrToPrice * tpMultiplier * 100;
 
             // SL is half of TP to maintain 2:1 risk-reward ratio
-            var slPercent = tpPercent / 1M;
+            var slPercent = tpPercent / 2m;
 
             // Print TP and SL percentages for debugging
             // Console.WriteLine($"Adjusted TP Percent (ATR * {tpMultiplier}): {tpPercent}");
