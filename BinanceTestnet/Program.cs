@@ -123,11 +123,11 @@ namespace BinanceLive
             var symbols = new List<string>();
 
             if (operationMode == OperationMode.Backtest)
-            {
-                
+            {                
                 symbols = await GetBestListOfSymbols(_client, databaseManager);
                 // Use the hardcoded list of symbols
                 //symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
+            
             }
             else
             {
