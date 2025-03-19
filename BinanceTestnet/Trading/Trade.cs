@@ -22,13 +22,16 @@ public class Trade
     public bool IsClosed { get; private set; }
     public string Interval { get; } // Matches the database column name
     public DateTime KlineTimestamp { get; set; } // Matches the database column name (UTC)
+    public decimal? TakeProfitMultiplier { get; set; }
 
     // Derived properties
     public decimal InitialMargin => Quantity * EntryPrice / Leverage;
     public decimal Quantity { get; }
+    public decimal MarginPerTrade { get; } // Add this property
 
-    public Trade(int tradeId, string sessionId, string symbol, decimal entryPrice, decimal takeProfitPrice, decimal stopLossPrice, 
-                    decimal quantity, bool isLong, decimal leverage, string signal, string interval, long timestamp)
+    public Trade(int tradeId, string sessionId, string symbol, decimal entryPrice, decimal takeProfitPrice, 
+                 decimal stopLossPrice, decimal quantity, bool isLong, decimal leverage, string signal, 
+                 string interval, long timestamp, decimal? takeProfitMultiplier, decimal marginPerTrade)
     {
         TradeId = tradeId;
         SessionId = sessionId;
@@ -45,6 +48,8 @@ public class Trade
         EntryTime = KlineTimestamp; // Use UTC for EntryTime
         IsInTrade = false;
         IsClosed = false;
+        TakeProfitMultiplier = takeProfitMultiplier;
+        MarginPerTrade = marginPerTrade;
     }
 
     /// <summary>

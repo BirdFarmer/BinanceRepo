@@ -29,7 +29,7 @@ namespace BinanceTestnet.Trading
         // Trading parameters
         private decimal _leverage;
         private decimal _takeProfit;
-        private decimal _tpIteration;
+        private decimal? _tpIteration;
         private string _interval;
         private OperationMode _operationMode;
         
@@ -244,7 +244,9 @@ namespace BinanceTestnet.Trading
                 leverage: _leverage,
                 signal: signal,
                 interval: _interval,
-                timestamp: timestampEntry
+                timestamp: timestampEntry,
+                takeProfitMultiplier: _tpIteration,
+                marginPerTrade: _marginPerTrade
             );
 
             if (_operationMode == OperationMode.LiveRealTrading)
