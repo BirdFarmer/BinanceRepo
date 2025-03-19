@@ -124,9 +124,9 @@ namespace BinanceLive
 
             if (operationMode == OperationMode.Backtest)
             {                
-                symbols = await GetBestListOfSymbols(_client, databaseManager);
+                //symbols = await GetBestListOfSymbols(_client, databaseManager);
                 // Use the hardcoded list of symbols
-                //symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
+                symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
             
             }
             else
@@ -477,8 +477,8 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner, DateTime startDate, DateTime endDate)
         {
-            var backtestTakeProfits = new List<decimal> { 2.5m }; // Take profit percentages
-            var intervals = new[] { "5m" }; // Time intervals for backtesting
+            var backtestTakeProfits = new List<decimal> { 3m, 1.5m }; // Take profit percentages
+            var intervals = new[] {"1m", "5m" }; // Time intervals for backtesting
             var leverage = 15;
 
             foreach (var tp in backtestTakeProfits)

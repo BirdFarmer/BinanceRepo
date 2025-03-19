@@ -25,17 +25,19 @@ namespace BinanceTestnet.Database
                     string insertQuery = @"
                         INSERT INTO Trades (
                             SessionId, Symbol, TradeType, Signal, EntryTime, 
-                            EntryPrice, TakeProfit, StopLoss, Leverage, Interval, KlineTimestamp)
+                            EntryPrice, TakeProfit, StopLoss, Leverage, Interval, 
+                            KlineTimestamp, TakeProfitMultiplier, MarginPerTrade)
                         VALUES (
                             @SessionId, @Symbol, @TradeType, @Signal, @EntryTime, 
-                            @EntryPrice, @TakeProfit, @StopLoss, @Leverage, @Interval, @KlineTimestamp);";
+                            @EntryPrice, @TakeProfit, @StopLoss, @Leverage, @Interval, 
+                            @KlineTimestamp, @TakeProfitMultiplier, @MarginPerTrade);"; 
 
                     using (var command = new SqliteCommand(insertQuery, connection))
                     {
-                        // Add parameters (do not include TradeId)
+                        // Add parameters
                         command.Parameters.AddWithValue("@SessionId", sessionId);
                         command.Parameters.AddWithValue("@Symbol", trade.Symbol);
-                        command.Parameters.AddWithValue("@TradeType", trade.TradeType);
+                        command.Parameters.AddWithValue("@TradeType", trade.IsLong ? "Long" : "Short");
                         command.Parameters.AddWithValue("@Signal", trade.Signal);
                         command.Parameters.AddWithValue("@EntryTime", trade.EntryTime);
                         command.Parameters.AddWithValue("@EntryPrice", trade.EntryPrice);
@@ -44,28 +46,29 @@ namespace BinanceTestnet.Database
                         command.Parameters.AddWithValue("@Leverage", trade.Leverage);
                         command.Parameters.AddWithValue("@Interval", trade.Interval);
                         command.Parameters.AddWithValue("@KlineTimestamp", trade.KlineTimestamp);
+                        command.Parameters.AddWithValue("@TakeProfitMultiplier", trade.TakeProfitMultiplier);
+                        command.Parameters.AddWithValue("@MarginPerTrade", trade.MarginPerTrade);
 
                         int rowsAffected = command.ExecuteNonQuery();
-                        Console.WriteLine($"Rows affected: {rowsAffected}"); // Debugging output
+                        Console.WriteLine($"Rows affected: {rowsAffected}");
 
                         if (rowsAffected > 0)
                         {
-                            // Retrieve the auto-generated TradeId
                             command.CommandText = "SELECT last_insert_rowid();";
                             int tradeId = Convert.ToInt32(command.ExecuteScalar());
                             return tradeId;
                         }
                         else
                         {
-                            return -1; // Indicate failure
+                            return -1;
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error logging open trade: {ex.Message}"); // Debugging output
-                return -1; // Indicate failure
+                Console.WriteLine($"Error logging open trade: {ex.Message}");
+                return -1;
             }
         }
 
@@ -161,6 +164,14 @@ namespace BinanceTestnet.Database
                                 entryTime = DateTime.SpecifyKind(entryTime, DateTimeKind.Utc);
                             }
                             long timestamp = new DateTimeOffset(entryTime).ToUnixTimeMilliseconds();
+                            
+                            decimal takeProfitMultiplier = reader.IsDBNull(reader.GetOrdinal("TakeProfitMultiplier")) 
+                                ? 0 
+                                : reader.GetDecimal(reader.GetOrdinal("TakeProfitMultiplier"));
+                            
+                            decimal marginPerTrade = reader.IsDBNull(reader.GetOrdinal("MarginPerTrade")) 
+                                ? 0 
+                                : reader.GetDecimal(reader.GetOrdinal("MarginPerTrade"));
 
                             // Create the Trade object
                             var trade = new Trade(
@@ -175,7 +186,9 @@ namespace BinanceTestnet.Database
                                 leverage: leverage,
                                 signal: signal,
                                 interval: interval,
-                                timestamp: timestamp
+                                timestamp: timestamp,
+                                takeProfitMultiplier:  takeProfitMultiplier,
+                                marginPerTrade: marginPerTrade
                             );
 
                             // Set additional properties

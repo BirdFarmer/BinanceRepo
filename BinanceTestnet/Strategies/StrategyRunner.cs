@@ -80,7 +80,7 @@ namespace BinanceLive.Strategies
             var strategies = new List<StrategyBase>();
 
             strategies.Add(new CandleDistributionReversalStrategy(_client, _apiKey, _orderManager, _wallet));
-            //  strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
+            strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
             //  strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));
             //   strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
             // strategies.Add(new RSIMomentumStrategy(_client, _apiKey, _orderManager, _wallet));
