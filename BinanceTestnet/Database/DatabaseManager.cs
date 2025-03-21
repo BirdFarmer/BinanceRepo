@@ -72,6 +72,7 @@ namespace BinanceTestnet.Database
                         LastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP
                     );";
 
+                // Updated Trades table with new columns
                 string createTradesTable = @"
                     CREATE TABLE IF NOT EXISTS Trades (
                         TradeId INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,8 +90,19 @@ namespace BinanceTestnet.Database
                         StopLoss REAL,                      -- Stop loss level
                         Duration INTEGER,                    -- Duration of the trade in minutes
                         FundsAdded REAL,                    -- Funds added to the wallet
-                        Interval TEXT,                        -- Interval (e.g., 1m, 5m, 1h)
-                        KlineTimestamp DATETIME             -- Timestamp of the kline data (nullable)
+                        Interval TEXT,                      -- Interval (e.g., 1m, 5m, 1h)
+                        KlineTimestamp DATETIME,           -- Timestamp of the kline data (nullable)
+                        TakeProfitMultiplier DECIMAL,       -- Take profit multiplier
+                        MarginPerTrade DECIMAL              -- Margin per trade
+                    );";
+
+                // New table for storing coin pair lists
+                string createCoinPairListsTable = @"
+                    CREATE TABLE IF NOT EXISTS CoinPairLists (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        CoinPairs TEXT NOT NULL,            -- Comma-separated list of coin pairs
+                        StartDateTime DATETIME NOT NULL,    -- When the list became active
+                        EndDateTime DATETIME                 -- When the list was replaced (nullable)
                     );";
 
                 using var command = new SqliteCommand(createUsersTable, connection);
@@ -104,6 +116,10 @@ namespace BinanceTestnet.Database
 
                 // Execute the query to create the Trades table
                 command.CommandText = createTradesTable;
+                command.ExecuteNonQuery();
+
+                // Execute the query to create the CoinPairLists table
+                command.CommandText = createCoinPairListsTable;
                 command.ExecuteNonQuery();
             });
         }
@@ -179,6 +195,74 @@ namespace BinanceTestnet.Database
             });
         }
 
+        
+        public void UpsertCoinPairList(List<string> coinPairs, DateTime startDateTime)
+        {
+            CreateConnection(connection =>
+            {
+                // Format the coin pairs as a comma-separated string with each pair enclosed in quotes
+                string formattedCoinPairs = string.Join(",", coinPairs.Select(cp => $"\"{cp}\""));
+
+                // Step 1: Update the EndDateTime of the previous list
+                string updatePreviousListQuery = @"
+                    UPDATE CoinPairLists
+                    SET EndDateTime = @StartDateTime
+                    WHERE EndDateTime IS NULL;";
+
+                using (var updateCommand = new SqliteCommand(updatePreviousListQuery, connection))
+                {
+                    updateCommand.Parameters.AddWithValue("@StartDateTime", startDateTime);
+                    updateCommand.ExecuteNonQuery();
+                }
+
+                // Step 2: Insert the new list with a null EndDateTime
+                string insertNewListQuery = @"
+                    INSERT INTO CoinPairLists (CoinPairs, StartDateTime, EndDateTime)
+                    VALUES (@CoinPairs, @StartDateTime, NULL);";
+
+                using (var insertCommand = new SqliteCommand(insertNewListQuery, connection))
+                {
+                    insertCommand.Parameters.AddWithValue("@CoinPairs", formattedCoinPairs);
+                    insertCommand.Parameters.AddWithValue("@StartDateTime", startDateTime);
+                    insertCommand.ExecuteNonQuery();
+                }
+            });
+        }
+
+        public List<string> GetClosestCoinPairList(DateTime targetDateTime)
+        {
+            List<string> coinPairs = new List<string>();
+
+            CreateConnection(connection =>
+            {
+                string query = @"
+                    SELECT CoinPairs
+                    FROM CoinPairLists
+                    WHERE StartDateTime <= @TargetDateTime
+                    AND (EndDateTime > @TargetDateTime OR EndDateTime IS NULL)
+                    ORDER BY StartDateTime DESC
+                    LIMIT 1;";
+
+                using (var command = new SqliteCommand(query, connection))
+                {
+                    command.Parameters.AddWithValue("@TargetDateTime", targetDateTime);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            // Parse the comma-separated list of coin pairs
+                            string coinPairsString = reader.GetString(0);
+                            coinPairs = coinPairsString.Split(',')
+                                                    .Select(cp => cp.Trim('"'))
+                                                    .ToList();
+                        }
+                    }
+                }
+            });
+
+            return coinPairs;
+        }
+        
         public List<string> GetTopCoinPairsByVolume(int limit)
         {
             List<string> topCoinPairs = new List<string>();
