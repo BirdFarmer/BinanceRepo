@@ -19,7 +19,7 @@ namespace BinanceTestnet.Database
         /// Generates a summary report for a specific session, grouped by TakeProfitMultiplier and Interval.
         /// </summary>
         /// 
-        public void GenerateSummaryReport(string sessionId, string outputPath)
+        public void GenerateSummaryReport(string sessionId, string outputPath, string coinPairsFormatted)
         {
             // Fetch all trades for the session
             var trades = _tradeLogger.GetTrades(sessionId);
@@ -138,12 +138,14 @@ namespace BinanceTestnet.Database
                 reportTable.Rows.Add("Short Trades", tradeDistribution.ShortTrades);
                 reportTable.Rows.Add("Average Trade Duration (minutes)", tradeDistribution.AverageDuration.ToString("F2").Replace(",", "."));
 
+                // Add the active coin pair list to the report
+                reportTable.Rows.Add("Active Coin Pairs", coinPairsFormatted);
+
                 // Export the report to CSV
                 var groupOutputPath = Path.Combine(outputPath, $"{interval}_{takeProfitMultiplier}_report.csv");
                 ExportToCsv(reportTable, groupOutputPath);
             }
         }
-
 
         /// <summary>
         /// Calculates performance metrics for a specific list of trades.

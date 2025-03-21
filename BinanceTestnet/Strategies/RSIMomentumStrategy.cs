@@ -35,7 +35,7 @@ public class RSIMomentumStrategy : StrategyBase
             if (rsiValues.Count == 0) return;
 
             // Console.WriteLine($"[DEBUG] RSI State Map Count: {rsiStateMap.Count}");
-            Console.WriteLine($"[DEBUG] RSI State for {symbol}: {(rsiStateMap.ContainsKey(symbol) ? rsiStateMap[symbol] : "NOT SET")}");
+            //Console.WriteLine($"[DEBUG] RSI State for {symbol}: {(rsiStateMap.ContainsKey(symbol) ? rsiStateMap[symbol] : "NOT SET")}");
 
 
             // **Always evaluate first before setting initial state**
@@ -114,18 +114,18 @@ public class RSIMomentumStrategy : StrategyBase
             if (rsi >= 71)
             {
                 rsiStateMap[symbol] = "OVERBOUGHT";
-                Console.WriteLine($"[STATE] {symbol} is set to OVERBOUGHT at RSI {rsi} on {DateTimeOffset.FromUnixTimeMilliseconds(kline.CloseTime).UtcDateTime}.");
+                //Console.WriteLine($"[STATE] {symbol} is set to OVERBOUGHT at RSI {rsi} on {DateTimeOffset.FromUnixTimeMilliseconds(kline.CloseTime).UtcDateTime}.");
                 return;
             }
             if (rsi <= 29)
             {
                 rsiStateMap[symbol] = "OVERSOLD";
-                Console.WriteLine($"[STATE] {symbol} is set to OVERSOLD at RSI {rsi} on {DateTimeOffset.FromUnixTimeMilliseconds(kline.CloseTime).UtcDateTime}.");
+                //Console.WriteLine($"[STATE] {symbol} is set to OVERSOLD at RSI {rsi} on {DateTimeOffset.FromUnixTimeMilliseconds(kline.CloseTime).UtcDateTime}.");
                 return;
             }
         }
         rsiStateMap[symbol] = "NEUTRAL";
-        Console.WriteLine($"[STATE] {symbol} is set to NEUTRAL.");
+        //Console.WriteLine($"[STATE] {symbol} is set to NEUTRAL.");
     }
 
     private async Task EvaluateRSIConditions(List<decimal> rsiValues, string symbol, List<Kline> klines)

@@ -124,9 +124,9 @@ namespace BinanceLive
 
             if (operationMode == OperationMode.Backtest)
             {                
-                //symbols = await GetBestListOfSymbols(_client, databaseManager);
+                symbols = await GetBestListOfSymbols(_client, databaseManager, startDate);
                 // Use the hardcoded list of symbols
-                symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
+                //symbols = new List<string> { "BNBUSDT", "SUIUSDT", "AUCTIONUSDT", "BANANAUSDT", "TRUMPUSDT", "LINKUSDT", "LTCUSDT", "ENAUSDT", "AAVEUSDT", "AVAXUSDT", "WIFUSDT", "ARKMUSDT", "BNXUSDT", "TAOUSDT", "HBARUSDT" };
             
             }
             else
@@ -223,28 +223,24 @@ namespace BinanceLive
 
         private static void GenerateReport()
         {
-            // Calculate performance metrics
             var metrics = _tradeLogger.CalculatePerformanceMetrics(_sessionId);
-
-            // Generate and save the report
             var reportGenerator = new ReportGenerator(_tradeLogger);
 
-            // Define the output folder
             string reportsFolder = @"C:\Repo\BinanceAPI\BinanceTestnet\Excels";
-
-            // Ensure the folder exists
             if (!Directory.Exists(reportsFolder))
             {
                 Directory.CreateDirectory(reportsFolder);
             }
 
-            // Define the report file path
             string reportPath = Path.Combine(reportsFolder, $"performance_report_{_sessionId}.txt");
 
-            // Generate the report
-            reportGenerator.GenerateSummaryReport(_sessionId, reportPath);
+            // Retrieve the active coin pair list for the session
+            var activeCoinPairs = _orderManager.DatabaseManager.GetClosestCoinPairList(DateTime.UtcNow);
+            string coinPairsFormatted = string.Join(",", activeCoinPairs.Select(cp => $"\"{cp}\""));
 
-            // Log the report location
+            // Add the coin pair list to the report
+            reportGenerator.GenerateSummaryReport(_sessionId, reportPath, coinPairsFormatted);
+
             Console.WriteLine($"Report generated successfully at: {reportPath}");
         }
 
@@ -379,8 +375,18 @@ namespace BinanceLive
             };
         }
 
-        private static async Task<List<string>> GetBestListOfSymbols(RestClient client, DatabaseManager dbManager)
+        private static async Task<List<string>> GetBestListOfSymbols(RestClient client, DatabaseManager dbManager, DateTime? targetDateTime = null)
         {
+            // If targetDateTime is provided (backtesting), try to retrieve the closest coin pair list
+            if (targetDateTime.HasValue)
+            {
+                var closestCoinPairList = dbManager.GetClosestCoinPairList(targetDateTime.Value);
+                if (closestCoinPairList.Any())
+                {
+                    return closestCoinPairList; // Use the retrieved list
+                }
+            }
+
             // Fetch symbols from Binance Futures API (fapi)
             var symbols = await FetchCoinPairsFromFuturesAPI(client);
 
@@ -390,11 +396,13 @@ namespace BinanceLive
                 dbManager.UpsertCoinPairData(symbolInfo.Symbol, symbolInfo.Price, symbolInfo.Volume);
             }
 
-            // Query the database to get the top 50 symbols by volume
-            //var top50SymbolsHighestVolume = dbManager.GetTopCoinPairsByVolume(150);
-            var top50SymbolsByPriceChange = dbManager.GetTopCoinPairs(80);
+            // Query the database to get the top 80 symbols by price change
+            var topSymbolsByPriceChange = dbManager.GetTopCoinPairs(80);
 
-            return top50SymbolsByPriceChange;
+            // Store the coin pair list
+            dbManager.UpsertCoinPairList(topSymbolsByPriceChange, DateTime.UtcNow);
+
+            return topSymbolsByPriceChange;
         }
 
         private static async Task<List<CoinPairInfo>> FetchCoinPairsFromFuturesAPI(RestClient client)
@@ -524,46 +532,24 @@ namespace BinanceLive
             }
         }
 
-        private static async Task RunLivePaperTrading(RestClient client, List<string> symbols,
-                                                    string interval, Wallet wallet, string fileName,
-                                                    SelectedTradingStrategy selectedStrategy, decimal takeProfit,
-                                                    OrderManager orderManager, StrategyRunner runner)
+        private static async Task RunLivePaperTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner)
         {
             var startTime = DateTime.Now;
-            var running = true;
+            int cycles = 0;
 
-            while (running)
+            while (true)
             {
                 try
                 {
                     // Check for termination command
-                    try
+                    if (Console.KeyAvailable)
                     {
-                        if (Console.KeyAvailable) // Try using KeyAvailable first
+                        var key = Console.ReadKey(intercept: true).Key;
+                        if (key == ConsoleKey.Q)
                         {
-                            var key = Console.ReadKey(intercept: true).Key;
-                            if (key == ConsoleKey.Q)
-                            {
-                                Console.WriteLine("Q key pressed. Terminating gracefully...");
-                                OnTermination(null, null); // Manually trigger termination
-                                running = false;
-                                break; // Exit the loop
-                            }
-                        }
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        // Fallback to command-based termination if KeyAvailable is not supported
-                        if (Console.In.Peek() != -1) // Check if input is available
-                        {
-                            var input = Console.ReadLine();
-                            if (input?.ToLower() == "exit")
-                            {
-                                Console.WriteLine("Exit command received. Terminating gracefully...");
-                                OnTermination(null, null); // Manually trigger termination
-                                running = false;
-                                break; // Exit the loop
-                            }
+                            Console.WriteLine("Q key pressed. Terminating gracefully...");
+                            OnTermination(null, null); // Manually trigger termination
+                            break; // Exit the loop
                         }
                     }
 
@@ -589,6 +575,20 @@ namespace BinanceLive
                     Console.WriteLine($"Stack Trace: {ex.StackTrace}");
                 }
 
+                cycles++;
+                if (cycles == 20) // Update the coin pair list every 20 cycles
+                {
+                    cycles = 0;
+                    Stopwatch timer = new Stopwatch();
+                    timer.Start();
+
+                    // Update the coin pair list and store it in the new table
+                    symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+
+                    Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
+                    timer.Stop();
+                }
+
                 // Simulate delay based on the interval
                 var delay = TimeTools.GetTimeSpanFromInterval(interval); // e.g., "1m"
                 await Task.Delay(delay);
@@ -596,7 +596,7 @@ namespace BinanceLive
 
             Console.WriteLine("Live paper trading terminated gracefully.");
         }
-
+        
         private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner)
         {
             var startTime = DateTime.Now;
