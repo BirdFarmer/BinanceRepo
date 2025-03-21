@@ -131,7 +131,7 @@ namespace BinanceTestnet.Database
             CreateConnection(connection =>
             {
                 // Fetch the previous price, volume, and volume in USDT if they exist
-                string selectQuery = "SELECT CurrentPrice, CurrentVolume FROM CoinPairData WHERE Symbol = @symbol;";
+                string selectQuery = "SELECT CurrentPrice, CurrentVolume, VolumeInUSDT FROM CoinPairData WHERE Symbol = @symbol;";
                 decimal previousPrice = 0;
                 decimal previousVolume = 0;
                 decimal previousVolumeInUSDT = 0;
@@ -144,15 +144,15 @@ namespace BinanceTestnet.Database
                     {
                         previousPrice = reader.GetDecimal(0);
                         previousVolume = reader.GetDecimal(1);
-                        previousVolumeInUSDT = previousPrice * previousVolume; // Calculate previous volume in USDT
+                        previousVolumeInUSDT = reader.GetDecimal(2); // Use the stored VolumeInUSDT
                     }
                 }
 
                 // Calculate differences and percent changes
                 decimal priceDiff = currentPrice - previousPrice;
-                decimal volumeDiff = currentVolume - previousVolume;
+                decimal volumeInUSDTDiff = volumeInUSDT - previousVolumeInUSDT; // Use VolumeInUSDT for diff
                 decimal pricePercentChange = previousPrice != 0 ? (priceDiff / previousPrice) * 100 : 0;
-                decimal volumePercentChange = previousVolume != 0 ? (volumeDiff / previousVolume) * 100 : 0;
+                decimal volumeInUSDTPercentChange = previousVolumeInUSDT != 0 ? (volumeInUSDTDiff / previousVolumeInUSDT) * 100 : 0;
 
                 // Insert or update the row with volume in USDT and calculated differences
                 string upsertQuery = @"
@@ -186,8 +186,8 @@ namespace BinanceTestnet.Database
                     upsertCommand.Parameters.AddWithValue("@pricePercentChange", pricePercentChange);
                     upsertCommand.Parameters.AddWithValue("@currentVolume", currentVolume);
                     upsertCommand.Parameters.AddWithValue("@previousVolume", previousVolume);
-                    upsertCommand.Parameters.AddWithValue("@volumeDiff", volumeDiff);
-                    upsertCommand.Parameters.AddWithValue("@volumePercentChange", volumePercentChange);
+                    upsertCommand.Parameters.AddWithValue("@volumeDiff", volumeInUSDTDiff); // Use VolumeInUSDTDiff
+                    upsertCommand.Parameters.AddWithValue("@volumePercentChange", volumeInUSDTPercentChange); // Use VolumeInUSDTPercentChange
                     upsertCommand.Parameters.AddWithValue("@volumeInUSDT", volumeInUSDT);
                     upsertCommand.Parameters.AddWithValue("@previousVolumeInUSDT", previousVolumeInUSDT);
                     upsertCommand.ExecuteNonQuery();
@@ -274,7 +274,7 @@ namespace BinanceTestnet.Database
                 string query = @"
                     SELECT Symbol 
                     FROM CoinPairData
-                    ORDER BY CurrentVolume DESC
+                    ORDER BY VolumeInUSDT DESC
                     LIMIT @limit;";
                 
                 using (var command = new SqliteCommand(query, connection))
@@ -357,9 +357,9 @@ namespace BinanceTestnet.Database
         public List<string> GetTopCoinPairs(int totalLimit = 80)
         {
             List<string> topCoinPairs = new List<string>();
-            HashSet<string> uniqueSymbols = new HashSet<string>(); // To track unique symbols
+            HashSet<string> uniqueSymbols = new HashSet<string>();
 
-            // Proportions for each category, prioritizing VolumeInUSDT and PricePercentChange
+            // Proportions for each category
             int volumeLimit = 40; // Target 40 coins from VolumeInUSDT
             int priceChangeLimit = 40; // Target 40 coins from PricePercentChange
 
@@ -396,30 +396,28 @@ namespace BinanceTestnet.Database
                     ORDER BY ABS(PricePercentChange) DESC
                     LIMIT @limit;";
 
+                // Get top coin pairs by composite score (VolumeInUSDT * ABS(PricePercentChange))
+                string topCompositeScoreQuery = excludeLowestVolumeQuery + @"
+                    SELECT Symbol
+                    FROM CoinPairData
+                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
+                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+                    ORDER BY (VolumeInUSDT * ABS(PricePercentChange)) DESC
+                    LIMIT @limit;";
+
                 // Add symbols from VolumeInUSDT
                 int addedFromVolume = AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topVolumeQuery, volumeLimit);
 
                 // Add symbols from PricePercentChange
                 int addedFromPriceChange = AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topPriceChangeQuery, priceChangeLimit);
 
-                // Total unique symbols after prioritizing VolumeInUSDT and PricePercentChange
-                //int totalAdded = addedFromVolume + addedFromPriceChange;
-
-                // If the total is less than 80, fill the remaining slots with Volume Percent Change (filler)
+                // If the total is less than 80, fill the remaining slots with composite score
                 if (topCoinPairs.Count < totalLimit)
                 {
                     int remainingToAdd = totalLimit - topCoinPairs.Count;
 
-                    // Use Volume Percent Change as filler
-                    string topVolumeChangeQuery = excludeLowestVolumeQuery + @"
-                        SELECT Symbol
-                        FROM CoinPairData
-                        WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                        AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
-                        ORDER BY ABS(VolumePercentChange) DESC
-                        LIMIT @limit;";
-
-                    AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topVolumeChangeQuery, remainingToAdd);
+                    // Use composite score as filler
+                    AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topCompositeScoreQuery, remainingToAdd);
                 }
             }
 
