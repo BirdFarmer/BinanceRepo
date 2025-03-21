@@ -494,7 +494,7 @@ namespace BinanceLive
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner, DateTime startDate, DateTime endDate)
         {
             var backtestTakeProfits = new List<decimal> { 3m }; // Take profit percentages
-            var intervals = new[] {"1m"}; // Time intervals for backtesting
+            var intervals = new[] { "1m" }; // Time intervals for backtesting
             var leverage = 15;
 
             foreach (var tp in backtestTakeProfits)
@@ -508,11 +508,17 @@ namespace BinanceLive
 
                     foreach (var symbol in symbols)
                     {
-                        if (symbol.Equals("SOLUSDT") || symbol.Equals("TSTUSDT"))
-                            continue;
-
+                        // Fetch historical data for the symbol
                         var historicalData = await FetchHistoricalData(client, symbol, intervals[i], startDate, endDate);
 
+                        // Skip symbols with insufficient historical data
+                        if (!historicalData.Any())
+                        {
+                            Console.WriteLine($"Skipping {symbol}: Insufficient historical data for the specified period.");
+                            continue;
+                        }
+
+                        // Assign the symbol to each kline
                         foreach (var kline in historicalData)
                         {
                             kline.Symbol = symbol;
@@ -784,9 +790,22 @@ namespace BinanceLive
             if (response.IsSuccessful && response.Content != null)
             {
                 var klineData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content);
+
+                // Check if the first candle's OpenTime is after the startDate
+                if (klineData.Any())
+                {
+                    var firstCandleOpenTime = DateTimeOffset.FromUnixTimeMilliseconds((long)klineData[0][0]).UtcDateTime;
+                    if (firstCandleOpenTime > startDate)
+                    {
+                        // Skip this symbol if the first candle is after the startDate
+                        Console.WriteLine($"Skipping {symbol}: Insufficient historical data before {startDate}");
+                        return historicalData; // Return an empty list
+                    }
+                }
+
+                // Process the candles
                 foreach (var kline in klineData)
                 {
-
                     historicalData.Add(new Kline
                     {
                         OpenTime = (long)kline[0],
@@ -805,7 +824,7 @@ namespace BinanceLive
                 Console.WriteLine($"Failed to fetch historical data for {symbol}: {response.ErrorMessage}");
             }
             return historicalData;
-        }        
+        }
 
         public static string GenerateSessionId()
         {
