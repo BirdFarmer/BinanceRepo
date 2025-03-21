@@ -385,9 +385,18 @@ namespace BinanceLive
                 {
                     return closestCoinPairList; // Use the retrieved list
                 }
+                else
+                {
+                    // If no list is found, fall back to the top 80 biggest coins by volume
+                    var topBiggestCoins = dbManager.GetTopCoinPairsByVolume(80);
+                    if (topBiggestCoins.Any())
+                    {
+                        return topBiggestCoins; // Use the top 80 biggest coins
+                    }
+                }
             }
 
-            // Fetch symbols from Binance Futures API (fapi)
+            // For live trading or if the database is empty, fetch symbols from Binance Futures API
             var symbols = await FetchCoinPairsFromFuturesAPI(client);
 
             // Upsert symbols into the database (with volume, price, etc.)
@@ -404,7 +413,6 @@ namespace BinanceLive
 
             return topSymbolsByPriceChange;
         }
-
         private static async Task<List<CoinPairInfo>> FetchCoinPairsFromFuturesAPI(RestClient client)
         {
             var coinPairList = new List<CoinPairInfo>();
@@ -485,8 +493,8 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner, DateTime startDate, DateTime endDate)
         {
-            var backtestTakeProfits = new List<decimal> { 3m, 1.5m }; // Take profit percentages
-            var intervals = new[] {"1m", "5m" }; // Time intervals for backtesting
+            var backtestTakeProfits = new List<decimal> { 3m }; // Take profit percentages
+            var intervals = new[] {"1m"}; // Time intervals for backtesting
             var leverage = 15;
 
             foreach (var tp in backtestTakeProfits)
@@ -778,6 +786,7 @@ namespace BinanceLive
                 var klineData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content);
                 foreach (var kline in klineData)
                 {
+
                     historicalData.Add(new Kline
                     {
                         OpenTime = (long)kline[0],
