@@ -385,9 +385,18 @@ namespace BinanceLive
                 {
                     return closestCoinPairList; // Use the retrieved list
                 }
+                else
+                {
+                    // If no list is found, fall back to the top 80 biggest coins by volume
+                    var topBiggestCoins = dbManager.GetTopCoinPairsByVolume(80);
+                    if (topBiggestCoins.Any())
+                    {
+                        return topBiggestCoins; // Use the top 80 biggest coins
+                    }
+                }
             }
 
-            // Fetch symbols from Binance Futures API (fapi)
+            // For live trading or if the database is empty, fetch symbols from Binance Futures API
             var symbols = await FetchCoinPairsFromFuturesAPI(client);
 
             // Upsert symbols into the database (with volume, price, etc.)
@@ -404,7 +413,6 @@ namespace BinanceLive
 
             return topSymbolsByPriceChange;
         }
-
         private static async Task<List<CoinPairInfo>> FetchCoinPairsFromFuturesAPI(RestClient client)
         {
             var coinPairList = new List<CoinPairInfo>();
@@ -485,8 +493,8 @@ namespace BinanceLive
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner, DateTime startDate, DateTime endDate)
         {
-            var backtestTakeProfits = new List<decimal> { 3m, 1.5m }; // Take profit percentages
-            var intervals = new[] {"1m", "5m" }; // Time intervals for backtesting
+            var backtestTakeProfits = new List<decimal> { 3m }; // Take profit percentages
+            var intervals = new[] { "1m" }; // Time intervals for backtesting
             var leverage = 15;
 
             foreach (var tp in backtestTakeProfits)
@@ -500,11 +508,17 @@ namespace BinanceLive
 
                     foreach (var symbol in symbols)
                     {
-                        if (symbol.Equals("SOLUSDT") || symbol.Equals("TSTUSDT"))
-                            continue;
-
+                        // Fetch historical data for the symbol
                         var historicalData = await FetchHistoricalData(client, symbol, intervals[i], startDate, endDate);
 
+                        // Skip symbols with insufficient historical data
+                        if (!historicalData.Any())
+                        {
+                            Console.WriteLine($"Skipping {symbol}: Insufficient historical data for the specified period.");
+                            continue;
+                        }
+
+                        // Assign the symbol to each kline
                         foreach (var kline in historicalData)
                         {
                             kline.Symbol = symbol;
@@ -776,6 +790,20 @@ namespace BinanceLive
             if (response.IsSuccessful && response.Content != null)
             {
                 var klineData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content);
+
+                // Check if the first candle's OpenTime is after the startDate
+                if (klineData.Any())
+                {
+                    var firstCandleOpenTime = DateTimeOffset.FromUnixTimeMilliseconds((long)klineData[0][0]).UtcDateTime;
+                    if (firstCandleOpenTime > startDate)
+                    {
+                        // Skip this symbol if the first candle is after the startDate
+                        Console.WriteLine($"Skipping {symbol}: Insufficient historical data before {startDate}");
+                        return historicalData; // Return an empty list
+                    }
+                }
+
+                // Process the candles
                 foreach (var kline in klineData)
                 {
                     historicalData.Add(new Kline
@@ -796,7 +824,7 @@ namespace BinanceLive
                 Console.WriteLine($"Failed to fetch historical data for {symbol}: {response.ErrorMessage}");
             }
             return historicalData;
-        }        
+        }
 
         public static string GenerateSessionId()
         {
