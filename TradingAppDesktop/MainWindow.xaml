@@ -1,0 +1,46 @@
+﻿<Window x:Class="TradingAppDesktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Trading App" Height="450" Width="800">
+    <StackPanel Margin="20">
+        <!-- Operation Mode -->
+        <Label Content="Operation Mode:" />
+        <ComboBox x:Name="OperationModeComboBox" SelectedIndex="0">
+            <ComboBoxItem Content="Paper Trading" />
+            <ComboBoxItem Content="Backtesting" />
+            <ComboBoxItem Content="Live Trading" />
+        </ComboBox>
+
+        <!-- Trade Direction -->
+        <Label Content="Trade Direction:" />
+        <ComboBox x:Name="TradeDirectionComboBox" SelectedIndex="0">
+            <ComboBoxItem Content="Both Longs and Shorts" />
+            <ComboBoxItem Content="Only Longs" />
+            <ComboBoxItem Content="Only Shorts" />
+        </ComboBox>
+
+        <!-- Trading Strategy -->
+        <Label Content="Trading Strategy:" />
+        <ComboBox x:Name="TradingStrategyComboBox" SelectedIndex="0">
+            <ComboBoxItem Content="All Strategies" />
+            <ComboBoxItem Content="3 SMAs Expanding" />
+            <ComboBoxItem Content="MACD Diversion" />
+            <ComboBoxItem Content="Hull with 200SMA" />
+        </ComboBox>
+
+        <!-- Entry Size -->
+        <Label Content="Entry Size (USDT):" />
+        <TextBox x:Name="EntrySizeTextBox" Text="20" />
+
+        <!-- Leverage -->
+        <Label Content="Leverage (1 to 25):" />
+        <TextBox x:Name="LeverageTextBox" Text="15" />
+
+        <!-- Take Profit -->
+        <Label Content="Take Profit Multiplier:" />
+        <TextBox x:Name="TakeProfitTextBox" Text="5" />
+
+        <!-- Start Button -->
+        <Button Content="Start Trading" Click="StartButton_Click" Margin="0,20,0,0" />
+    </StackPanel>
+</Window>
