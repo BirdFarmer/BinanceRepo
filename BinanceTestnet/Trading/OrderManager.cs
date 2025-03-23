@@ -46,8 +46,8 @@ namespace BinanceTestnet.Trading
         public DatabaseManager DatabaseManager => _databaseManager;
         private readonly string _sessionId;
 
-      public OrderManager(Wallet wallet, decimal leverage, ExcelWriter excelWriter, OperationMode operationMode,
-                        string interval, string fileName, decimal takeProfit,
+      public OrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
+                        string interval, decimal takeProfit,
                         SelectedTradeDirection tradeDirection, SelectedTradingStrategy tradingStrategy,
                         RestClient client, decimal tpIteration, decimal margin, string databasePath, string sessionId)
         {
