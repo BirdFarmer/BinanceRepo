@@ -43,7 +43,10 @@ namespace TradingAPI.Services
             
             var interval = "1m";
 
-            var orderManager = new OrderManager(_wallet, leverage, new ExcelWriter(fileName: _fileName), operationMode, interval, _fileName, (decimal)takeProfit, tradeDirection, selectedStrategy, _client, (decimal)takeProfit);
+            var orderManager = new OrderManager(_wallet, leverage, operationMode, 
+                                                interval, (decimal)takeProfit, tradeDirection, 
+                                                selectedStrategy, _client, (decimal)takeProfit, 
+                                                entrySize, "change this", "sessionid");
 
             if (_apiKey == null)
             {

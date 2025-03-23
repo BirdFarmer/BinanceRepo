@@ -6,7 +6,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using BinanceTestnet.Trading;
 using System.Diagnostics;
-using BinanceTestnet.Strategies;
 
 namespace BinanceLive.Strategies
 {
