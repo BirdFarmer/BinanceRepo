@@ -232,7 +232,7 @@ namespace BinanceTestnet.Database
         public List<string> GetClosestCoinPairList(DateTime targetDateTime)
         {
             List<string> coinPairs = new List<string>();
-
+            
             CreateConnection(connection =>
             {
                 string query = @"

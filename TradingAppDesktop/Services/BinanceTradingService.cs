@@ -21,6 +21,7 @@ using Serilog;
 using System.Diagnostics;
 using System.Linq.Expressions;
 using System.IO;
+using System.Windows;
 
 namespace TradingAppDesktop.Services
 {
@@ -31,17 +32,22 @@ namespace TradingAppDesktop.Services
         private static OrderManager _orderManager;
         private static RestClient _client; // Lift client to class level
         private static Wallet _wallet;
+        private CancellationTokenSource _cancellationTokenSource;
+        private bool _isStopping = false;
+        public bool IsRunning => _cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested;
 
         public BinanceTradingService()
         {
             _client = new RestClient("https://fapi.binance.com");
             _wallet = new Wallet(300);
+            _cancellationTokenSource = new CancellationTokenSource();
         }
 
         public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, 
                                        string interval, decimal entrySize, decimal leverage, decimal takeProfit, 
                                        DateTime? startDate = null, DateTime? endDate = null)
         {
+            ((MainWindow)Application.Current.MainWindow).Log("Starting trading...");
             _sessionId = GenerateSessionId();
             Console.WriteLine($"SessionId: {_sessionId}");
 
@@ -64,8 +70,12 @@ namespace TradingAppDesktop.Services
             databaseManager.InitializeDatabase();
             _tradeLogger = new TradeLogger(databasePath);
 
+            ((MainWindow)Application.Current.MainWindow).Log("Getting list of symbols...");
+            DateTime startdate = new DateTime(2025, 01, 02);
             // Get Symbols
             var symbols = await GetBestListOfSymbols(_client, databaseManager, startDate);
+            string symbolsString = symbols.ToString();
+            ((MainWindow)Application.Current.MainWindow).Log($"Symbols to trade: {symbolsString}");
 
             // Initialize OrderManager and StrategyRunner
             _orderManager = new OrderManager(_wallet, leverage, operationMode, interval, takeProfit, tradeDirection, selectedStrategy, _client, 
@@ -76,23 +86,39 @@ namespace TradingAppDesktop.Services
             // Run the appropriate mode
             if (operationMode == OperationMode.Backtest)
             {
-                await RunBacktest(_client, symbols, interval, _wallet, "", selectedStrategy, _orderManager, runner, startDate.Value, endDate.Value);
+                await RunBacktest(_client, symbols, interval, _wallet, "", selectedStrategy, _orderManager, runner, startDate.Value, endDate.Value, _cancellationTokenSource.Token);
             }
             else if (operationMode == OperationMode.LiveRealTrading)
             {
-                await RunLiveTrading(_client, symbols, interval, _wallet, "", selectedStrategy, takeProfit, _orderManager, runner);
+                await RunLiveTrading(_client, symbols, interval, _wallet, "", selectedStrategy, takeProfit, _orderManager, runner, _cancellationTokenSource.Token);
             }
             else // LivePaperTrading
             {
-                await RunLivePaperTrading(_client, symbols, interval, _wallet, "", selectedStrategy, takeProfit, _orderManager, runner);
+                await RunLivePaperTrading(_client, symbols, interval, _wallet, "", selectedStrategy, takeProfit, _orderManager, runner, _cancellationTokenSource.Token);
             }
 
             GenerateReport();
         }
 
-        public void StopTrading()
+        public void StopTrading(bool closeAllTrades)
         {
+            if (_isStopping) return;
+            _isStopping = true;
 
+            try
+            {
+                _cancellationTokenSource?.Cancel();
+                
+                if (closeAllTrades)
+                {
+                    // Fire-and-forget for closing trades
+                    Task.Run(() => CloseAllTrades()); 
+                }
+            }
+            finally
+            {
+                _isStopping = false;
+            }
         }
 
         private static void OnTermination(object sender, ConsoleCancelEventArgs e)
@@ -151,6 +177,23 @@ namespace TradingAppDesktop.Services
             Console.WriteLine("All open trades closed.");
             GenerateReport();
             Environment.Exit(0);
+        }
+
+        private void CloseAllTrades()
+        {
+            if (_client == null || _orderManager == null) return;
+
+            var openTrades = _orderManager.GetActiveTrades();
+            if (!openTrades.Any()) return;
+
+            var symbols = openTrades.Select(t => t.Symbol).Distinct().ToList();
+            var currentPrices = FetchCurrentPrices(_client, symbols, 
+                GetApiKeys().apiKey, GetApiKeys().apiSecret).Result;
+                
+            if (currentPrices?.Any() == true)
+            {
+                _orderManager.CloseAllActiveTrades(currentPrices, DateTime.UtcNow.Ticks);
+            }
         }
 
         private static void GenerateReport()
@@ -413,70 +456,92 @@ namespace TradingAppDesktop.Services
             return 0;
         }
 
-        private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, 
-                                              SelectedTradingStrategy selectedStrategy, OrderManager orderManager, StrategyRunner runner, 
-                                              DateTime startDate, DateTime endDate)
+        private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, 
+                                            Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy,
+                                            OrderManager orderManager, StrategyRunner runner, DateTime startDate,
+                                            DateTime endDate, CancellationToken cancellationToken)
         {
-            var backtestTakeProfits = new List<decimal> { 3m }; // Take profit percentages
-            var intervals = new[] { "1m" }; // Time intervals for backtesting
+            var backtestTakeProfits = new List<decimal> { 3m };
+            var intervals = new[] { "1m" };
             var leverage = 15;
 
-            foreach (var tp in backtestTakeProfits)
+            try
             {
-                for (int i = 0; i < intervals.Length; i++)
+                foreach (var tp in backtestTakeProfits)
                 {
-                    wallet = new Wallet(3000); // Reset wallet balance
-
-                    orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
-                    orderManager.UpdateSettings(leverage, intervals[i]); // Update OrderManager settings (leverage, etc.)
-
-                    foreach (var symbol in symbols)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    
+                    for (int i = 0; i < intervals.Length; i++)
                     {
-                        // Fetch historical data for the symbol
-                        var historicalData = await FetchHistoricalData(client, symbol, intervals[i], startDate, endDate);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        
+                        wallet = new Wallet(3000);
+                        orderManager.UpdateParams(wallet, tp);
+                        orderManager.UpdateSettings(leverage, intervals[i]);
 
-                        // Skip symbols with insufficient historical data
-                        if (!historicalData.Any())
+                        foreach (var symbol in symbols)
                         {
-                            Console.WriteLine($"Skipping {symbol}: Insufficient historical data for the specified period.");
-                            continue;
+                            cancellationToken.ThrowIfCancellationRequested();
+                            
+                            var historicalData = await FetchHistoricalData(client, symbol, intervals[i], startDate, endDate)
+                                .ConfigureAwait(false);
+
+                            if (!historicalData.Any())
+                            {
+                                Console.WriteLine($"Skipping {symbol}: Insufficient historical data");
+                                continue;
+                            }
+
+                            foreach (var kline in historicalData)
+                            {
+                                kline.Symbol = symbol;
+                            }
+
+                            Console.WriteLine($" -- Coin: {symbol} TF: {intervals[i]} Lev: 15 TP: {tp} -- ");
+
+                            // Pass cancellation token to strategy runner
+                            await runner.RunStrategiesOnHistoricalDataAsync(historicalData)
+                                .ConfigureAwait(false);
+
+                            if (historicalData.Any())
+                            {
+                                var finalKline = historicalData.Last();
+                                orderManager.DatabaseManager.UpsertCoinPairData(
+                                    symbol, 
+                                    finalKline.Close, 
+                                    historicalData.Sum(k => k.Volume)
+                                );
+                            }
                         }
 
-                        // Assign the symbol to each kline
-                        foreach (var kline in historicalData)
-                        {
-                            kline.Symbol = symbol;
-                        }
-
-                        Console.WriteLine($" -- Coin: {symbol} TF: {intervals[i]} Lev: 15 TP: {tp} -- ");
-
-                        // Run the strategy on the historical data
-                        await runner.RunStrategiesOnHistoricalDataAsync(historicalData);
-
-                        // After backtest, get final price and volume for the symbol
-                        if (historicalData.Any())
-                        {
-                            var finalKline = historicalData.Last();
-                            decimal finalPrice = finalKline.Close;
-                            decimal volume = historicalData.Sum(k => k.Volume);
-
-                            // Insert or update the coin pair data in the database
-                            orderManager.DatabaseManager.UpsertCoinPairData(symbol, finalPrice, volume);
-                        }
+                        orderManager.PrintWalletBalance();
                     }
-
-                    orderManager.PrintWalletBalance();
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("Backtest cancelled by user request");
+                throw; // Re-throw if you want calling code to know it was cancelled
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Backtest failed: {ex.Message}");
+                throw; // Preserve the original exception stack
+            }
+            finally
+            {
+                Console.WriteLine("Backtest resources cleaned up");
             }
         }
 
         private static async Task RunLivePaperTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, 
-                                                      SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner)
+                                                      SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner,
+                                             CancellationToken cancellationToken)
         {
             var startTime = DateTime.Now;
             int cycles = 0;
 
-            while (true)
+            while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
@@ -536,60 +601,46 @@ namespace TradingAppDesktop.Services
             Console.WriteLine("Live paper trading terminated gracefully.");
         }
         
-        private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, 
-                                                 SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner)
+        private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, 
+                                            Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, 
+                                            decimal takeProfit, OrderManager orderManager, StrategyRunner runner,
+                                            CancellationToken cancellationToken)
         {
             var startTime = DateTime.Now;
             int cycles = 0;
-
             BinanceActivities onBinance = new BinanceActivities(client);
-            while (true)
+
+            while (!cancellationToken.IsCancellationRequested)
             {
                 try
-                {                    
+                {
+                    // Critical: Pass cancellation token to delay
+                    var delay = TimeTools.GetTimeSpanFromInterval(interval);
+                    await Task.Delay(delay, cancellationToken);
+
                     bool handledOrders = await onBinance.HandleOpenOrdersAndActiveTrades(symbols);
-                    if (!handledOrders)
-                    {
-                        Console.WriteLine("Failed to handle open orders and trades.");
-                        // Consider handling the error or retrying
-                    }
+                    if (!handledOrders) continue;
 
-                    //await onBinance.UpdateStopLossAndTakeProfit(trailingStopPercentage: 4m, dynamicTakeProfitMultiplier: 1.1m);
-
-                    // Fetch current prices for symbols
                     var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
-
-                    // Execute trading strategies and get buy/sell signals
                     await runner.RunStrategiesAsync();
 
-                    // Calculate elapsed time and log it
-                    var elapsedTime = DateTime.Now - startTime;
-                    Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
-                }
-                catch (Exception ex)
-                {
-                    // Log the exception without stopping the loop
-                    Console.WriteLine($"An error occurred: {ex.Message}");
-                    Console.WriteLine($"Stack Trace: {ex.StackTrace}");
-                }
-
-                cycles++;
-                    if(cycles == 20)
+                    if (++cycles % 20 == 0)
                     {
-                    cycles = 0;
-                    Stopwatch timer = new Stopwatch();
-                    timer.Start();
-                    symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
-                    Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
-                    timer.Stop();
+                        symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
                     }
-
-                // Determine delay based on the selected interval
-                var delay = TimeTools.GetTimeSpanFromInterval(interval); // e.g., "1m"
-                await Task.Delay(delay);
+                }
+                catch (TaskCanceledException)
+                {
+                    break; // Expected during shutdown
+                }
+                catch (Exception)
+                {
+                    // Basic error handling without logging
+                    if (cancellationToken.IsCancellationRequested)
+                        break;
+                }
             }
         }
-
 
         // Method to generate a signature
         private static string GenerateSignature(string queryString, string apiSecret)

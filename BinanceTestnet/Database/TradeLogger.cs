@@ -662,5 +662,11 @@ namespace BinanceTestnet.Database
 
             return maxStreak;
         }  
+
+        public void Dispose()
+        {
+            // Add cleanup code if needed
+            // Example: databaseConnection?.Close();
+        }
     }
 }
