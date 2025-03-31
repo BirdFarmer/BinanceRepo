@@ -3,36 +3,52 @@ using System.Diagnostics;
 using System.Windows;
 using BinanceTestnet.Enums;
 using BinanceTestnet.Trading;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using TradingAppDesktop.Services;
 
 namespace TradingAppDesktop
 {
     public partial class App : Application
     {
+        private ILoggerFactory _loggerFactory;
         public BinanceTradingService TradingService { get; private set; }
 
         protected override void OnStartup(StartupEventArgs e)
         {
-            // Initialize trading service first
-            TradingService = new BinanceTradingService();
-            ConfigureConsoleHandling();
-
-            // Create and configure main window
-            MainWindow = new MainWindow();
+            base.OnStartup(e);
             
-            // Initialize with default values
-            ((MainWindow)MainWindow).InitializeTradingParameters(
+            // 1. Create logger factory first
+            var loggerFactory = LoggerFactory.Create(builder => {
+                builder
+                    .AddDebug()
+                    .AddProvider(new FileLoggerProvider(@"C:\Logs\app.log"))
+                    .SetMinimumLevel(LogLevel.Debug);
+            });
+
+            // 2. Create main window
+            var mainWindow = new MainWindow();
+            MainWindow = mainWindow;
+            
+            // 3. Initialize UI logger
+            var uiLoggerProvider = new LoggerProvider(mainWindow);
+            loggerFactory.AddProvider(uiLoggerProvider);
+            
+            // 4. Create trading service
+            TradingService = new BinanceTradingService(
+                loggerFactory.CreateLogger<BinanceTradingService>()
+            );
+            
+            // 5. Configure main window
+            mainWindow.InitializeTradingParameters(
                 OperationMode.LivePaperTrading,
                 SelectedTradeDirection.Both,
                 SelectedTradingStrategy.All,
-                "5m",
-                20m,
-                15m,
-                5m
+                "5m", 20m, 15m, 5m
             );
             
-            MainWindow.Show();
-            base.OnStartup(e);
+            mainWindow.SetTradingService(TradingService);
+            mainWindow.Show();
         }
 
         private void ConfigureConsoleHandling()

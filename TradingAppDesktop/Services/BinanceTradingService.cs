@@ -14,14 +14,15 @@ using BinanceTestnet.Models;
 using BinanceLive.Tools;
 using BinanceTestnet.Services;
 using RestSharp;
-using Serilog;
 using Newtonsoft.Json;
 using RestSharp;
-using Serilog;
 using System.Diagnostics;
 using System.Linq.Expressions;
 using System.IO;
 using System.Windows;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TradingAppDesktop.Services
 {
@@ -35,123 +36,227 @@ namespace TradingAppDesktop.Services
         private CancellationTokenSource _cancellationTokenSource;
         private bool _isStopping = false;
         public bool IsRunning => _cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested;
-
-        public BinanceTradingService()
+        private readonly ILogger<BinanceTradingService> _logger;
+        
+        public BinanceTradingService(ILogger<BinanceTradingService> logger)
         {
+            _logger = logger;
             _client = new RestClient("https://fapi.binance.com");
             _wallet = new Wallet(300);
             _cancellationTokenSource = new CancellationTokenSource();
         }
 
-        public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, 
-                                       string interval, decimal entrySize, decimal leverage, decimal takeProfit, 
-                                       DateTime? startDate = null, DateTime? endDate = null)
+        public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, 
+                                    SelectedTradingStrategy selectedStrategy, string interval, 
+                                    decimal entrySize, decimal leverage, decimal takeProfit,
+                                    DateTime? startDate = null, DateTime? endDate = null)
         {
-            ((MainWindow)Application.Current.MainWindow).Log("Starting trading...");
-            _sessionId = GenerateSessionId();
-            Console.WriteLine($"SessionId: {_sessionId}");
+            _logger.LogInformation("Starting trading session...");
+            _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategy}, Direction: {tradeDirection}");
+            _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, TP={takeProfit}%");
 
-            // Initialize Logger
-            Log.Logger = new LoggerConfiguration()
-                .WriteTo.File("program.log")
-                .CreateLogger();
+            _sessionId = GenerateSessionId();
+            _logger.LogInformation($"New trading session ID: {_sessionId}");
 
             // Fetch API Keys
             var (apiKey, apiSecret) = GetApiKeys();
             if (string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(apiSecret))
             {
-                Console.WriteLine("API key or secret is not set. Please set them as environment variables.");
+                _logger.LogError("API key or secret is not set. Please set BINANCE_API_KEY and BINANCE_API_SECRET environment variables.");
                 return;
+            }
+            else
+            {
+                _logger.LogDebug("API keys retrieved successfully");
             }
 
             // Initialize Database
             string databasePath = @"C:\Repo\BinanceAPI\db\DataBase.db";
+            _logger.LogDebug($"Initializing database at: {databasePath}");
+            
             var databaseManager = new DatabaseManager(databasePath);
-            databaseManager.InitializeDatabase();
-            _tradeLogger = new TradeLogger(databasePath);
+            try
+            {
+                databaseManager.InitializeDatabase();
+                _tradeLogger = new TradeLogger(databasePath);
+                _logger.LogInformation("Database initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to initialize database");
+                throw;
+            }
 
-            ((MainWindow)Application.Current.MainWindow).Log("Getting list of symbols...");
-            DateTime startdate = new DateTime(2025, 01, 02);
             // Get Symbols
-            var symbols = await GetBestListOfSymbols(_client, databaseManager, startDate);
-            string symbolsString = symbols.ToString();
-            ((MainWindow)Application.Current.MainWindow).Log($"Symbols to trade: {symbolsString}");
+            _logger.LogInformation("Fetching symbols to trade...");
+            var symbols = await GetBestListOfSymbols(_client, databaseManager, DateTime.Today.AddDays(-1));
+            _logger.LogInformation($"Selected {symbols.Count} symbols: {string.Join(", ", symbols.Take(5))}...");
 
-            // Initialize OrderManager and StrategyRunner
-            _orderManager = new OrderManager(_wallet, leverage, operationMode, interval, takeProfit, tradeDirection, selectedStrategy, _client, 
-                                             takeProfit, entrySize, databasePath, _sessionId);
+            // Initialize OrderManager
+            _logger.LogDebug("Initializing OrderManager...");
+            _orderManager = CreateOrderManager(_wallet, leverage, operationMode, interval, 
+                                        takeProfit, tradeDirection, selectedStrategy, 
+                                        _client, takeProfit, entrySize, databasePath, _sessionId);
 
-            var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategy);
-
-            // Run the appropriate mode
-            if (operationMode == OperationMode.Backtest)
+            try
             {
-                await RunBacktest(_client, symbols, interval, _wallet, "", selectedStrategy, _orderManager, runner, startDate.Value, endDate.Value, _cancellationTokenSource.Token);
+                // Initialize StrategyRunner
+                _logger.LogDebug("Initializing StrategyRunner...");
+                var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategy);
+
+                // Add timeout to the trading operation
+                var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(1)); // 1 minute timeout
+                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token, timeoutCts.Token);
+
+                _logger.LogInformation($"Starting {operationMode} trading...");
+                
+                switch (operationMode)
+                {
+                    case OperationMode.Backtest:
+                        await RunBacktest(_client, symbols, interval, _wallet, "", 
+                                        selectedStrategy, _orderManager, runner, 
+                                        new DateTime(2025, 1, 5), new DateTime(2025, 1, 6), //startDate.Value, endDate.Value, 
+                                        _cancellationTokenSource.Token);
+                        break;
+                    case OperationMode.LiveRealTrading:
+                        await RunLiveTrading(_client, symbols, interval, _wallet, "", 
+                                        selectedStrategy, takeProfit, _orderManager, 
+                                        runner, _cancellationTokenSource.Token);
+                        break;
+                    default: // LivePaperTrading
+                        await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
+                                                selectedStrategy, takeProfit, _orderManager, 
+                                                runner, _cancellationTokenSource.Token);
+                        break;
+                }
             }
-            else if (operationMode == OperationMode.LiveRealTrading)
+            catch (Exception ex)
             {
-                await RunLiveTrading(_client, symbols, interval, _wallet, "", selectedStrategy, takeProfit, _orderManager, runner, _cancellationTokenSource.Token);
-            }
-            else // LivePaperTrading
-            {
-                await RunLivePaperTrading(_client, symbols, interval, _wallet, "", selectedStrategy, takeProfit, _orderManager, runner, _cancellationTokenSource.Token);
+                _logger.LogError(ex, "Trading session failed");
+                throw;
             }
 
+            _logger.LogInformation("Trading session completed");
             GenerateReport();
+        }
+
+
+        private async Task<bool> CheckApiHealth()
+        {
+            _logger.LogInformation("[1] Starting health check...");
+            try
+            {
+                _logger.LogInformation("[2] Creating request...");
+                var pingRequest = new RestRequest("/fapi/v1/ping", Method.Get);
+
+                _logger.LogInformation("[3] Executing request...");
+                var response = await _client.ExecuteAsync(pingRequest);
+
+                _logger.LogInformation($"[4] Response received: {response.StatusCode}");
+                return response.IsSuccessful;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[5] Health check failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<bool> TestConnection()
+        {
+            var healthChecker = new HealthChecker(_client, _logger);
+            var result = await healthChecker.CheckAllEndpointsAsync();
+
+            if (result.FullyOperational)
+            {
+                _logger.LogInformation("All endpoints healthy!");
+                return true;
+            }
+            else
+            {
+                _logger.LogWarning($"Degraded: Ping={result.PingHealthy}, ExchangeInfo={result.ExchangeInfoHealthy}");
+                return false;
+            }            
+        }
+
+        // When creating OrderManager:
+        private OrderManager CreateOrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
+                                                string interval, decimal takeProfit,
+                                                SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy,
+                                                RestClient client, decimal tpIteration, decimal entrySize, string databasePath, string sessionId)
+        {
+            return new OrderManager(_wallet, leverage, operationMode, interval,
+                                    takeProfit, tradeDirection, selectedStrategy,
+                                    _client, takeProfit, entrySize, databasePath, _sessionId
+            );
         }
 
         public void StopTrading(bool closeAllTrades)
         {
-            if (_isStopping) return;
+            if (_isStopping)
+            {
+                _logger.LogWarning("Stop operation already in progress");
+                return;
+            }
+
+            _logger.LogInformation($"Initiating stop trading (closeAllTrades: {closeAllTrades})");
             _isStopping = true;
 
             try
             {
+                _logger.LogDebug("Cancelling running operations...");
                 _cancellationTokenSource?.Cancel();
                 
                 if (closeAllTrades)
                 {
-                    // Fire-and-forget for closing trades
-                    Task.Run(() => CloseAllTrades()); 
+                    _logger.LogInformation("Closing all open trades...");
+                    Task.Run(() => CloseAllTrades()).ContinueWith(t => 
+                    {
+                        if (t.IsFaulted)
+                        {
+                            _logger.LogError(t.Exception, "Error while closing trades");
+                        }
+                        else
+                        {
+                            _logger.LogInformation("All trades closed successfully");
+                        }
+                    });
                 }
             }
             finally
             {
                 _isStopping = false;
+                _logger.LogInformation("Trading stopped successfully");
             }
         }
 
-        private static void OnTermination(object sender, ConsoleCancelEventArgs e)
+        private void OnTermination(object sender, ConsoleCancelEventArgs e)
         {
             if (e != null)
             {
-                e.Cancel = true; // Prevent the program from terminating immediately
+                e.Cancel = true;
             }
 
-            Console.WriteLine("\nTermination detected. Closing all open trades...");
+            _logger.LogInformation("\nTermination detected. Closing all open trades...");
 
-            // Check if _client is initialized
             if (_client == null)
             {
-                Console.WriteLine("Error: RestClient is not initialized.");
+                _logger.LogError("Error: RestClient is not initialized.");
                 return;
             }
 
-            // Check if _orderManager is initialized
             if (_orderManager == null)
             {
-                Console.WriteLine("Error: OrderManager is not initialized.");
+                _logger.LogError("Error: OrderManager is not initialized.");
                 return;
             }
 
-            // Fetch all active trades
             var openTrades = _orderManager.GetActiveTrades();
-            Console.WriteLine($"Number of open trades: {openTrades.Count}");
+            _logger.LogInformation($"Number of open trades: {openTrades.Count}");
 
             var symbols = openTrades.Select(t => t.Symbol).Distinct().ToList();
-            Console.WriteLine($"Symbols to fetch prices for: {string.Join(", ", symbols)}");
+            _logger.LogInformation($"Symbols to fetch prices for: {string.Join(", ", symbols)}");
 
-            // Fetch current prices for these symbols
             Dictionary<string, decimal> currentPrices = null;
             try
             {
@@ -159,64 +264,95 @@ namespace TradingAppDesktop.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error fetching current prices: {ex.Message}");
+                _logger.LogError(ex, "Error fetching current prices");
                 return;
             }
 
             if (currentPrices == null || currentPrices.Count == 0)
             {
-                Console.WriteLine("Error: Failed to fetch current prices or no prices returned.");
+                _logger.LogError("Error: Failed to fetch current prices or no prices returned.");
                 return;
             }
 
-            Console.WriteLine($"Fetched prices: {string.Join(", ", currentPrices.Select(kv => $"{kv.Key}: {kv.Value}"))}");
+            _logger.LogInformation($"Fetched prices: {string.Join(", ", currentPrices.Select(kv => $"{kv.Key}: {kv.Value}"))}");
 
-            // Close all open trades using the fetched prices
             _orderManager.CloseAllActiveTrades(currentPrices, DateTime.UtcNow.Ticks);
 
-            Console.WriteLine("All open trades closed.");
+            _logger.LogInformation("All open trades closed.");
             GenerateReport();
             Environment.Exit(0);
         }
 
         private void CloseAllTrades()
         {
-            if (_client == null || _orderManager == null) return;
+            _logger.LogInformation("Starting to close all trades...");
+            
+            if (_client == null || _orderManager == null)
+            {
+                _logger.LogWarning("Cannot close trades - client or order manager not initialized");
+                return;
+            }
 
             var openTrades = _orderManager.GetActiveTrades();
-            if (!openTrades.Any()) return;
-
-            var symbols = openTrades.Select(t => t.Symbol).Distinct().ToList();
-            var currentPrices = FetchCurrentPrices(_client, symbols, 
-                GetApiKeys().apiKey, GetApiKeys().apiSecret).Result;
-                
-            if (currentPrices?.Any() == true)
+            if (!openTrades.Any())
             {
-                _orderManager.CloseAllActiveTrades(currentPrices, DateTime.UtcNow.Ticks);
+                _logger.LogInformation("No open trades to close");
+                return;
+            }
+
+            _logger.LogInformation($"Closing {openTrades.Count} open trades...");
+            
+            var symbols = openTrades.Select(t => t.Symbol).Distinct().ToList();
+            _logger.LogDebug($"Fetching prices for {symbols.Count} symbols");
+
+            try
+            {
+                var currentPrices = FetchCurrentPrices(_client, symbols, 
+                    GetApiKeys().apiKey, GetApiKeys().apiSecret).Result;
+                    
+                if (currentPrices?.Any() == true)
+                {
+                    _logger.LogDebug("Closing trades with current prices...");
+                    _orderManager.CloseAllActiveTrades(currentPrices, DateTime.UtcNow.Ticks);
+                    _logger.LogInformation("All trades closed successfully");
+                }
+                else
+                {
+                    _logger.LogError("Failed to fetch current prices for closing trades");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while closing trades");
             }
         }
 
-        private static void GenerateReport()
+
+        private void GenerateReport()
         {
-            var metrics = _tradeLogger.CalculatePerformanceMetrics(_sessionId);
-            var reportGenerator = new ReportGenerator(_tradeLogger);
-
-            string reportsFolder = @"C:\Repo\BinanceAPI\BinanceTestnet\Excels";
-            if (!Directory.Exists(reportsFolder))
+            _logger.LogInformation("Generating performance report...");
+            
+            try
             {
+                var metrics = _tradeLogger.CalculatePerformanceMetrics(_sessionId);
+                var reportGenerator = new ReportGenerator(_tradeLogger);
+
+                string reportsFolder = @"C:\Repo\BinanceAPI\BinanceTestnet\Excels";
                 Directory.CreateDirectory(reportsFolder);
+
+                string reportPath = Path.Combine(reportsFolder, $"performance_report_{_sessionId}.txt");
+                
+                var activeCoinPairs = _orderManager.DatabaseManager.GetClosestCoinPairList(DateTime.UtcNow);
+                string coinPairsFormatted = string.Join(",", activeCoinPairs.Select(cp => $"\"{cp}\""));
+
+                reportGenerator.GenerateSummaryReport(_sessionId, reportPath, coinPairsFormatted);
+                
+                _logger.LogInformation($"Report generated successfully at: {reportPath}");
             }
-
-            string reportPath = Path.Combine(reportsFolder, $"performance_report_{_sessionId}.txt");
-
-            // Retrieve the active coin pair list for the session
-            var activeCoinPairs = _orderManager.DatabaseManager.GetClosestCoinPairList(DateTime.UtcNow);
-            string coinPairsFormatted = string.Join(",", activeCoinPairs.Select(cp => $"\"{cp}\""));
-
-            // Add the coin pair list to the report
-            reportGenerator.GenerateSummaryReport(_sessionId, reportPath, coinPairsFormatted);
-
-            Console.WriteLine($"Report generated successfully at: {reportPath}");
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to generate report");
+            }
         }
 
         private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit, string backtestSessionName)
@@ -534,73 +670,81 @@ namespace TradingAppDesktop.Services
             }
         }
 
-        private static async Task RunLivePaperTrading(RestClient client, List<string> symbols, string interval, Wallet wallet, string fileName, 
-                                                      SelectedTradingStrategy selectedStrategy, decimal takeProfit, OrderManager orderManager, StrategyRunner runner,
-                                             CancellationToken cancellationToken)
+        private async Task RunLivePaperTrading(RestClient client, List<string> symbols, string interval, 
+                                            Wallet wallet, string fileName, 
+                                            SelectedTradingStrategy selectedStrategy, decimal takeProfit, 
+                                            OrderManager orderManager, StrategyRunner runner,
+                                            CancellationToken cancellationToken)
         {
             var startTime = DateTime.Now;
             int cycles = 0;
+            _logger.LogInformation($"Starting live paper trading with {symbols.Count} symbols");
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    // Check for termination command
-                    if (Console.KeyAvailable)
-                    {
-                        var key = Console.ReadKey(intercept: true).Key;
-                        if (key == ConsoleKey.Q)
-                        {
-                            Console.WriteLine("Q key pressed. Terminating gracefully...");
-                            OnTermination(null, null); // Manually trigger termination
-                            break; // Exit the loop
-                        }
-                    }
+                    _logger.LogDebug($"Starting trading cycle {cycles + 1}");
+                    
+                    // if (Console.KeyAvailable)
+                    // {
+                    //     var key = Console.ReadKey(intercept: true).Key;
+                    //     if (key == ConsoleKey.Q)
+                    //     {
+                    //         _logger.LogInformation("Q key pressed. Terminating gracefully...");
+                    //         OnTermination(null, null);
+                    //         break;
+                    //     }
+                    // }
 
-                    // Fetch current prices and run strategies
+                    _logger.LogDebug("Fetching current prices...");
                     var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
+                    
+                    _logger.LogDebug("Running strategies...");
                     await runner.RunStrategiesAsync();
 
-                    Console.WriteLine($"---- Cycle Completed ----");
+                    _logger.LogInformation($"---- Cycle {cycles + 1} Completed ----");
+                    
                     if (currentPrices != null)
                     {
+                        _logger.LogDebug("Checking and closing trades...");
                         await orderManager.CheckAndCloseTrades(currentPrices);
+                        
+                        _logger.LogDebug("Logging active trades...");
                         orderManager.PrintActiveTrades(currentPrices);
+                        
+                        _logger.LogDebug("Logging wallet balance...");
                         orderManager.PrintWalletBalance();
                     }
 
                     var elapsedTime = DateTime.Now - startTime;
-                    Console.WriteLine($"Elapsed Time: {elapsedTime.Days} days, {elapsedTime.Hours} hours, {elapsedTime.Minutes} minutes");
+                    _logger.LogInformation($"Elapsed Time: {elapsedTime.Days}d {elapsedTime.Hours}h {elapsedTime.Minutes}m");
                 }
                 catch (Exception ex)
                 {
-                    // Log the exception without stopping the loop
-                    Console.WriteLine($"An error occurred: {ex.Message}");
-                    Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                    _logger.LogError(ex, $"Error in trading cycle {cycles + 1}");
                 }
 
                 cycles++;
-                if (cycles == 20) // Update the coin pair list every 20 cycles
+                if (cycles % 20 == 0)
                 {
-                    cycles = 0;
-                    Stopwatch timer = new Stopwatch();
-                    timer.Start();
-
-                    // Update the coin pair list and store it in the new table
+                    _logger.LogInformation("Updating symbol list...");
+                    Stopwatch timer = Stopwatch.StartNew();
+                    
                     symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
-
-                    Console.WriteLine($"New list of coin pairs: {string.Join(", ", symbols)}, took {timer.Elapsed} to load and update in db");
+                    
                     timer.Stop();
+                    _logger.LogInformation($"Updated {symbols.Count} symbols. Took {timer.ElapsedMilliseconds}ms");
                 }
 
-                // Simulate delay based on the interval
-                var delay = TimeTools.GetTimeSpanFromInterval(interval); // e.g., "1m"
+                var delay = TimeTools.GetTimeSpanFromInterval(interval);
+                _logger.LogDebug($"Waiting {delay.TotalSeconds} seconds until next cycle");
                 await Task.Delay(delay);
             }
 
-            Console.WriteLine("Live paper trading terminated gracefully.");
+            _logger.LogInformation("Live paper trading terminated gracefully");
         }
-        
+
         private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, 
                                             Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, 
                                             decimal takeProfit, OrderManager orderManager, StrategyRunner runner,
