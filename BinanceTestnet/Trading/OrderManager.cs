@@ -75,7 +75,7 @@ namespace BinanceTestnet.Trading
             // Remove this line
             // _excelWriter.Initialize(fileName);
 
-            InitializeLotSizes().Wait(); // Awaiting the task for initialization
+            //InitializeLotSizes().Wait(); // Awaiting the task for initialization
         }
 
         private async Task InitializeLotSizes()

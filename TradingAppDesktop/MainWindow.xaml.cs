@@ -17,32 +17,40 @@ using TradingAppDesktop;
 using TradingAppDesktop.Services;
 using System.ComponentModel;
 using System.IO;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using System.Diagnostics;
+
 
 namespace TradingAppDesktop
 {
     public partial class MainWindow : Window
     {
+        private BinanceTradingService _tradingService;
+
         public MainWindow()
         {
             InitializeComponent();
             
-            // Redirect console output to UI
-            Console.SetOut(new TextBoxWriter(DebugOutput));
+            // UI initialization only
+            Console.SetOut(new TextBoxWriter(LogText));
+            InitializeComboBoxes();
             
-            Console.WriteLine($"Window created at {DateTime.Now:T}");
+            StartButton.Click += StartButton_Click;
+            StopButton.Click += StopButton_Click;
+        }
 
-            // Bind enums properly
+        private void InitializeComboBoxes()
+        {
+            // Simple version - works with 0-based enum
             OperationModeComboBox.ItemsSource = Enum.GetValues(typeof(OperationMode));
             TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));
             TradingStrategyComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradingStrategy));
             
             // Set default selections
-            OperationModeComboBox.SelectedIndex = 0;
+            OperationModeComboBox.SelectedIndex = 0; // Paper Trading
             TradeDirectionComboBox.SelectedIndex = 0;
             TradingStrategyComboBox.SelectedIndex = 0;
-
-            StartButton.Click += StartButton_Click;
-            StopButton.Click += StopButton_Click;
         }
 
         private void StartButton_Click(object sender, RoutedEventArgs e)
@@ -50,22 +58,28 @@ namespace TradingAppDesktop
             Log("Attempting to start trading...");
             try 
             {
-                // Get user inputs from the UI
-                var operationMode = (OperationMode)OperationModeComboBox.SelectedIndex;
-                var tradeDirection = (SelectedTradeDirection)TradeDirectionComboBox.SelectedIndex;
-                var selectedStrategy = (SelectedTradingStrategy)TradingStrategyComboBox.SelectedIndex;
+                // Get selections - now correct with 0-based enum
+                var operationMode = (OperationMode)OperationModeComboBox.SelectedItem;
+                var tradeDirection = (SelectedTradeDirection)TradeDirectionComboBox.SelectedItem;
+                var selectedStrategy = (SelectedTradingStrategy)TradingStrategyComboBox.SelectedItem;
+
+                // Parse inputs
+                decimal entrySize = decimal.Parse(EntrySizeTextBox.Text);
+                decimal leverage = decimal.Parse(LeverageTextBox.Text);
+                decimal takeProfit = decimal.Parse(TakeProfitTextBox.Text);
 
                 // Pass the enums to BinanceTradingService
-                var tradingService = ((App)Application.Current).TradingService;
-                tradingService.StartTrading(
-                    operationMode: operationMode,
-                    tradeDirection: tradeDirection,
-                    selectedStrategy: selectedStrategy,
-                    interval: "5m",
-                    entrySize: 20m,
-                    leverage: 15m,
-                    takeProfit: 5m
+                // Use the injected service
+                _tradingService.StartTrading(
+                    (OperationMode)OperationModeComboBox.SelectedIndex,
+                    (SelectedTradeDirection)TradeDirectionComboBox.SelectedIndex,
+                    (SelectedTradingStrategy)TradingStrategyComboBox.SelectedIndex,
+                    "5m", 
+                    entrySize, 
+                    leverage, 
+                    takeProfit
                 );
+
                 StartButton.IsEnabled = false;
                 StopButton.IsEnabled = true;
                 Log("Trading started successfully");
@@ -93,6 +107,34 @@ namespace TradingAppDesktop
             }
         }
 
+        public void SetTradingService(BinanceTradingService service)
+        {
+            _tradingService = service;
+        }        
+
+        private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                TestConnectionButton.Content = "Testing...";
+                TestConnectionButton.IsEnabled = false;
+
+                SetTradingService(_tradingService);
+
+                var success = await _tradingService.TestConnection();
+                TestConnectionButton.Content = success ? "✓ Connected" : "✗ Failed";
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"CRASH PREVENTED: {ex}");
+                TestConnectionButton.Content = "Error (see debug)";
+            }
+            finally
+            {
+                TestConnectionButton.IsEnabled = true;
+            }
+        }
+
         private void MainWindow_Closing(object sender, CancelEventArgs e)
         {
             if (((App)Application.Current).TradingService.IsRunning)
@@ -114,6 +156,11 @@ namespace TradingAppDesktop
                     Log("Exit canceled by user");
                 }
             }
+        }
+        
+        private void LogText_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            LogText.ScrollToEnd();
         }
 
         public void InitializeTradingParameters(
@@ -146,43 +193,43 @@ namespace TradingAppDesktop
             Application.Current.Shutdown();
             base.OnClosed(e);
         }
-
-            // Custom writer for UI output
+    
+        // Custom writer for UI output (updated for TextBox)
         private class TextBoxWriter : TextWriter
         {
-            private readonly TextBlock _output;
-            public TextBoxWriter(TextBlock output) => _output = output;
+            private readonly TextBox _output;
+            public TextBoxWriter(TextBox output) => _output = output;
             public override Encoding Encoding => Encoding.UTF8;
 
             public override void WriteLine(string value)
             {
                 _output.Dispatcher.Invoke(() => 
                 {
-                    _output.Text += value + Environment.NewLine;
-                    // Auto-scroll
-                    var scrollViewer = FindVisualParent<ScrollViewer>(_output);
-                    scrollViewer?.ScrollToEnd();
+                    _output.AppendText(value + Environment.NewLine);
+                    _output.ScrollToEnd();
                 });
             }
         }
 
         public void Log(string message)
         {
+            if (message == null) return;
             // Ensure this runs on the UI thread
             Dispatcher.Invoke(() =>
             {
                 // Append to log text block
                 LogText.Text += $"{DateTime.Now:T} - {message}\n";
+                LogText.ScrollToEnd();
                 StatusText.Text = message;
                 
                 // Auto-scroll to bottom
-                var scrollViewer = FindVisualParent<ScrollViewer>(LogText);
-                scrollViewer?.ScrollToEnd();
+                // var scrollViewer = FindVisualParent<ScrollViewer>(LogText);
+                // scrollViewer?.ScrollToEnd();
             });
         }
 
         // Helper to find parent controls
-        private static T FindVisualParent<T>(DependencyObject child) where T : DependencyObject
+        public static T FindVisualParent<T>(DependencyObject child) where T : DependencyObject
         {
             while (child != null && child is not T)
                 child = VisualTreeHelper.GetParent(child);
