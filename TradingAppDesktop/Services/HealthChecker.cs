@@ -10,6 +10,7 @@ namespace TradingAppDesktop.Services
     {
         private readonly RestClient _client;
         private readonly ILogger _logger;
+        private readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
 
         public HealthChecker(RestClient client, ILogger logger)
         {
@@ -19,45 +20,71 @@ namespace TradingAppDesktop.Services
 
         public async Task<HealthCheckResult> CheckAllEndpointsAsync()
         {
-            var result = new HealthCheckResult();
-            
-            result.PingHealthy = await CheckPingAsync();
-            
-            if (result.PingHealthy)
+            var result = new HealthCheckResult
             {
-                result.ExchangeInfoHealthy = await CheckExchangeInfoAsync();
-            }
-
+                PingHealthy = await CheckPingAsync(),
+                ExchangeInfoHealthy = await CheckExchangeInfoAsync()
+            };
+            result.FullyOperational = result.PingHealthy && result.ExchangeInfoHealthy;
             return result;
+        }
+
+        private async Task<bool> CheckExchangeInfoAsync(int maxRetries = 2)
+        {
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                using var cts = new CancellationTokenSource(_timeout);
+                try
+                {
+                    _logger.LogDebug($"Checking exchange info (attempt {attempt}/{maxRetries})");
+                    
+                    var request = new RestRequest("/fapi/v1/exchangeInfo", Method.Get);
+                    var response = await _client.ExecuteAsync(request, cts.Token);
+
+                    if (response.IsSuccessful)
+                    {
+                        // Additional validation - check if response contains expected data
+                        if (!string.IsNullOrEmpty(response.Content) && 
+                            response.Content.Contains("symbols") && 
+                            response.Content.Contains("TRADING"))
+                        {
+                            return true;
+                        }
+                        _logger.LogWarning("Exchange info returned invalid data format");
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"Exchange info check failed: {response.StatusCode}");
+                    }
+                }
+                catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                {
+                    _logger.LogWarning($"Exchange info check timed out (attempt {attempt})");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, $"Exchange info check error (attempt {attempt})");
+                }
+
+                if (attempt < maxRetries)
+                {
+                    await Task.Delay(1000 * attempt); // Exponential backoff
+                }
+            }
+            return false;
         }
 
         private async Task<bool> CheckPingAsync()
         {
             try
             {
-                var response = await _client.ExecuteAsync(new RestRequest("/fapi/v1/ping", Method.Get));
+                var request = new RestRequest("/fapi/v1/ping", Method.Get);
+                var response = await _client.ExecuteAsync(request);
                 return response.IsSuccessful;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Ping check failed: {ex.Message}");
-                return false;
-            }
-        }
-
-        private async Task<bool> CheckExchangeInfoAsync()
-        {
-            try
-            {
-                var request = new RestRequest("/fapi/v1/exchangeInfo", Method.Get);
-                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var response = await _client.ExecuteAsync(request, cts.Token);
-                
-                return response.IsSuccessful && response.Content?.Contains("symbols") == true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"ExchangeInfo check failed: {ex.Message}");
+                _logger.LogWarning(ex, "Ping check failed");
                 return false;
             }
         }
@@ -67,6 +94,6 @@ namespace TradingAppDesktop.Services
     {
         public bool PingHealthy { get; set; }
         public bool ExchangeInfoHealthy { get; set; }
-        public bool FullyOperational => PingHealthy && ExchangeInfoHealthy;
+        public bool FullyOperational { get; set; }
     }
 }

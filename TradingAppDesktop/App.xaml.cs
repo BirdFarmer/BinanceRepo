@@ -36,7 +36,7 @@ namespace TradingAppDesktop
             
             // 4. Create trading service
             TradingService = new BinanceTradingService(
-                loggerFactory.CreateLogger<BinanceTradingService>()
+                loggerFactory.CreateLogger<BinanceTradingService>(), loggerFactory
             );
             
             // 5. Configure main window

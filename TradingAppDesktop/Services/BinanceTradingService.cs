@@ -14,8 +14,6 @@ using BinanceTestnet.Models;
 using BinanceLive.Tools;
 using BinanceTestnet.Services;
 using RestSharp;
-using Newtonsoft.Json;
-using RestSharp;
 using System.Diagnostics;
 using System.Linq.Expressions;
 using System.IO;
@@ -23,27 +21,46 @@ using System.Windows;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http;
 
 namespace TradingAppDesktop.Services
 {
-    public class BinanceTradingService
+    public class BinanceTradingService : IExchangeInfoProvider
     {
         private static TradeLogger _tradeLogger;
         private static string _sessionId;
         private static OrderManager _orderManager;
         private static RestClient _client; // Lift client to class level
+        
+        private readonly TimeSpan _defaultTimeout = TimeSpan.FromSeconds(10);
         private static Wallet _wallet;
         private CancellationTokenSource _cancellationTokenSource;
-        private bool _isStopping = false;
-        public bool IsRunning => _cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested;
-        private readonly ILogger<BinanceTradingService> _logger;
+        private volatile bool _isStopping = false;
+        private volatile bool _startInProgress = false;
         
-        public BinanceTradingService(ILogger<BinanceTradingService> logger)
+        public bool IsStopping => _isStopping;
+        public bool StartInProgress => _startInProgress;
+        private volatile bool _isRunning = false;
+
+        public bool IsRunning => _cancellationTokenSource != null && 
+                                !_cancellationTokenSource.IsCancellationRequested;
+
+        private readonly ILogger<BinanceTradingService> _logger;
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly object _startLock = new();
+        
+        public BinanceTradingService(ILogger<BinanceTradingService> logger, ILoggerFactory loggerFactory)
         {
             _logger = logger;
-            _client = new RestClient("https://fapi.binance.com");
+            _loggerFactory = loggerFactory;
+
+            _client = new RestClient(new HttpClient()
+            {
+                Timeout = _defaultTimeout,
+                BaseAddress = new Uri("https://fapi.binance.com")
+            });
             _wallet = new Wallet(300);
-            _cancellationTokenSource = new CancellationTokenSource();
+            //_cancellationTokenSource = new CancellationTokenSource();
         }
 
         public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, 
@@ -51,6 +68,19 @@ namespace TradingAppDesktop.Services
                                     decimal entrySize, decimal leverage, decimal takeProfit,
                                     DateTime? startDate = null, DateTime? endDate = null)
         {
+            _logger.LogDebug($"State update - IsRunning: {_isRunning}, StartInProgress: {_startInProgress}, IsStopping: {_isStopping}");
+            lock (_startLock)
+            {
+                if (_startInProgress || (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested))
+                {
+                    _logger.LogWarning("Start operation already in progress");
+                    return;
+                }
+                _startInProgress = true;
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = new CancellationTokenSource();                
+            }
+
             _logger.LogInformation("Starting trading session...");
             _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategy}, Direction: {tradeDirection}");
             _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, TP={takeProfit}%");
@@ -135,11 +165,50 @@ namespace TradingAppDesktop.Services
                 _logger.LogError(ex, "Trading session failed");
                 throw;
             }
+            finally
+            {
+                lock (_startLock)
+                {
+                    _startInProgress = false;
+                }
+            }
 
             _logger.LogInformation("Trading session completed");
             GenerateReport();
         }
 
+        public async Task<ExchangeInfo> GetExchangeInfoAsync()
+        {
+            var request = new RestRequest("/fapi/v1/exchangeInfo", Method.Get);
+            
+            try
+            {
+                // Double timeout protection
+                using var cts = new CancellationTokenSource(_defaultTimeout);
+                
+                var response = await _client.ExecuteAsync(request, cts.Token);
+                
+                if (!response.IsSuccessful)
+                {
+                    Console.WriteLine($"API Error: {response.StatusCode} - {response.ErrorMessage}");
+                    return null;
+                }
+
+                return JsonConvert.DeserializeObject<ExchangeInfo>(response.Content);
+            }
+            catch (TaskCanceledException)
+            {
+                Console.WriteLine("Request timed out (5s limit reached)");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Unexpected error: {ex.Message}");
+                return null;
+            }
+        }
+
+        public void Dispose() => _client?.Dispose();
 
         private async Task<bool> CheckApiHealth()
         {
@@ -160,23 +229,37 @@ namespace TradingAppDesktop.Services
                 _logger.LogError($"[5] Health check failed: {ex.Message}");
                 return false;
             }
-        }
+        }        
 
         public async Task<bool> TestConnection()
         {
-            var healthChecker = new HealthChecker(_client, _logger);
-            var result = await healthChecker.CheckAllEndpointsAsync();
-
-            if (result.FullyOperational)
+            try
             {
-                _logger.LogInformation("All endpoints healthy!");
-                return true;
-            }
-            else
-            {
-                _logger.LogWarning($"Degraded: Ping={result.PingHealthy}, ExchangeInfo={result.ExchangeInfoHealthy}");
+                var healthChecker = new HealthChecker(_client, _logger);
+                var result = await healthChecker.CheckAllEndpointsAsync();
+                
+                if (result.FullyOperational)
+                {
+                    _logger.LogInformation("All endpoints healthy - Exchange Info validated");
+                    return true;
+                }
+                
+                if (!result.PingHealthy && !result.ExchangeInfoHealthy)
+                {
+                    _logger.LogError("Both ping and exchange info checks failed - possible network issue");
+                }
+                else if (!result.ExchangeInfoHealthy)
+                {
+                    _logger.LogError("Exchange info endpoint failed - API may be degraded");
+                }
+                
                 return false;
-            }            
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Health check crashed unexpectedly");
+                return false;
+            }
         }
 
         // When creating OrderManager:
@@ -185,51 +268,52 @@ namespace TradingAppDesktop.Services
                                                 SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy,
                                                 RestClient client, decimal tpIteration, decimal entrySize, string databasePath, string sessionId)
         {
+            
+            var orderManagerLogger = _loggerFactory.CreateLogger<OrderManager>();
+
             return new OrderManager(_wallet, leverage, operationMode, interval,
                                     takeProfit, tradeDirection, selectedStrategy,
-                                    _client, takeProfit, entrySize, databasePath, _sessionId
+                                    _client, takeProfit, entrySize, databasePath, 
+                                    _sessionId, this, orderManagerLogger
             );
         }
 
         public void StopTrading(bool closeAllTrades)
         {
-            if (_isStopping)
+            lock (_startLock)
             {
-                _logger.LogWarning("Stop operation already in progress");
-                return;
+                if (_isStopping || _cancellationTokenSource == null)
+                {
+                    _logger.LogWarning("Stop operation already in progress or not running");
+                    return;
+                }
+                _isStopping = true;
             }
-
-            _logger.LogInformation($"Initiating stop trading (closeAllTrades: {closeAllTrades})");
-            _isStopping = true;
 
             try
             {
                 _logger.LogDebug("Cancelling running operations...");
-                _cancellationTokenSource?.Cancel();
-                
+                _cancellationTokenSource.Cancel();
+
                 if (closeAllTrades)
                 {
                     _logger.LogInformation("Closing all open trades...");
-                    Task.Run(() => CloseAllTrades()).ContinueWith(t => 
-                    {
-                        if (t.IsFaulted)
-                        {
-                            _logger.LogError(t.Exception, "Error while closing trades");
-                        }
-                        else
-                        {
-                            _logger.LogInformation("All trades closed successfully");
-                        }
-                    });
+                    CloseAllTrades().Wait(); // Run synchronously
                 }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during stop trading");
             }
             finally
             {
-                _isStopping = false;
-                _logger.LogInformation("Trading stopped successfully");
+                lock (_startLock)
+                {
+                    _isStopping = false;
+                    _startInProgress = false;
+                }
             }
         }
-
         private void OnTermination(object sender, ConsoleCancelEventArgs e)
         {
             if (e != null)
@@ -283,32 +367,32 @@ namespace TradingAppDesktop.Services
             Environment.Exit(0);
         }
 
-        private void CloseAllTrades()
+        private async Task CloseAllTrades()
         {
             _logger.LogInformation("Starting to close all trades...");
             
-            if (_client == null || _orderManager == null)
-            {
-                _logger.LogWarning("Cannot close trades - client or order manager not initialized");
-                return;
-            }
-
-            var openTrades = _orderManager.GetActiveTrades();
-            if (!openTrades.Any())
-            {
-                _logger.LogInformation("No open trades to close");
-                return;
-            }
-
-            _logger.LogInformation($"Closing {openTrades.Count} open trades...");
-            
-            var symbols = openTrades.Select(t => t.Symbol).Distinct().ToList();
-            _logger.LogDebug($"Fetching prices for {symbols.Count} symbols");
-
             try
             {
-                var currentPrices = FetchCurrentPrices(_client, symbols, 
-                    GetApiKeys().apiKey, GetApiKeys().apiSecret).Result;
+                if (_client == null || _orderManager == null)
+                {
+                    _logger.LogWarning("Cannot close trades - client or order manager not initialized");
+                    return;
+                }
+
+                var openTrades = _orderManager.GetActiveTrades();
+                if (!openTrades.Any())
+                {
+                    _logger.LogInformation("No open trades to close");
+                    return;
+                }
+
+                _logger.LogInformation($"Closing {openTrades.Count} open trades...");
+                
+                var symbols = openTrades.Select(t => t.Symbol).Distinct().ToList();
+                _logger.LogDebug($"Fetching prices for {symbols.Count} symbols");
+
+                var currentPrices = await FetchCurrentPrices(_client, symbols, 
+                    GetApiKeys().apiKey, GetApiKeys().apiSecret);
                     
                 if (currentPrices?.Any() == true)
                 {
@@ -324,9 +408,13 @@ namespace TradingAppDesktop.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error while closing trades");
+                throw; // Re-throw to ensure the continuation task knows about the failure
+            }
+            finally
+            {
+                _logger.LogDebug("CloseAllTrades operation completed");
             }
         }
-
 
         private void GenerateReport()
         {
@@ -745,43 +833,63 @@ namespace TradingAppDesktop.Services
             _logger.LogInformation("Live paper trading terminated gracefully");
         }
 
-        private static async Task RunLiveTrading(RestClient client, List<string> symbols, string interval, 
-                                            Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy, 
-                                            decimal takeProfit, OrderManager orderManager, StrategyRunner runner,
-                                            CancellationToken cancellationToken)
+        private static async Task RunLiveTrading(
+            RestClient client, 
+            List<string> symbols, 
+            string interval,
+            Wallet wallet, 
+            string fileName, 
+            SelectedTradingStrategy selectedStrategy,
+            decimal takeProfit, 
+            OrderManager orderManager, 
+            StrategyRunner runner,
+            CancellationToken cancellationToken)
         {
             var startTime = DateTime.Now;
             int cycles = 0;
-            BinanceActivities onBinance = new BinanceActivities(client);
+            var onBinance = new BinanceActivities(client);
+            var delay = TimeSpan.Zero; // Start immediately
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    // Critical: Pass cancellation token to delay
-                    var delay = TimeTools.GetTimeSpanFromInterval(interval);
-                    await Task.Delay(delay, cancellationToken);
-
+                    // 1. Execute trading logic FIRST
                     bool handledOrders = await onBinance.HandleOpenOrdersAndActiveTrades(symbols);
-                    if (!handledOrders) continue;
+                    
+                    if (handledOrders)
+                    {
+                        var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
+                        await runner.RunStrategiesAsync();
+                    }
 
-                    var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
-                    await runner.RunStrategiesAsync();
-
+                    // 2. Update symbols periodically
                     if (++cycles % 20 == 0)
                     {
                         symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
                     }
+
+                    // 3. Delay AFTER work is done
+                    delay = TimeTools.GetTimeSpanFromInterval(interval);
                 }
                 catch (TaskCanceledException)
                 {
-                    break; // Expected during shutdown
+                    break;
                 }
-                catch (Exception)
+                catch (Exception ex)  // Never swallow exceptions completely
                 {
-                    // Basic error handling without logging
+                    Console.WriteLine($"Cycle failed: {ex.Message}");
                     if (cancellationToken.IsCancellationRequested)
                         break;
+                    
+                    // Emergency throttle if errors persist
+                    delay = TimeSpan.FromSeconds(5); 
+                }
+
+                // 4. Controlled delay with cancellation
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, cancellationToken);
                 }
             }
         }
