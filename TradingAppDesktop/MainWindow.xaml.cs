@@ -27,6 +27,8 @@ namespace TradingAppDesktop
     public partial class MainWindow : Window
     {
         private BinanceTradingService _tradingService;
+        private bool _isStarting = false; // Add this class field
+        private readonly object _startLock = new(); // Add this for thread safety
 
         public MainWindow()
         {
@@ -53,12 +55,25 @@ namespace TradingAppDesktop
             TradingStrategyComboBox.SelectedIndex = 0;
         }
 
-        private void StartButton_Click(object sender, RoutedEventArgs e)
+        private async void StartButton_Click(object sender, RoutedEventArgs e)
         {
-            Log("Attempting to start trading...");
+            lock (_startLock)
+            {
+                if (_isStarting || _tradingService.IsRunning)
+                {
+                    Log("Start operation already in progress");
+                    return;
+                }
+                _isStarting = true;
+            }
+
             try 
             {
-                // Get selections - now correct with 0-based enum
+                StartButton.IsEnabled = false;
+                StopButton.IsEnabled = true;
+                Log("Attempting to start trading...");
+
+                // Get selections
                 var operationMode = (OperationMode)OperationModeComboBox.SelectedItem;
                 var tradeDirection = (SelectedTradeDirection)TradeDirectionComboBox.SelectedItem;
                 var selectedStrategy = (SelectedTradingStrategy)TradingStrategyComboBox.SelectedItem;
@@ -68,42 +83,58 @@ namespace TradingAppDesktop
                 decimal leverage = decimal.Parse(LeverageTextBox.Text);
                 decimal takeProfit = decimal.Parse(TakeProfitTextBox.Text);
 
-                // Pass the enums to BinanceTradingService
-                // Use the injected service
-                _tradingService.StartTrading(
-                    (OperationMode)OperationModeComboBox.SelectedIndex,
-                    (SelectedTradeDirection)TradeDirectionComboBox.SelectedIndex,
-                    (SelectedTradingStrategy)TradingStrategyComboBox.SelectedIndex,
+                // Make the service call
+                await _tradingService.StartTrading(
+                    operationMode,
+                    tradeDirection,
+                    selectedStrategy,
                     "5m", 
                     entrySize, 
                     leverage, 
                     takeProfit
                 );
-
-                StartButton.IsEnabled = false;
-                StopButton.IsEnabled = true;
+                
                 Log("Trading started successfully");
             }
             catch (Exception ex)
             {
                 Log($"Start failed: {ex.Message}");
             }
+            finally
+            {
+                lock (_startLock)
+                {
+                    _isStarting = false;
+                }
+
+                StartButton.IsEnabled = !_tradingService.IsRunning;
+                StopButton.IsEnabled = _tradingService.IsRunning;
+            }
+             
+            Log($"Service state: Running={_tradingService.IsRunning}");
+            
         }
 
-        private void StopButton_Click(object sender, RoutedEventArgs e)
+        private async void StopButton_Click(object sender, RoutedEventArgs e)
         {
             Log("Stopping trading...");
             try
             {
                 bool closeAll = OperationModeComboBox.SelectedItem is not OperationMode.LiveRealTrading;
-                ((App)Application.Current).TradingService.StopTrading(closeAll);
                 StopButton.IsEnabled = false;
-                StartButton.IsEnabled = true;
+                
+                await Task.Run(() => _tradingService.StopTrading(closeAll));
+                
                 Log(closeAll ? "Closed all trades" : "Stopped new trades (positions remain open)");
             }
             catch (Exception ex)
             {
                 Log($"Stop failed: {ex.Message}");
+            }
+            finally
+            {
+                StartButton.IsEnabled = true;
+                StopButton.IsEnabled = _tradingService.IsRunning;
             }
         }
 

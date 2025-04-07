@@ -12,9 +12,15 @@ using Newtonsoft.Json;
 using System.Globalization;
 using BinanceTestnet.Database;
 using BinanceLive.Tools;
+using Microsoft.Extensions.Logging;
 
 namespace BinanceTestnet.Trading
 {
+    public interface IExchangeInfoProvider
+    {
+        Task<ExchangeInfo> GetExchangeInfoAsync();
+    }
+
     public class OrderManager
     {
         // Fields grouped by functionality
@@ -35,7 +41,8 @@ namespace BinanceTestnet.Trading
         
         // Trade statistics
         private readonly ConcurrentDictionary<int, Trade> _activeTrades = new ConcurrentDictionary<int, Trade>();
-        private Dictionary<string, (decimal lotSize, int pricePrecision, decimal tickSize)> _lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();
+        //private Dictionary<string, (decimal lotSize, int pricePrecision, decimal tickSize)> _lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();
+        private readonly ConcurrentDictionary<string, (decimal lotSize, int pricePrecision, decimal tickSize)> _lotSizeCache;
 
         private int _nextTradeId = 1;
         private decimal noOfTrades = 0;
@@ -45,11 +52,15 @@ namespace BinanceTestnet.Trading
         private decimal _marginPerTrade = 0;
         public DatabaseManager DatabaseManager => _databaseManager;
         private readonly string _sessionId;
+        private readonly IExchangeInfoProvider _exchangeInfo;
+        private readonly ILogger<OrderManager> _logger;
+
 
       public OrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
                         string interval, decimal takeProfit,
                         SelectedTradeDirection tradeDirection, SelectedTradingStrategy tradingStrategy,
-                        RestClient client, decimal tpIteration, decimal margin, string databasePath, string sessionId)
+                        RestClient client, decimal tpIteration, decimal margin, string databasePath, 
+                        string sessionId, IExchangeInfoProvider exchangeInfoProvider, ILogger<OrderManager> logger)
         {
             _wallet = wallet;
             _databaseManager = new DatabaseManager(databasePath); // Create a new instance here
@@ -68,9 +79,15 @@ namespace BinanceTestnet.Trading
             _tradingStrategy = tradingStrategy;
             _client = client;
             _marginPerTrade = margin;
-            _lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();
+            //_lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();        
+            _lotSizeCache = new ConcurrentDictionary<string, (decimal, int, decimal)>();   
+            
+            _logger = logger;     
             _sessionId = sessionId; // Store the SessionId
             DatabaseManager.InitializeDatabase();
+            
+            _exchangeInfo = exchangeInfoProvider;
+            _ = InitializeLotSizes(); // Start async initialization (fire-and-forget)
 
             // Remove this line
             // _excelWriter.Initialize(fileName);
@@ -78,35 +95,79 @@ namespace BinanceTestnet.Trading
             //InitializeLotSizes().Wait(); // Awaiting the task for initialization
         }
 
-        private async Task InitializeLotSizes()
+        public async Task InitializeLotSizes()
         {
-            try
+            const int maxRetries = 3;
+            int attempt = 0;
+            bool success = false;
+
+            while (attempt < maxRetries && !success)
             {
-                var exchangeInfo = await GetExchangeInfoAsync();
-                foreach (var symbolInfo in exchangeInfo.Symbols)
+                attempt++;
+                _logger.LogInformation($"Initializing lot sizes (Attempt {attempt}/{maxRetries})");
+
+                try
                 {
-                    var lotSizeFilter = symbolInfo.Filters.FirstOrDefault(f => f.FilterType == "LOT_SIZE");
-                    var priceFilter = symbolInfo.Filters.FirstOrDefault(f => f.FilterType == "PRICE_FILTER"); // Get PRICE_FILTER for tick size
-
-                    if (lotSizeFilter != null && priceFilter != null)
+                    // 1. Fetch exchange info with timeout protection
+                    var exchangeInfo = await _exchangeInfo.GetExchangeInfoAsync();
+                    
+                    if (exchangeInfo?.Symbols == null)
                     {
-                        // Parse lot size and tick size
-                        decimal lotSize = decimal.Parse(lotSizeFilter.StepSize, CultureInfo.InvariantCulture);
-                        decimal tickSize = decimal.Parse(priceFilter.TickSize, CultureInfo.InvariantCulture);
-
-                        // Store lot size, price precision, and tick size in the cache
-                        _lotSizeCache[symbolInfo.Symbol] = (lotSize, symbolInfo.PricePrecision, tickSize);
+                        _logger.LogWarning("Received empty exchange info");
+                        continue;
                     }
-                    else
+
+                    // 2. Clear existing cache
+                    _lotSizeCache.Clear(); 
+
+                    // 3. Process all symbols
+                    int processedCount = 0;
+                    foreach (var symbolInfo in exchangeInfo.Symbols)
                     {
-                        Log.Warning($"Lot size or price filter not found for symbol: {symbolInfo.Symbol}");
+                        try
+                        {
+                            var lotSizeFilter = symbolInfo.Filters?.FirstOrDefault(f => f.FilterType == "LOT_SIZE");
+                            var priceFilter = symbolInfo.Filters?.FirstOrDefault(f => f.FilterType == "PRICE_FILTER");
+
+                            if (lotSizeFilter != null && priceFilter != null)
+                            {
+                                _lotSizeCache[symbolInfo.Symbol] = (
+                                    StepSize: decimal.Parse(lotSizeFilter.StepSize, CultureInfo.InvariantCulture),
+                                    PricePrecision: symbolInfo.PricePrecision,
+                                    TickSize: decimal.Parse(priceFilter.TickSize, CultureInfo.InvariantCulture)
+                                );
+                                processedCount++;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, $"Failed to process symbol {symbolInfo.Symbol}");
+                        }
+                    }
+
+                    _logger.LogInformation($"Successfully cached lot sizes for {processedCount} symbols");
+                    success = true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Attempt {attempt} failed");
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(1000 * attempt); // Exponential backoff
                     }
                 }
             }
-            catch (Exception ex)
+
+            if (!success)
             {
-                Log.Error($"Error initializing lot sizes: {ex.Message}");
+                _logger.LogCritical("Failed to initialize lot sizes after maximum retries");
+                throw new Exception("Lot size initialization failed");
             }
+        }
+
+        public (decimal lotSize, int pricePrecision, decimal tickSize) GetLotSizeAndPrecision(string symbol)
+        {
+            return _lotSizeCache.TryGetValue(symbol, out var info) ? info : (0, 0, 0);
         }
 
         private async Task<ExchangeInfo> GetExchangeInfoAsync()
@@ -128,11 +189,6 @@ namespace BinanceTestnet.Trading
             {
                 throw new Exception($"Error deserializing exchange info: {ex.Message}, Response: {response.Content}");
             }
-        }
-
-        public (decimal lotSize, int pricePrecision, decimal tickSize) GetLotSizeAndPrecision(string symbol)
-        {
-            return _lotSizeCache.TryGetValue(symbol, out var info) ? info : (0, 0, 0);
         }
 
         private decimal CalculateQuantity(decimal price, string symbol, decimal initialMargin)
