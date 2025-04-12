@@ -151,7 +151,7 @@ namespace TradingAppDesktop.Services
                     case OperationMode.LiveRealTrading:
                         await RunLiveTrading(_client, symbols, interval, _wallet, "", 
                                         selectedStrategy, takeProfit, _orderManager, 
-                                        runner, _cancellationTokenSource.Token);
+                                        runner, _cancellationTokenSource.Token, logger: _logger);
                         break;
                     default: // LivePaperTrading
                         await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
@@ -789,7 +789,18 @@ namespace TradingAppDesktop.Services
                     var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
                     
                     _logger.LogDebug("Running strategies...");
-                    await runner.RunStrategiesAsync();
+                    try
+                    {
+                        await runner.RunStrategiesAsync();
+                    }
+                    catch (StrategyExecutionException see)
+                    {
+                        _logger.LogError($"Strategies partially failed: {see.ErrorStats.Sum(kv => kv.Value)} errors");
+                        foreach (var error in see.ErrorStats)
+                        {
+                            _logger.LogWarning($"{error.Value}x {error.Key}");
+                        }
+                    }
 
                     _logger.LogInformation($"---- Cycle {cycles + 1} Completed ----");
                     
@@ -843,7 +854,8 @@ namespace TradingAppDesktop.Services
             decimal takeProfit, 
             OrderManager orderManager, 
             StrategyRunner runner,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            ILogger logger)
         {
             var startTime = DateTime.Now;
             int cycles = 0;
@@ -860,7 +872,18 @@ namespace TradingAppDesktop.Services
                     if (handledOrders)
                     {
                         var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
-                        await runner.RunStrategiesAsync();
+                        try
+                        {
+                            await runner.RunStrategiesAsync();
+                        }
+                        catch (StrategyExecutionException see)
+                        {
+                            logger.LogError($"Strategies partially failed: {see.ErrorStats.Sum(kv => kv.Value)} errors");
+                            foreach (var error in see.ErrorStats)
+                            {
+                                logger.LogWarning($"{error.Value}x {error.Key}");
+                            }
+                        }
                     }
 
                     // 2. Update symbols periodically
@@ -969,7 +992,18 @@ namespace TradingAppDesktop.Services
             return prices;
         }
 
-
+        public class StrategyExecutionException : Exception
+        {
+            public Dictionary<string, int> ErrorStats { get; }
+            
+            public StrategyExecutionException(string message, AggregateException inner) 
+                : base(message, inner)
+            {
+                ErrorStats = inner.InnerExceptions
+                    .GroupBy(e => e.Message)
+                    .ToDictionary(g => g.Key, g => g.Count());
+            }
+        }
 
         public class ExchangeInfoResponse
         {

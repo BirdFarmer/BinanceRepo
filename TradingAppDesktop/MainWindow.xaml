@@ -88,13 +88,33 @@
             <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
             <Setter Property="Margin" Value="0 5 0 0"/>
         </Style>
+        
+        <!-- ScrollBar Style -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid>
+                            <Track x:Name="PART_Track">
+                                <Track.Thumb>
+                                    <Thumb Background="{StaticResource AccentColor}" 
+                                        Margin="1"/>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <!-- Main Grid with Dark Theme -->
     <Grid Background="{StaticResource DarkBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -108,75 +128,79 @@
         </Border>
 
         <!-- Content Area -->
-        <ScrollViewer Grid.Row="1" Padding="20">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="200"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-                <!-- Left Panel - Parameters -->
-                <Border Grid.Column="0" 
-                      Background="{StaticResource CardBackground}" 
-                      CornerRadius="8"
-                      Padding="15"
-                      Margin="0 0 10 0">
-                    <StackPanel>
-                        <TextBlock Text="TRADING PARAMETERS" 
-                                 Foreground="{StaticResource AccentColor}"
-                                 FontWeight="Bold"
-                                 Margin="0 0 0 10"/>
-                        
-                        <!-- Operation Mode -->
-                        <Label Content="Operation Mode:"/>
-                        <ComboBox x:Name="OperationModeComboBox"/>
-                        
-                        <!-- Trade Direction -->
-                        <Label Content="Trade Direction:"/>
-                        <ComboBox x:Name="TradeDirectionComboBox"/>
-                        
-                        <!-- Trading Strategy -->
-                        <Label Content="Trading Strategy:"/>
-                        <ComboBox x:Name="TradingStrategyComboBox"/>
-                        
-                        <!-- Entry Size -->
-                        <Label Content="Entry Size:"/>
-                        <TextBox x:Name="EntrySizeTextBox"/>
-                        
-                        <!-- Leverage -->
-                        <Label Content="Leverage:"/>
-                        <TextBox x:Name="LeverageTextBox"/>
-                        
-                        <!-- Take Profit -->
-                        <Label Content="Take Profit (%):"/>
-                        <TextBox x:Name="TakeProfitTextBox"/>
-                        
-                        <!-- Backtest Dates (Conditional) -->
-                        <StackPanel x:Name="BacktestPanel" Visibility="Collapsed" Margin="0 10">
-                            <TextBlock Text="Backtest Period (Optional)" 
-                                     Foreground="{StaticResource WarningColor}"
-                                     FontStyle="Italic"/>
-                            <DatePicker x:Name="StartDatePicker" Tag="Start Date"/>
-                            <DatePicker x:Name="EndDatePicker" Tag="End Date"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- Right Panel - Log -->
-                <Border Grid.Column="1" 
-                        Background="{StaticResource CardBackground}"
-                        CornerRadius="8"
-                        Padding="15"
-                        MinWidth="300">
-                    <DockPanel>
-                        <TextBlock DockPanel.Dock="Top"
-                                Text="TRADING LOG" 
+            <!-- Left Panel - Parameters -->
+            <Border Grid.Column="0" 
+                    Background="{StaticResource CardBackground}" 
+                    CornerRadius="8"
+                    Margin="5">               
+                <StackPanel>
+                    <TextBlock Text="TRADING PARAMETERS" 
                                 Foreground="{StaticResource AccentColor}"
                                 FontWeight="Bold"
-                                Margin="0 0 0 10"
-                                FontSize="16"/>
-        
-                        
+                                Margin="10 10 0 10"/>
+                    
+                    <!-- Operation Mode -->
+                    <Label Content="Operation Mode:"/>
+                    <ComboBox x:Name="OperationModeComboBox"/>
+                    
+                    <!-- Trade Direction -->
+                    <Label Content="Trade Direction:"/>
+                    <ComboBox x:Name="TradeDirectionComboBox"/>
+                    
+                    <!-- Trading Strategy -->
+                    <Label Content="Trading Strategy:"/>
+                    <ComboBox x:Name="TradingStrategyComboBox"/>
+                    
+                    <!-- Entry Size -->
+                    <Label Content="Entry Size:"/>
+                    <TextBox x:Name="EntrySizeTextBox"/>
+                    
+                    <!-- Leverage -->
+                    <Label Content="Leverage:"/>
+                    <TextBox x:Name="LeverageTextBox"/>
+                    
+                    <!-- Take Profit -->
+                    <Label Content="Take Profit (%):"/>
+                    <TextBox x:Name="TakeProfitTextBox"/>
+                    
+                    <!-- Backtest Dates (Conditional) -->
+                    <StackPanel x:Name="BacktestPanel" Visibility="Collapsed" Margin="0 10">
+                        <TextBlock Text="Backtest Period (Optional)" 
+                                    Foreground="{StaticResource WarningColor}"
+                                    FontStyle="Italic"/>
+                        <DatePicker x:Name="StartDatePicker" Tag="Start Date"/>
+                        <DatePicker x:Name="EndDatePicker" Tag="End Date"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Right Panel - Log -->
+            <Border Grid.Column="1" 
+                    Background="{StaticResource CardBackground}"
+                    CornerRadius="8"
+                    Margin="0 5 5 5">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Log Header -->
+                    <TextBlock Text="TRADING LOG"
+                            Foreground="{StaticResource AccentColor}"
+                            FontWeight="Bold"
+                            Margin="10,5"/>
+                    
+                    <!-- Scrollable Content Area -->
+                    <ScrollViewer Grid.Row="1"
+                                VerticalScrollBarVisibility="Visible"
+                                HorizontalScrollBarVisibility="Disabled">
                         <TextBox x:Name="LogText" 
                                 IsReadOnly="True"
                                 Background="Transparent"
@@ -184,36 +208,31 @@
                                 BorderThickness="0"
                                 TextWrapping="Wrap"
                                 FontFamily="Consolas"
-                                FontSize="14"  
-                                Padding="5"
-                                VerticalScrollBarVisibility="Auto"
-                                HorizontalScrollBarVisibility="Disabled"
+                                FontSize="14"
                                 AcceptsReturn="True"
                                 VerticalAlignment="Stretch"
-                                Height="Auto"
-                                MinHeight="300"  
-                                TextChanged="LogText_TextChanged">  <!-- For auto-scrolling -->
-                        </TextBox>
-                    </DockPanel>    
-                </Border>
+                                MinHeight="750"/>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="#252538" >
+            <Grid>
+                <TextBlock x:Name="StatusText" 
+                        Foreground="{StaticResource TextColor}"
+                        FontStyle="Italic"
+                        Text="Ready"
+                        HorizontalAlignment="Left"/>
+                
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click"/>
+                    <Button x:Name="StartButton" Content="START TRADING" 
+                            Background="{StaticResource SuccessColor}" Click="StartButton_Click"/>
+                    <Button x:Name="StopButton" Content="STOP TRADING" 
+                            Background="{StaticResource DangerColor}" Click="StopButton_Click"/>
+                </StackPanel>
             </Grid>
-        </ScrollViewer>
-        <Border Grid.Row="1" Background="#252538" Padding="10" VerticalAlignment="Bottom">
-            <TextBlock x:Name="StatusText" 
-                    Foreground="{StaticResource TextColor}"
-                    FontStyle="Italic"
-                    Text="Ready"
-                    HorizontalAlignment="Left"/>
-        </Border>
-        <!-- Footer Buttons -->
-        <Border Grid.Row="2" Background="#252538" Padding="10">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click"/>
-                <Button x:Name="StartButton" Content="START TRADING" 
-                      Background="{StaticResource SuccessColor}" Click="StartButton_Click"/>
-                <Button x:Name="StopButton" Content="STOP TRADING" 
-                      Background="{StaticResource DangerColor}" Click="StopButton_Click"/>
-            </StackPanel>
         </Border>
     </Grid>
 </Window>

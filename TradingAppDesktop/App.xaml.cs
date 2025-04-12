@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using BinanceTestnet.Enums;
 using BinanceTestnet.Trading;
@@ -17,7 +18,21 @@ namespace TradingAppDesktop
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
-            
+    
+            // 0. Crash Handler
+            DispatcherUnhandledException += (sender, ex) => 
+            {
+                string crashLog = $"[{DateTime.Now}] CRASH:\n{ex.Exception}\n\n";
+                File.AppendAllText(@"C:\Logs\app_crashes.log", crashLog);
+                
+                MessageBox.Show($"A critical error occurred:\n{ex.Exception.Message}", 
+                            "Error", 
+                            MessageBoxButton.OK, 
+                            MessageBoxImage.Error);
+                
+                ex.Handled = true; // Set to false if you want the app to close
+            };
+                
             // 1. Create logger factory first
             var loggerFactory = LoggerFactory.Create(builder => {
                 builder
@@ -44,7 +59,7 @@ namespace TradingAppDesktop
                 OperationMode.LivePaperTrading,
                 SelectedTradeDirection.Both,
                 SelectedTradingStrategy.All,
-                "5m", 20m, 15m, 5m
+                "5m", 20m, 15m, 2.5m
             );
             
             mainWindow.SetTradingService(TradingService);
