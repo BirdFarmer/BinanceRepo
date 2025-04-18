@@ -1,25 +1,18 @@
 ﻿using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 using BinanceTestnet.Enums; 
-using BinanceTestnet.Database;
-using BinanceTestnet.Trading;
-using BinanceLive.Strategies;
-using BinanceTestnet.Models;
-using TradingAppDesktop;
 using TradingAppDesktop.Services;
 using System.ComponentModel;
 using System.IO;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading.Tasks;
+using TradingAppDesktop.Controls;
 
 
 namespace TradingAppDesktop
@@ -34,25 +27,146 @@ namespace TradingAppDesktop
         {
             InitializeComponent();
             
-            // UI initialization only
+            // One-time initialization that doesn't need loaded controls
             Console.SetOut(new TextBoxWriter(LogText));
-            InitializeComboBoxes();
-            
             StartButton.Click += StartButton_Click;
             StopButton.Click += StopButton_Click;
+            
+            // UI-dependent initialization
+            this.Loaded += (s, e) => 
+            {
+                InitializeComboBoxes();
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1}ATR)";
+                RiskRewardText.Text = $"1:{RiskRewardSlider.Value:F1}";
+            };
         }
 
         private void InitializeComboBoxes()
         {
-            // Simple version - works with 0-based enum
+            // Operation Mode
             OperationModeComboBox.ItemsSource = Enum.GetValues(typeof(OperationMode));
-            TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));
-            TradingStrategyComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradingStrategy));
+            OperationModeComboBox.SelectedIndex = 0;
             
-            // Set default selections
-            OperationModeComboBox.SelectedIndex = 0; // Paper Trading
-            TradeDirectionComboBox.SelectedIndex = 0;
-            TradingStrategyComboBox.SelectedIndex = 0;
+            StrategySelector.SetAvailableStrategies(new List<StrategyItem>
+            {
+                new StrategyItem(SelectedTradingStrategy.EmaStochRsi, "EMA + Stoch RSI", "Combines EMA crossover with Stochastic RSI"),
+                new StrategyItem(SelectedTradingStrategy.EnhancedMACD, "Enhanced MACD", "Modified MACD with additional filters"),
+                new StrategyItem(SelectedTradingStrategy.FVG, "Fair Value Gap", "Price action based fair value gaps"),
+                new StrategyItem(SelectedTradingStrategy.IchimokuCloud, "Ichimoku Cloud", "Complete Ichimoku Kinko Hyo system"),
+                new StrategyItem(SelectedTradingStrategy.CandleDistributionReversal, "Candle Distribution", "Reversal patterns based on candle distribution"),
+                new StrategyItem(SelectedTradingStrategy.RSIMomentum, "RSI Momentum", "Pure RSI momentum strategy"),
+                new StrategyItem(SelectedTradingStrategy.MACDStandard, "Standard MACD", "Classic MACD crossover"),
+                new StrategyItem(SelectedTradingStrategy.RsiDivergence, "RSI Divergence", "Divergence detection with RSI"),
+                new StrategyItem(SelectedTradingStrategy.FibonacciRetracement, "Fibonacci", "Fibonacci retracement levels"),
+                new StrategyItem(SelectedTradingStrategy.Aroon, "Aroon", "Aroon oscillator strategy"),
+                new StrategyItem(SelectedTradingStrategy.HullSMA, "Hull SMA", "Hull moving average system"),
+                new StrategyItem(SelectedTradingStrategy.SMAExpansion, "SMA Expansion", "3 SMAs expanding, trade reversal") 
+            });
+            
+            TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));
+            TradeDirectionComboBox.SelectedIndex = 0; // Default to first option
+
+            // TimeFrame
+            var timeFrames = new List<TimeFrameItem>
+            {
+                new TimeFrameItem { Display = "1 Minute", Value = "1m" },
+                new TimeFrameItem { Display = "5 Minutes", Value = "5m" },
+                new TimeFrameItem { Display = "15 Minutes", Value = "15m" },
+                new TimeFrameItem { Display = "30 Minutes", Value = "30m" },
+                new TimeFrameItem { Display = "1 Hour", Value = "1h" },
+                new TimeFrameItem { Display = "4 Hours", Value = "4h" }
+            };
+            TimeFrameComboBox.ItemsSource = timeFrames;
+            TimeFrameComboBox.SelectedIndex = 1; // Default to 5m
+        }
+
+        private void UpdateSelection()
+        {
+        }
+
+        private void OperationMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (OperationModeComboBox.SelectedItem is OperationMode mode)
+            {
+                BacktestPanel.Visibility = mode == OperationMode.Backtest 
+                    ? Visibility.Visible 
+                    : Visibility.Collapsed;
+            }
+            //ValidateInputs();
+        }
+        
+        private void AtrMultiplier_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (!IsLoaded || AtrMultiplierText == null) return;
+            AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1}ATR)";
+        }
+
+        private void RiskReward_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (!IsLoaded || RiskRewardText == null) return;
+            RiskRewardText.Text = $"1:{RiskRewardSlider.Value:F1}";
+        }
+
+        private void ValidateInputs(object sender, TextChangedEventArgs e)
+        {
+            if (!IsLoaded)
+                return;
+
+            PerformValidation();
+        }
+
+        private void ValidateInputs(object sender, SelectionChangedEventArgs e)
+        {
+            if (!IsLoaded || StrategySelector == null)
+                return;
+
+            PerformValidation();
+        }
+
+        private void PerformValidation()
+        {
+            bool isValid = true;
+
+            // Validate entry size
+            if (!decimal.TryParse(EntrySizeTextBox.Text, out decimal entrySize) || entrySize <= 0)
+            {
+                EntrySizeTextBox.BorderBrush = Brushes.Red;
+                isValid = false;
+            }
+            else
+            {
+                EntrySizeTextBox.BorderBrush = new SolidColorBrush(Color.FromRgb(64, 64, 64));
+            }
+
+            // Validate at least one strategy is selected - NEW WAY
+            if (StrategySelector.SelectedCount == 0) // Using SelectedCount instead of StrategiesListView
+            {
+                StrategySelector.BorderBrush = Brushes.Red;
+                isValid = false;
+            }
+            else
+            {
+                StrategySelector.BorderBrush = new SolidColorBrush(Color.FromRgb(64, 64, 64));
+            }
+
+            if ((OperationMode)OperationModeComboBox.SelectedItem == OperationMode.Backtest)
+            {
+                if (!string.IsNullOrEmpty(StartDateTextBox.Text) && 
+                    !DateTime.TryParse(StartDateTextBox.Text, out _))
+                {
+                    StartDateTextBox.BorderBrush = Brushes.Red;
+                    isValid = false;
+                }
+                if (!string.IsNullOrEmpty(EndDateTextBox.Text) && 
+                    !DateTime.TryParse(EndDateTextBox.Text, out _))
+                {
+                    EndDateTextBox.BorderBrush = Brushes.Red;
+                    isValid = false;
+                }
+                
+            }            
+
+            StartButton.IsEnabled = isValid;
         }
 
         private async void StartButton_Click(object sender, RoutedEventArgs e)
@@ -72,26 +186,39 @@ namespace TradingAppDesktop
                 StartButton.IsEnabled = false;
                 StopButton.IsEnabled = true;
                 Log("Attempting to start trading...");
+                
+                var selectedStrategies = StrategySelector.SelectedStrategies.ToList();
 
-                // Get selections
+                // Get other parameters
                 var operationMode = (OperationMode)OperationModeComboBox.SelectedItem;
                 var tradeDirection = (SelectedTradeDirection)TradeDirectionComboBox.SelectedItem;
-                var selectedStrategy = (SelectedTradingStrategy)TradingStrategyComboBox.SelectedItem;
-
-                // Parse inputs
+                var timeFrame = ((TimeFrameItem)TimeFrameComboBox.SelectedItem).Value;
                 decimal entrySize = decimal.Parse(EntrySizeTextBox.Text);
-                decimal leverage = decimal.Parse(LeverageTextBox.Text);
-                decimal takeProfit = decimal.Parse(TakeProfitTextBox.Text);
-
-                // Make the service call
+                decimal atrMultiplier = (decimal)AtrMultiplierSlider.Value;
+                decimal riskReward = (decimal)RiskRewardSlider.Value;
+                
+                DateTime? startDate = null, endDate = null;
+                if (operationMode == OperationMode.Backtest)
+                {
+                    var dates = GetBacktestDates();
+                    startDate = dates.startDate;
+                    endDate = dates.endDate;
+                    
+                    Log($"Backtest period: {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}");
+                }
+                
+                // Start trading
                 await _tradingService.StartTrading(
-                    operationMode,
-                    tradeDirection,
-                    selectedStrategy,
-                    "5m", 
-                    entrySize, 
-                    leverage, 
-                    takeProfit
+                    (OperationMode)OperationModeComboBox.SelectedItem,
+                    (SelectedTradeDirection)TradeDirectionComboBox.SelectedItem,
+                    selectedStrategies,
+                    timeFrame,
+                    entrySize,
+                    15m, // Leverage (could make this configurable too)
+                    atrMultiplier, // Using ATR multiplier as take profit
+                    riskReward,
+                    startDate,
+                    endDate
                 );
                 
                 Log("Trading started successfully");
@@ -197,22 +324,37 @@ namespace TradingAppDesktop
         public void InitializeTradingParameters(
             OperationMode operationMode,
             SelectedTradeDirection tradeDirection,
-            SelectedTradingStrategy strategy,
             string interval,
             decimal entrySize,
             decimal leverage,
             decimal takeProfit)
         {
+            
+            if (!IsLoaded) return;
             // Set UI controls
             OperationModeComboBox.SelectedItem = operationMode;
             TradeDirectionComboBox.SelectedItem = tradeDirection;
-            TradingStrategyComboBox.SelectedItem = strategy;
             EntrySizeTextBox.Text = entrySize.ToString();
             LeverageTextBox.Text = leverage.ToString();
-            TakeProfitTextBox.Text = takeProfit.ToString();
+    
+            if (AtrMultiplierText != null && AtrMultiplierSlider != null)
+            {
+                AtrMultiplierSlider.Value = (double)takeProfit;
+                AtrMultiplierText.Text = $"{takeProfit:F1} (TP: +{takeProfit:F1}ATR)";
+            }
+            
             
             Log("Application initialized with default parameters");
         }
+
+        // private List<StrategyItem> GetDefaultStrategies()
+        // {
+        //     return new List<StrategyItem>
+        //     {
+        //         new StrategyItem(SelectedTradingStrategy.EmaStochRsi, "EMA + Stoch RSI", "Combines EMA crossover with Stochastic RSI"),
+        //         // ... all other strategies ...
+        //     };
+        // }
 
         protected override void OnClosed(EventArgs e)
         {
@@ -257,6 +399,100 @@ namespace TradingAppDesktop
                 // var scrollViewer = FindVisualParent<ScrollViewer>(LogText);
                 // scrollViewer?.ScrollToEnd();
             });
+        }        
+
+        private (DateTime startDate, DateTime endDate) GetBacktestDates()
+        {
+            DateTime startDate;
+            DateTime endDate;
+            
+            // Parse or default start date
+            if (DateTime.TryParse(StartDateTextBox.Text, out startDate))
+            {
+                startDate = startDate.ToUniversalTime();
+            }
+            else
+            {
+                startDate = DateTime.UtcNow.AddDays(-7); // Default: 1 week ago
+            }
+                
+            var timeFrame = ((TimeFrameItem)TimeFrameComboBox.SelectedItem).Value;
+            
+            // Parse or calculate end date based on candles
+            if (DateTime.TryParse(EndDateTextBox.Text, out endDate))
+            {
+                endDate = endDate.ToUniversalTime();
+            }
+            else
+            {
+                int candleCount = 900; // Your specified default
+                endDate = CalculateEndDate(startDate, timeFrame, candleCount);
+            }
+            
+            // Ensure we don't exceed exchange limits (1000 candles)
+            if ((endDate - startDate).TotalDays > GetMaxDaysForTimeFrame(timeFrame))
+            {
+                endDate = startDate.AddDays(GetMaxDaysForTimeFrame(timeFrame));
+                Log($"Adjusted end date to stay within 1000 candle limit");
+            }
+            
+            return (startDate, endDate);
+        }
+
+        private DateTime CalculateEndDate(DateTime startDate, string timeFrame, int candleCount)
+        {
+            TimeSpan interval = timeFrame switch
+            {
+                "1m" => TimeSpan.FromMinutes(1),
+                "5m" => TimeSpan.FromMinutes(5),
+                "15m" => TimeSpan.FromMinutes(15),
+                "30m" => TimeSpan.FromMinutes(30),
+                "1h" => TimeSpan.FromHours(1),
+                "4h" => TimeSpan.FromHours(4),
+                _ => TimeSpan.FromHours(1)
+            };
+            
+            return startDate.Add(interval * candleCount);
+        }
+
+        private double GetMaxDaysForTimeFrame(string timeFrame)
+        {
+            // Binance typically limits to 1000 candles
+            return timeFrame switch
+            {
+                "1m" => 1000.0 / (1440),    // 1000 minutes
+                "5m" => 1000.0 / (288),     // 1000*5 minutes
+                "15m" => 1000.0 / (96),     // 1000*15 minutes
+                "30m" => 1000.0 / (48),     // 1000*30 minutes
+                "1h" => 1000.0 / 24,        // 1000 hours
+                "4h" => 1000.0 / 6,         // 1000*4 hours
+                _ => 30                     // Fallback (days)
+            };
+        }        
+
+        private void StartDateTextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (DateTime.TryParse(StartDateTextBox.Text, out DateTime date))
+            {
+                StartDateTextBox.Text = date.ToString("yyyy-MM-dd HH:mm");
+            }
+        }
+
+        private void EndDateTextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (DateTime.TryParse(EndDateTextBox.Text, out DateTime date))
+            {
+                EndDateTextBox.Text = date.ToString("yyyy-MM-dd HH:mm");
+            }
+        }
+    
+        private void OnStrategySelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // This will now work with the control's built-in UpdateSelection
+            UpdateSelection();
+            
+            // Additional logic if needed:
+            StatusText.Text = $"{StrategySelector.SelectedCount} strategies selected";
         }
 
         // Helper to find parent controls
@@ -266,5 +502,22 @@ namespace TradingAppDesktop
                 child = VisualTreeHelper.GetParent(child);
             return child as T;
         }
+    }
+    public class StrategyComboBoxItem
+    {
+        public SelectedTradingStrategy Strategy { get; set; }
+        public string DisplayName { get; set; }
+
+        public StrategyComboBoxItem(SelectedTradingStrategy strategy, string displayName)
+        {
+            Strategy = strategy;
+            DisplayName = displayName;
+        }
+    }
+
+    public class TimeFrameItem
+    {
+        public string Display { get; set; }
+        public string Value { get; set; }
     }
 }

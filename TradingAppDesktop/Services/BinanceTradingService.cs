@@ -22,6 +22,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net.Http;
+using System.Threading;
 
 namespace TradingAppDesktop.Services
 {
@@ -64,8 +65,8 @@ namespace TradingAppDesktop.Services
         }
 
         public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, 
-                                    SelectedTradingStrategy selectedStrategy, string interval, 
-                                    decimal entrySize, decimal leverage, decimal takeProfit,
+                                    List<SelectedTradingStrategy> selectedStrategies, string interval, 
+                                    decimal entrySize, decimal leverage, decimal takeProfit, decimal stopLoss, 
                                     DateTime? startDate = null, DateTime? endDate = null)
         {
             _logger.LogDebug($"State update - IsRunning: {_isRunning}, StartInProgress: {_startInProgress}, IsStopping: {_isStopping}");
@@ -82,8 +83,8 @@ namespace TradingAppDesktop.Services
             }
 
             _logger.LogInformation("Starting trading session...");
-            _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategy}, Direction: {tradeDirection}");
-            _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, TP={takeProfit}%");
+            _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategies}, Direction: {tradeDirection}");
+            _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, TP={takeProfit}%, SL={stopLoss}%");
 
             _sessionId = GenerateSessionId();
             _logger.LogInformation($"New trading session ID: {_sessionId}");
@@ -125,14 +126,14 @@ namespace TradingAppDesktop.Services
             // Initialize OrderManager
             _logger.LogDebug("Initializing OrderManager...");
             _orderManager = CreateOrderManager(_wallet, leverage, operationMode, interval, 
-                                        takeProfit, tradeDirection, selectedStrategy, 
+                                        takeProfit, stopLoss, tradeDirection, selectedStrategies.First(), 
                                         _client, takeProfit, entrySize, databasePath, _sessionId);
 
             try
             {
                 // Initialize StrategyRunner
                 _logger.LogDebug("Initializing StrategyRunner...");
-                var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategy);
+                var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategies);
 
                 // Add timeout to the trading operation
                 var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(1)); // 1 minute timeout
@@ -144,18 +145,18 @@ namespace TradingAppDesktop.Services
                 {
                     case OperationMode.Backtest:
                         await RunBacktest(_client, symbols, interval, _wallet, "", 
-                                        selectedStrategy, _orderManager, runner, 
-                                        new DateTime(2025, 1, 5), new DateTime(2025, 1, 6), //startDate.Value, endDate.Value, 
-                                        _cancellationTokenSource.Token);
+                                          _orderManager, runner, 
+                                         startDate.Value, endDate.Value, //new DateTime(2025, 1, 5), new DateTime(2025, 1, 6), //
+                                         _cancellationTokenSource.Token);
                         break;
                     case OperationMode.LiveRealTrading:
                         await RunLiveTrading(_client, symbols, interval, _wallet, "", 
-                                        selectedStrategy, takeProfit, _orderManager, 
+                                        takeProfit, _orderManager, 
                                         runner, _cancellationTokenSource.Token, logger: _logger);
                         break;
                     default: // LivePaperTrading
                         await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
-                                                selectedStrategy, takeProfit, _orderManager, 
+                                                takeProfit, _orderManager, 
                                                 runner, _cancellationTokenSource.Token);
                         break;
                 }
@@ -264,7 +265,7 @@ namespace TradingAppDesktop.Services
 
         // When creating OrderManager:
         private OrderManager CreateOrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
-                                                string interval, decimal takeProfit,
+                                                string interval, decimal takeProfit, decimal stopLoss,
                                                 SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy,
                                                 RestClient client, decimal tpIteration, decimal entrySize, string databasePath, string sessionId)
         {
@@ -272,7 +273,7 @@ namespace TradingAppDesktop.Services
             var orderManagerLogger = _loggerFactory.CreateLogger<OrderManager>();
 
             return new OrderManager(_wallet, leverage, operationMode, interval,
-                                    takeProfit, tradeDirection, selectedStrategy,
+                                    takeProfit, stopLoss, tradeDirection, selectedStrategy,
                                     _client, takeProfit, entrySize, databasePath, 
                                     _sessionId, this, orderManagerLogger
             );
@@ -524,26 +525,6 @@ namespace TradingAppDesktop.Services
             };
         }
 
-        private static SelectedTradingStrategy GetTradingStrategy()
-        {
-            Console.WriteLine("Select Trading Strategies (default is All combined):");
-            Console.WriteLine("1. Loop through all strategies");
-            Console.WriteLine("2. 3 SMAs expanding, trade reversal.");
-            Console.WriteLine("3. MACD Diversion");
-            Console.WriteLine("4. Hull with 200SMA");
-            Console.Write("Enter choice (1/2/3/4): ");            
-            string stratInput = Console.ReadLine();
-            int strategyChoice = int.TryParse(stratInput, out var parsedStrat) ? parsedStrat : 1;
-
-            return strategyChoice switch
-            {
-                2 => SelectedTradingStrategy.SMAExpansion,
-                3 => SelectedTradingStrategy.MACD,
-                4 => SelectedTradingStrategy.Aroon,
-                _ => SelectedTradingStrategy.All,
-            };
-        }
-
         private static decimal GetTakeProfit(OperationMode operationMode)
         {
             if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
@@ -681,13 +662,14 @@ namespace TradingAppDesktop.Services
         }
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, 
-                                            Wallet wallet, string fileName, SelectedTradingStrategy selectedStrategy,
-                                            OrderManager orderManager, StrategyRunner runner, DateTime startDate,
+                                            Wallet wallet, string fileName, OrderManager orderManager, 
+                                            StrategyRunner runner, DateTime startDate,
                                             DateTime endDate, CancellationToken cancellationToken)
         {
-            var backtestTakeProfits = new List<decimal> { 3m };
-            var intervals = new[] { "1m" };
-            var leverage = 15;
+            var backtestTakeProfits = new[] { orderManager.GetTakeProfit() };
+            var backtestStopLosses = orderManager.GetStopLoss();  
+            var intervals = new[] { interval };
+            var leverage = orderManager.GetLeverage();
 
             try
             {
@@ -760,7 +742,7 @@ namespace TradingAppDesktop.Services
 
         private async Task RunLivePaperTrading(RestClient client, List<string> symbols, string interval, 
                                             Wallet wallet, string fileName, 
-                                            SelectedTradingStrategy selectedStrategy, decimal takeProfit, 
+                                            decimal takeProfit, 
                                             OrderManager orderManager, StrategyRunner runner,
                                             CancellationToken cancellationToken)
         {
@@ -850,7 +832,6 @@ namespace TradingAppDesktop.Services
             string interval,
             Wallet wallet, 
             string fileName, 
-            SelectedTradingStrategy selectedStrategy,
             decimal takeProfit, 
             OrderManager orderManager, 
             StrategyRunner runner,
@@ -1029,6 +1010,7 @@ namespace TradingAppDesktop.Services
             var historicalData = new List<Kline>();
             var request = new RestRequest("/fapi/v1/klines", Method.Get);
             request.AddParameter("symbol", symbol);
+            request.AddParameter("limit", 1000);
             request.AddParameter("interval", interval);
             request.AddParameter("startTime", new DateTimeOffset(startDate).ToUnixTimeMilliseconds());
             request.AddParameter("endTime", new DateTimeOffset(endDate).ToUnixTimeMilliseconds());

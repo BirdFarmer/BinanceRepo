@@ -1,7 +1,10 @@
 ﻿<Window x:Class="TradingAppDesktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Crypto Trading Suite" Height="900" Width="1200"
+        xmlns:controls="clr-namespace:TradingAppDesktop.Controls"
+        xmlns:converters="clr-namespace:TradingAppDesktop.Converters"
+        Title="Crypto Trading Suite" Width="1400" Height="1000"
+        MinWidth="1200" MinHeight="900"
         FontFamily="Segoe UI" WindowStartupLocation="CenterScreen">
     
     <Window.Resources>
@@ -109,6 +112,18 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="ParameterSlider" TargetType="Slider">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Height" Value="25"/>
+            <Setter Property="Margin" Value="0 5"/>
+            <Setter Property="IsSnapToTickEnabled" Value="True"/>
+        </Style>
+        
+        <converters:EnumDescriptionConverter x:Key="EnumDescriptionConverter"/>
+
     </Window.Resources>
 
     <!-- Main Grid with Dark Theme -->
@@ -130,7 +145,7 @@
         <!-- Content Area -->
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="200"/>
+                <ColumnDefinition Width="275"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -139,43 +154,95 @@
                     Background="{StaticResource CardBackground}" 
                     CornerRadius="8"
                     Margin="5">               
+                    
                 <StackPanel>
                     <TextBlock Text="TRADING PARAMETERS" 
-                                Foreground="{StaticResource AccentColor}"
-                                FontWeight="Bold"
-                                Margin="10 10 0 10"/>
+                            Foreground="{StaticResource AccentColor}"
+                            FontWeight="Bold"
+                            Margin="10 10 0 10"/>
                     
                     <!-- Operation Mode -->
                     <Label Content="Operation Mode:"/>
-                    <ComboBox x:Name="OperationModeComboBox"/>
+                    <ComboBox x:Name="OperationModeComboBox" SelectionChanged="OperationMode_SelectionChanged"/>
+                    
+                    <!-- Strategy Selection (Multi-select) -->
+                    <controls:StrategySelectionControl x:Name="StrategySelector" Margin="0 5"/>
                     
                     <!-- Trade Direction -->
                     <Label Content="Trade Direction:"/>
-                    <ComboBox x:Name="TradeDirectionComboBox"/>
-                    
-                    <!-- Trading Strategy -->
-                    <Label Content="Trading Strategy:"/>
-                    <ComboBox x:Name="TradingStrategyComboBox"/>
+                    <ComboBox x:Name="TradeDirectionComboBox">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource EnumDescriptionConverter}}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <!-- TimeFrame -->
+                    <Label Content="Time Frame:"/>
+                    <ComboBox x:Name="TimeFrameComboBox">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Display}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     
                     <!-- Entry Size -->
-                    <Label Content="Entry Size:"/>
-                    <TextBox x:Name="EntrySizeTextBox"/>
+                    <Label Content="Entry Size (USDT):"/>
+                    <TextBox x:Name="EntrySizeTextBox" Text="20" TextChanged="ValidateInputs"/>
                     
                     <!-- Leverage -->
-                    <Label Content="Leverage:"/>
-                    <TextBox x:Name="LeverageTextBox"/>
+                    <Label Content="Leverage"/>
+                    <TextBox x:Name="LeverageTextBox" Text="20" TextChanged="ValidateInputs"/>
                     
-                    <!-- Take Profit -->
-                    <Label Content="Take Profit (%):"/>
-                    <TextBox x:Name="TakeProfitTextBox"/>
+                    <!-- ATR Multiplier -->
+                    <Label Content="ATR Multiplier:"/>
+                    <StackPanel Orientation="Horizontal">
+                    <Slider x:Name="AtrMultiplierSlider" 
+                            Minimum="0.5" Maximum="10" 
+                            TickFrequency="0.1"
+                            Width="150" Margin="0 0 10 0"
+                            ValueChanged="AtrMultiplier_ValueChanged"/>
+                        <TextBlock x:Name="AtrMultiplierText" 
+                                Text="2.8 (TP: +2.8ATR)"
+                                VerticalAlignment="Center"
+                                Foreground="{StaticResource TextColor}"/>
+                    </StackPanel>
                     
-                    <!-- Backtest Dates (Conditional) -->
+                    <!-- Risk-Reward Ratio -->
+                    <Label Content="Risk-Reward Ratio:"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Slider x:Name="RiskRewardSlider" 
+                                Minimum="0.5" Maximum="10" 
+                                Value="3.0" TickFrequency="0.1"
+                                Width="150" Margin="0 0 10 0"
+                                ValueChanged="RiskReward_ValueChanged"/>
+                        <TextBlock x:Name="RiskRewardText" 
+                                Text="1:3.0"
+                                VerticalAlignment="Center"
+                                Foreground="{StaticResource TextColor}"/>
+                    </StackPanel>
+                    
+                    <!-- Backtest Dates Panel -->
                     <StackPanel x:Name="BacktestPanel" Visibility="Collapsed" Margin="0 10">
-                        <TextBlock Text="Backtest Period (Optional)" 
-                                    Foreground="{StaticResource WarningColor}"
-                                    FontStyle="Italic"/>
-                        <DatePicker x:Name="StartDatePicker" Tag="Start Date"/>
-                        <DatePicker x:Name="EndDatePicker" Tag="End Date"/>
+                        <TextBlock Text="Backtest Period" 
+                                Foreground="{StaticResource WarningColor}"
+                                FontStyle="Italic"
+                                Margin="0 0 0 5"/>
+                        
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Start:" Width="60" VerticalAlignment="Center"
+                                    Foreground="{StaticResource TextColor}"/>
+                            <TextBox x:Name="StartDateTextBox" Width="120" Margin="0 0 10 0"
+                                    ToolTip="Leave empty for automatic 1 week before current date"/>
+                        </StackPanel>
+                        
+                        <StackPanel Orientation="Horizontal" Margin="0 5 0 0">
+                            <TextBlock Text="End:" Width="60" VerticalAlignment="Center"
+                                    Foreground="{StaticResource TextColor}"/>
+                            <TextBox x:Name="EndDateTextBox" Width="120"
+                                    ToolTip="Leave empty for automatic 900 candles after start"/>
+                        </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </Border>

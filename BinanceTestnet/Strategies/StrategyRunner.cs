@@ -18,9 +18,11 @@ namespace BinanceLive.Strategies
         private readonly string _apiKey;
         public Wallet _wallet;
         private readonly OrderManager _orderManager;
-        private readonly SelectedTradingStrategy _selectedStrategy;
+        private readonly List<SelectedTradingStrategy> _selectedStrategies;
 
-        public StrategyRunner(RestClient client, string apiKey, List<string> symbols, string interval, Wallet wallet, OrderManager orderManager, SelectedTradingStrategy selectedStrategy)
+        public StrategyRunner(RestClient client, string apiKey, List<string> symbols, 
+                            string interval, Wallet wallet, OrderManager orderManager, 
+                            List<SelectedTradingStrategy> selectedStrategies)
         {
             _client = client;
             _apiKey = apiKey;
@@ -28,7 +30,7 @@ namespace BinanceLive.Strategies
             _interval = interval;
             _wallet = wallet;
             _orderManager = orderManager;
-            _selectedStrategy = selectedStrategy;
+            _selectedStrategies = selectedStrategies;
         }
 
         public async Task RunStrategiesAsync()
@@ -63,8 +65,7 @@ namespace BinanceLive.Strategies
                     timer.Start();
                     await strategy.RunOnHistoricalDataAsync(historicalData);
                     var elapsed = timer.Elapsed;
-                    Console.WriteLine($"------------------Strategy {strategy.ToString()} lasted {elapsed} " );
-                    // Close all active trades with the last Kline's close price
+                    Console.WriteLine($"----------Strategy {strategy.ToString()} lasted {elapsed} " );
                     _orderManager.CloseAllActiveTradesForBacktest(closePrice, lastKline.OpenTime);
                 } 
             }
@@ -75,20 +76,50 @@ namespace BinanceLive.Strategies
 
         private List<StrategyBase> GetStrategies()
         {
-            var strategies = new List<StrategyBase>();
-
-            // strategies.Add(new CandleDistributionReversalStrategy(_client, _apiKey, _orderManager, _wallet));
-            strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
-             strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));
-            strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
-            // strategies.Add(new RSIMomentumStrategy(_client, _apiKey, _orderManager, _wallet));
-            // // /* strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet)); has a problem, hangs the app in livepaper*/
-            //  strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
-            // strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
-            strategies.Add(new IchimokuCloudStrategy(_client, _apiKey, _orderManager, _wallet));         
-            // strategies.Add(new FibonacciRetracementStrategy(_client, _apiKey, _orderManager, _wallet));        
-            // strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
-            // strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
+            var strategies = new List<StrategyBase>(); 
+    
+            foreach (var strategyEnum in _selectedStrategies)
+            {
+                switch(strategyEnum)
+                {
+                    case SelectedTradingStrategy.EmaStochRsi:
+                        strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
+                    case SelectedTradingStrategy.EnhancedMACD:
+                        strategies.Add(new EnhancedMACDStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
+                    case SelectedTradingStrategy.FVG:
+                        strategies.Add(new FVGStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
+                    case SelectedTradingStrategy.IchimokuCloud:
+                        strategies.Add(new IchimokuCloudStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
+                    case SelectedTradingStrategy.CandleDistributionReversal:
+                        strategies.Add(new CandleDistributionReversalStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
+                    case SelectedTradingStrategy.RSIMomentum:
+                        strategies.Add(new RSIMomentumStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
+                    case SelectedTradingStrategy.MACDStandard:
+                        strategies.Add(new MACDStandardStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
+                    case SelectedTradingStrategy.RsiDivergence:
+                        strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break; 
+                    case SelectedTradingStrategy.FibonacciRetracement:
+                        strategies.Add(new FibonacciRetracementStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;       
+                    case SelectedTradingStrategy.Aroon:
+                        strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;       
+                    case SelectedTradingStrategy.HullSMA:
+                        strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;       
+                    case SelectedTradingStrategy.SMAExpansion:
+                        strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;                                                              
+                }
+            }
 
             return strategies;
         }
@@ -101,8 +132,6 @@ namespace BinanceLive.Strategies
             // Shuffle the list of strategies
             var random = new Random();
             var shuffledStrategies = allStrategies.OrderBy(x => random.Next()).ToList();
-
-            // Select the specified number of strategies
             
             return shuffledStrategies.Take(numberOfStrategies).ToList();
         }
