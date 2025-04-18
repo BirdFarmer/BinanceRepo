@@ -31,7 +31,7 @@ namespace TradingAPI.Controllers
         public async Task<IActionResult> StartTrading(
             [FromQuery] OperationMode operationMode = OperationMode.LivePaperTrading,
             [FromQuery] SelectedTradeDirection direction = SelectedTradeDirection.Both,
-            [FromQuery] SelectedTradingStrategy strategy = SelectedTradingStrategy.All,
+            [FromQuery] SelectedTradingStrategy strategy = SelectedTradingStrategy.SMAExpansion,
             [FromQuery] string takeProfitPercent = "1.5",
             [FromQuery] string userName = "Swagger")
         {

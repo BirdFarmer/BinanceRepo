@@ -1,11 +1,15 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using BinanceTestnet.Enums;
 using BinanceTestnet.Trading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TradingAppDesktop.Controls;
 using TradingAppDesktop.Services;
 
 namespace TradingAppDesktop
@@ -17,6 +21,9 @@ namespace TradingAppDesktop
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+            DispatcherUnhandledException += OnDispatcherUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
             base.OnStartup(e);
     
             // 0. Crash Handler
@@ -41,9 +48,27 @@ namespace TradingAppDesktop
                     .SetMinimumLevel(LogLevel.Debug);
             });
 
-            // 2. Create main window
-            var mainWindow = new MainWindow();
-            MainWindow = mainWindow;
+            //2. Create main window
+            MainWindow mainWindow = null;
+
+            try
+            { 
+                mainWindow = new MainWindow();
+                MainWindow = mainWindow;
+            }
+            catch (Exception ex)
+            {
+                string crashLog = $"[{DateTime.Now}] CRASH DURING MainWindow CONSTRUCTION:\n{ex}\n\n";
+                File.AppendAllText(@"C:\Logs\app_crashes.log", crashLog);
+
+                MessageBox.Show($"A critical error occurred during startup:\n{ex.Message}", 
+                                "Startup Error", 
+                                MessageBoxButton.OK, 
+                                MessageBoxImage.Error);
+
+                Environment.Exit(1); // hard stop to prevent unstable state
+                return;
+            }
             
             // 3. Initialize UI logger
             var uiLoggerProvider = new LoggerProvider(mainWindow);
@@ -58,7 +83,6 @@ namespace TradingAppDesktop
             mainWindow.InitializeTradingParameters(
                 OperationMode.LivePaperTrading,
                 SelectedTradeDirection.Both,
-                SelectedTradingStrategy.All,
                 "5m", 20m, 15m, 2.5m
             );
             
@@ -101,5 +125,32 @@ namespace TradingAppDesktop
             }
             base.OnExit(e);
         }
+        
+
+        private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            ShowFatalError(e.ExceptionObject as Exception);
+        }
+
+        private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+        {
+            ShowFatalError(e.Exception);
+            e.Handled = true;
+        }
+
+        private void OnUnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs e)
+        {
+            ShowFatalError(e.Exception);
+            e.SetObserved();
+        }
+
+        private void ShowFatalError(Exception ex)
+        {
+            File.WriteAllText("crash_log.txt", $"{ex.Message}\n\n{ex.StackTrace}");
+            MessageBox.Show($"A critical error occurred:\n{ex.Message}", "Crash!", MessageBoxButton.OK, MessageBoxImage.Error);
+            Environment.Exit(1);  // Ensure app closes gracefully
+        }
+
+
     }
 }

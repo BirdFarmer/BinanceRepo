@@ -35,6 +35,7 @@ namespace BinanceTestnet.Trading
         // Trading parameters
         private decimal _leverage;
         private decimal _takeProfit;
+        private decimal _stopLoss;
         private decimal? _tpIteration;
         private string _interval;
         private OperationMode _operationMode;
@@ -57,7 +58,7 @@ namespace BinanceTestnet.Trading
 
 
       public OrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
-                        string interval, decimal takeProfit,
+                        string interval, decimal takeProfit, decimal stopLoss,
                         SelectedTradeDirection tradeDirection, SelectedTradingStrategy tradingStrategy,
                         RestClient client, decimal tpIteration, decimal margin, string databasePath, 
                         string sessionId, IExchangeInfoProvider exchangeInfoProvider, ILogger<OrderManager> logger)
@@ -74,6 +75,7 @@ namespace BinanceTestnet.Trading
             _operationMode = operationMode;
             _interval = interval;
             _takeProfit = takeProfit;
+            _stopLoss = stopLoss;
             _tpIteration = tpIteration;
             _tradeDirection = tradeDirection;
             _tradingStrategy = tradingStrategy;
@@ -164,6 +166,21 @@ namespace BinanceTestnet.Trading
                 throw new Exception("Lot size initialization failed");
             }
         }
+
+        public decimal GetTakeProfit()
+        {
+            return _takeProfit;
+        }
+
+        public decimal GetStopLoss()
+        {
+            return _stopLoss;
+        }
+
+        public decimal GetLeverage()
+        {
+            return _leverage;
+        }   
 
         public (decimal lotSize, int pricePrecision, decimal tickSize) GetLotSizeAndPrecision(string symbol)
         {
@@ -362,7 +379,7 @@ namespace BinanceTestnet.Trading
             }).ToList();
 
             //return VolatilityBasedTPandSL.CalculateTpAndSl(symbol, symbolQuotes, btcQuotes, _takeProfit);
-            return VolatilityBasedTPandSL.CalculateTpAndSlBasedOnAtrMultiplier(symbol, symbolQuotes, _takeProfit);
+            return VolatilityBasedTPandSL.CalculateTpAndSlBasedOnAtrMultiplier(symbol, symbolQuotes, _takeProfit, _stopLoss);
         }
 
         public List<Trade> GetActiveTrades()
