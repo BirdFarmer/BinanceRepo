@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using BinanceTestnet.Enums;
 using BinanceTestnet.Trading;
@@ -19,11 +20,62 @@ namespace TradingAppDesktop
         private ILoggerFactory _loggerFactory;
         public BinanceTradingService TradingService { get; private set; }
 
-        protected override void OnStartup(StartupEventArgs e)
+        protected override async void OnStartup(StartupEventArgs e)
         {
-            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
-            DispatcherUnhandledException += OnDispatcherUnhandledException;
-            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
+            var (isApproved, deviceId) = await HardwareLockService.CheckApprovalAsync();
+            
+            if (!isApproved)
+            {
+                // Create a selectable TextBox dialog
+                var dialog = new Window {
+                    Title = "Activation Required",
+                    Width = 400,
+                    Height = 250,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen
+                };
+
+                var textBox = new TextBox {
+                    Text = deviceId,
+                    IsReadOnly = true,
+                    FontSize = 14,
+                    Margin = new Thickness(10),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    TextWrapping = TextWrapping.Wrap
+                };
+
+                var button = new Button {
+                    Content = "Copy to Clipboard",
+                    Margin = new Thickness(10),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+
+                button.Click += (s, args) => {
+                    Clipboard.SetText(deviceId);
+                    button.Content = "Copied!";
+                };
+
+                dialog.Content = new StackPanel {
+                    Children = {
+                        new TextBlock {
+                            Text = HardwareLockService.GetActivationMessage(deviceId),
+                            Margin = new Thickness(10),
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        textBox,
+                        button
+                    }
+                };
+
+                dialog.ShowDialog();
+                Environment.Exit(0);
+                return;
+            }
+
+            // AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+            // DispatcherUnhandledException += OnDispatcherUnhandledException;
+            // TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
             base.OnStartup(e);
     
             // 0. Crash Handler
