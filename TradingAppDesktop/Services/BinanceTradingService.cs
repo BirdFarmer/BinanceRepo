@@ -19,8 +19,7 @@ using System.Linq.Expressions;
 using System.IO;
 using System.Windows;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using System.Net.Http;
 using System.Threading;
 
@@ -29,6 +28,7 @@ namespace TradingAppDesktop.Services
     public class BinanceTradingService : IExchangeInfoProvider
     {
         private static TradeLogger _tradeLogger;
+        private readonly ReportSettings _reportSettings;
         private static string _sessionId;
         private static OrderManager _orderManager;
         private static RestClient _client; // Lift client to class level
@@ -54,6 +54,13 @@ namespace TradingAppDesktop.Services
         {
             _logger = logger;
             _loggerFactory = loggerFactory;
+            
+            // Load configuration
+            var config = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json")
+                .Build();
+            
 
             _client = new RestClient(new HttpClient()
             {
@@ -63,6 +70,7 @@ namespace TradingAppDesktop.Services
             _wallet = new Wallet(300);
             //_cancellationTokenSource = new CancellationTokenSource();
         }
+            
 
         public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, 
                                     List<SelectedTradingStrategy> selectedStrategies, string interval, 
@@ -101,20 +109,42 @@ namespace TradingAppDesktop.Services
                 _logger.LogDebug("API keys retrieved successfully");
             }
 
-            // Initialize Database
-            string databasePath = @"C:\Repo\BinanceAPI\db\DataBase.db";
-            _logger.LogDebug($"Initializing database at: {databasePath}");
-            
+            // Initialize Database - Updated Version
+            string databasePath = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,  // .exe's folder
+                "TradingData.db"                       // Single file, no subfolder
+            );
+            // 1. Ensure directory exists
+            var dbDir = Path.GetDirectoryName(databasePath);
+            if (!Directory.Exists(dbDir))
+            {
+                Directory.CreateDirectory(dbDir);
+                _logger.LogDebug($"Created database directory: {dbDir}");
+            }
+
+            // 2. Initialize database (with migration for existing users)
             var databaseManager = new DatabaseManager(databasePath);
             try
             {
+                // 3. Check if this is first run (no DB exists)
+                bool isFirstRun = !File.Exists(databasePath);
+                
                 databaseManager.InitializeDatabase();
                 _tradeLogger = new TradeLogger(databasePath);
-                _logger.LogInformation("Database initialized successfully");
+
+                if (isFirstRun)
+                {
+                    _logger.LogInformation("Created new database with default schema");
+                    // Optional: Add starter data here if needed
+                }
+                else
+                {
+                    _logger.LogInformation($"Loaded existing database (v{databaseManager.GetSchemaVersion()})");
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to initialize database");
+                _logger.LogError(ex, "Database initialization failed");
                 throw;
             }
 
@@ -419,28 +449,31 @@ namespace TradingAppDesktop.Services
 
         private void GenerateReport()
         {
-            _logger.LogInformation("Generating performance report...");
+            // 1. Create settings with defaults
+            var settings = new ReportSettings();
             
-            try
+            // 2. Generate report path
+            string reportDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, settings.OutputPath);
+            Directory.CreateDirectory(reportDir);
+            string reportPath = Path.Combine(reportDir, $"performance_report_{_sessionId}.txt");
+            
+            // 3. Your existing report generation code
+            var metrics = _tradeLogger.CalculatePerformanceMetrics(_sessionId);
+            var reportGenerator = new ReportGenerator(_tradeLogger);
+            var activeCoinPairs = _orderManager.DatabaseManager.GetClosestCoinPairList(DateTime.UtcNow);
+            string coinPairsFormatted = string.Join(",", activeCoinPairs.Select(cp => $"\"{cp}\""));
+            reportGenerator.GenerateSummaryReport(_sessionId, reportPath, coinPairsFormatted);
+            
+            // 4. Auto-open if enabled
+            if (settings.AutoOpen)
             {
-                var metrics = _tradeLogger.CalculatePerformanceMetrics(_sessionId);
-                var reportGenerator = new ReportGenerator(_tradeLogger);
-
-                string reportsFolder = @"C:\Repo\BinanceAPI\BinanceTestnet\Excels";
-                Directory.CreateDirectory(reportsFolder);
-
-                string reportPath = Path.Combine(reportsFolder, $"performance_report_{_sessionId}.txt");
-                
-                var activeCoinPairs = _orderManager.DatabaseManager.GetClosestCoinPairList(DateTime.UtcNow);
-                string coinPairsFormatted = string.Join(",", activeCoinPairs.Select(cp => $"\"{cp}\""));
-
-                reportGenerator.GenerateSummaryReport(_sessionId, reportPath, coinPairsFormatted);
-                
-                _logger.LogInformation($"Report generated successfully at: {reportPath}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to generate report");
+                try 
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(reportPath) { 
+                        UseShellExecute = true 
+                    });
+                }
+                catch { /* Silent fail if opening doesn't work */ }
             }
         }
 
