@@ -23,6 +23,8 @@ namespace BinanceTestnet.Database
         {
             CreateConnection(connection =>
             {
+                using var versionCommand = new SqliteCommand("PRAGMA user_version = 1;", connection);
+                versionCommand.ExecuteNonQuery();
                 // Existing table creation queries
                 string createUsersTable = @"
                     CREATE TABLE IF NOT EXISTS Users (
@@ -447,6 +449,28 @@ namespace BinanceTestnet.Database
             }
 
             return addedCount; // Return how many were added from this query
+        }
+
+        // In DatabaseManager.cs
+        public int GetSchemaVersion()
+        {
+            // Implement your version tracking logic
+            return ExecuteScalar<int>("PRAGMA user_version;");
+        }
+
+        private T ExecuteScalar<T>(string query)
+        {
+            T result = default;
+            CreateConnection(connection =>
+            {
+                using var command = new SqliteCommand(query, connection);
+                var scalarResult = command.ExecuteScalar();
+                if (scalarResult != null && scalarResult != DBNull.Value)
+                {
+                    result = (T)Convert.ChangeType(scalarResult, typeof(T));
+                }
+            });
+            return result;
         }
     }
 }
