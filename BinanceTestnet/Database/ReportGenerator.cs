@@ -58,7 +58,8 @@ namespace BinanceTestnet.Database
 
                 // Calculate initial margin and total funds added for this group
                 decimal marginPerTrade = group.First().MarginPerTrade; // All trades have the same margin per trade
-                decimal totalFundsAdded = group.Sum(t => t.FundsAdded);
+                
+                decimal totalFundsAdded = _tradeLogger.GetSessionFundsAdded(sessionId);
 
                 // Create a DataTable for the report
                 var reportTable = new DataTable($"Summary Report - {interval} Interval - {takeProfitMultiplier} Take Profit Multiplier");

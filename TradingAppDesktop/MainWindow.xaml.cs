@@ -194,6 +194,7 @@ namespace TradingAppDesktop
                 var tradeDirection = (SelectedTradeDirection)TradeDirectionComboBox.SelectedItem;
                 var timeFrame = ((TimeFrameItem)TimeFrameComboBox.SelectedItem).Value;
                 decimal entrySize = decimal.Parse(EntrySizeTextBox.Text);
+                decimal leverage = decimal.Parse(LeverageTextBox.Text);
                 decimal atrMultiplier = (decimal)AtrMultiplierSlider.Value;
                 decimal riskReward = (decimal)RiskRewardSlider.Value;
                 
@@ -214,7 +215,7 @@ namespace TradingAppDesktop
                     selectedStrategies,
                     timeFrame,
                     entrySize,
-                    15m, // Leverage (could make this configurable too)
+                    leverage, 
                     atrMultiplier, // Using ATR multiplier as take profit
                     riskReward,
                     startDate,

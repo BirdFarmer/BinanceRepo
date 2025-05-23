@@ -23,7 +23,7 @@ namespace TradingAPI.Services
         {
             _client = client;
             _apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
-            _wallet = new Wallet(300); // Default wallet balancecd tra
+            _wallet = new Wallet(1000); // Default wallet balancecd tra
             _cts = new CancellationTokenSource(); // Initialize cancellation token
         }
         
@@ -62,7 +62,7 @@ namespace TradingAPI.Services
                     var backtestTakeProfits = new List<decimal> { 0.3M, 0.6M, 0.8M, 1.0M, 1.3M, 1.5M, 1.7M, 1.9M }; // Take profit percentages
                     foreach (var tp in backtestTakeProfits)
                     {
-                        _wallet = new Wallet(300); // Reset wallet balance
+                        _wallet = new Wallet(1000); // Reset wallet balance
 
                         orderManager.UpdateParams(_wallet, tp); // Update OrderManager with new parameters
 
@@ -126,7 +126,7 @@ namespace TradingAPI.Services
 
             foreach (var tp in backtestTakeProfits)
             {
-                wallet = new Wallet(300); // Reset wallet balance
+                wallet = new Wallet(1000); // Reset wallet balance
 
                 orderManager.UpdateParams(wallet, tp); // Update OrderManager with new parameters
 

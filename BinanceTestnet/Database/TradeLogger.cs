@@ -26,11 +26,13 @@ namespace BinanceTestnet.Database
                         INSERT INTO Trades (
                             SessionId, Symbol, TradeType, Signal, EntryTime, 
                             EntryPrice, TakeProfit, StopLoss, Leverage, Interval, 
-                            KlineTimestamp, TakeProfitMultiplier, MarginPerTrade)
+                            KlineTimestamp, TakeProfitMultiplier, MarginPerTrade,
+                            LiquidationPrice, MaintenanceMarginRate)
                         VALUES (
                             @SessionId, @Symbol, @TradeType, @Signal, @EntryTime, 
                             @EntryPrice, @TakeProfit, @StopLoss, @Leverage, @Interval, 
-                            @KlineTimestamp, @TakeProfitMultiplier, @MarginPerTrade);"; 
+                            @KlineTimestamp, @TakeProfitMultiplier, @MarginPerTrade,
+                            @LiquidationPrice, @MaintenanceMarginRate);";
 
                     using (var command = new SqliteCommand(insertQuery, connection))
                     {
@@ -48,6 +50,8 @@ namespace BinanceTestnet.Database
                         command.Parameters.AddWithValue("@KlineTimestamp", trade.KlineTimestamp);
                         command.Parameters.AddWithValue("@TakeProfitMultiplier", trade.TakeProfitMultiplier);
                         command.Parameters.AddWithValue("@MarginPerTrade", trade.MarginPerTrade);
+                        command.Parameters.AddWithValue("@LiquidationPrice", trade.LiquidationPrice);
+                        command.Parameters.AddWithValue("@MaintenanceMarginRate", trade.MaintenanceMarginRate);
 
                         int rowsAffected = command.ExecuteNonQuery();
                         Console.WriteLine($"Rows affected: {rowsAffected}");
@@ -79,6 +83,13 @@ namespace BinanceTestnet.Database
         {
             try
             {
+                
+                // Calculate raw profit
+                decimal rawProfit = (trade.ExitPrice.Value - trade.EntryPrice) / trade.EntryPrice * 
+                                (trade.IsLong ? 1 : -1) * trade.Leverage * trade.MarginPerTrade;
+                
+                // Cap the profit/loss
+                trade.Profit = Math.Max(rawProfit, -trade.MarginPerTrade);
                 using (var connection = new SqliteConnection(_connectionString))
                 {
                     connection.Open();
@@ -89,9 +100,18 @@ namespace BinanceTestnet.Database
                             ExitPrice = @ExitPrice,
                             Profit = @Profit,
                             Duration = @Duration,
-                            FundsAdded = @FundsAdded
+                            FundsAdded = @FundsAdded,
+                            IsNearLiquidation = @IsNearLiquidation
                         WHERE TradeId = @TradeId;";
 
+                    // Calculate if trade was near liquidation
+                    bool isNearLiquidation = false;
+                    if (trade.ExitPrice.HasValue)
+                    {
+                        decimal pctChange = (trade.ExitPrice.Value - trade.EntryPrice) / trade.EntryPrice;
+                        decimal liquidationThreshold = -100m / trade.Leverage;
+                        isNearLiquidation = pctChange <= liquidationThreshold * 0.9m;
+                    }
                     using (var command = new SqliteCommand(updateQuery, connection))
                     {
                         // Add parameters
@@ -101,6 +121,7 @@ namespace BinanceTestnet.Database
                         command.Parameters.AddWithValue("@Duration", trade.Duration);
                         command.Parameters.AddWithValue("@FundsAdded", trade.FundsAdded);
                         command.Parameters.AddWithValue("@TradeId", trade.TradeId);
+                        command.Parameters.AddWithValue("@IsNearLiquidation", isNearLiquidation);
 
                         int rowsAffected = command.ExecuteNonQuery();
                         Console.WriteLine($"Rows affected: {rowsAffected}"); // Debugging output
@@ -147,7 +168,7 @@ namespace BinanceTestnet.Database
                             // Handle NULL in FundsAdded
                             decimal fundsAdded = reader.IsDBNull(reader.GetOrdinal("FundsAdded")) 
                                 ? 0 
-                                : reader.GetDecimal(reader.GetOrdinal("FundsAdded"));
+                                : Convert.ToDecimal(reader.GetDouble(reader.GetOrdinal("FundsAdded")));
                             decimal quantity = fundsAdded / entryPrice;
 
                             bool isLong = reader.GetString(reader.GetOrdinal("TradeType")) == "Long";
@@ -172,7 +193,15 @@ namespace BinanceTestnet.Database
                             decimal marginPerTrade = reader.IsDBNull(reader.GetOrdinal("MarginPerTrade")) 
                                 ? 0 
                                 : reader.GetDecimal(reader.GetOrdinal("MarginPerTrade"));
-
+                                // Get liquidation price and maintenance margin rate from the database
+                            
+                            decimal liquidationPrice = reader.IsDBNull(reader.GetOrdinal("LiquidationPrice")) 
+                                ? 0 
+                                : reader.GetDecimal(reader.GetOrdinal("LiquidationPrice"));
+                            decimal maintenanceMarginRate = reader.IsDBNull(reader.GetOrdinal("MaintenanceMarginRate")) 
+                                ? 0 
+                                : reader.GetDecimal(reader.GetOrdinal("MaintenanceMarginRate"));
+                                
                             // Create the Trade object
                             var trade = new Trade(
                                 tradeId: tradeId,
@@ -187,10 +216,11 @@ namespace BinanceTestnet.Database
                                 signal: signal,
                                 interval: interval,
                                 timestamp: timestamp,
-                                takeProfitMultiplier:  takeProfitMultiplier,
-                                marginPerTrade: marginPerTrade
+                                takeProfitMultiplier: takeProfitMultiplier,
+                                marginPerTrade: marginPerTrade,
+                                liquidationPrice: liquidationPrice,
+                                maintenanceMarginRate: maintenanceMarginRate
                             );
-
                             // Set additional properties
                             trade.ExitTime = reader.IsDBNull(reader.GetOrdinal("ExitTime")) 
                                 ? (DateTime?)null 
@@ -220,6 +250,21 @@ namespace BinanceTestnet.Database
 
             return trades;
         }
+
+        public decimal GetSessionFundsAdded(string sessionId)
+        {
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                var command = new SqliteCommand(
+                    "SELECT SUM(FundsAdded) FROM Trades WHERE SessionId = @sessionId", 
+                    connection);
+                command.Parameters.AddWithValue("@sessionId", sessionId);
+                var result = command.ExecuteScalar();
+                return result == DBNull.Value ? 0 : Convert.ToDecimal(result);
+            }
+        }
+
         /// <summary>
         /// Calculates performance metrics for a specific session.
         /// </summary>
@@ -279,6 +324,45 @@ namespace BinanceTestnet.Database
 
             return metrics;
         }
+
+        public PerformanceMetrics CalculateCappedPerformanceMetrics(string sessionId, decimal marginPerTrade)
+        {
+            // Get all trades first
+            var trades = GetTrades(sessionId);
+            
+            // Then use local calculation with capping
+            return CalculateCappedPerformanceMetrics(trades, marginPerTrade);
+        }
+
+        private PerformanceMetrics CalculateCappedPerformanceMetrics(List<Trade> trades, decimal marginPerTrade)
+        {
+            var metrics = new PerformanceMetrics();
+            var validTrades = trades.Where(t => t.Profit.HasValue).ToList();
+            
+            // Apply capping
+            var cappedProfits = validTrades.Select(t => 
+                t.Profit.Value < -marginPerTrade ? -marginPerTrade : t.Profit.Value).ToList();
+            
+            metrics.TotalTrades = cappedProfits.Count;
+            metrics.WinningTrades = cappedProfits.Count(p => p > 0);
+            metrics.LosingTrades = cappedProfits.Count(p => p <= 0);
+            metrics.NetProfit = cappedProfits.Sum();
+            metrics.WinRate = metrics.TotalTrades == 0 ? 0 : 
+                (decimal)metrics.WinningTrades / metrics.TotalTrades * 100;
+            metrics.MaxLoss = cappedProfits.DefaultIfEmpty(0).Min();
+            metrics.ExcessLossCount = validTrades.Count(t => t.Profit.Value < -marginPerTrade);
+            
+            // Calculate Sharpe Ratio using capped values
+            if (cappedProfits.Any())
+            {
+                decimal avgReturn = cappedProfits.Average();
+                decimal sumOfSquares = cappedProfits.Sum(p => (p - avgReturn) * (p - avgReturn));
+                metrics.SharpeRatio = (decimal)Math.Sqrt((double)(sumOfSquares / cappedProfits.Count)) == 0 ? 
+                    0 : avgReturn / (decimal)Math.Sqrt((double)(sumOfSquares / cappedProfits.Count));
+            }
+            
+            return metrics;
+        }        
 
         private decimal CalculateSharpeRatio(string sessionId, SqliteConnection connection)
         {
@@ -662,6 +746,175 @@ namespace BinanceTestnet.Database
 
             return maxStreak;
         }  
+
+        public List<Trade> GetCriticalTrades(string sessionId, int count)
+        {
+            var trades = new List<Trade>();
+            
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                string query = @"
+                    SELECT * FROM Trades 
+                    WHERE SessionId = @sessionId
+                    ORDER BY Profit ASC
+                    LIMIT @count";
+                    
+                using (var command = new SqliteCommand(query, connection))
+                {
+                    command.Parameters.AddWithValue("@sessionId", sessionId);
+                    command.Parameters.AddWithValue("@count", count);
+                    
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            // Existing trade parsing logic
+                            trades.Add(ParseTradeFromReader(reader, sessionId));
+                        }
+                    }
+                }
+            }
+            
+            return trades;
+        }
+
+        public (int NearLiquidationCount, int LiquidationRiskCount) CalculateLiquidationStats(string sessionId, decimal thresholdPercentage)
+        {
+            int nearLiquidation = 0;
+            int liquidationRisk = 0;
+            
+            var trades = GetTrades(sessionId);
+            foreach (var trade in trades)
+            {
+                if (trade.ExitPrice.HasValue)
+                {
+                    decimal pctChange = (trade.ExitPrice.Value - trade.EntryPrice) / trade.EntryPrice;
+                    if (pctChange <= thresholdPercentage)
+                    {
+                        liquidationRisk++;
+                    }
+                    else if (pctChange <= thresholdPercentage * 0.9m)
+                    {
+                        nearLiquidation++;
+                    }
+                }
+            }
+            
+            return (nearLiquidation, liquidationRisk);
+        }
+
+        private Trade ParseTradeFromReader(SqliteDataReader reader, string sessionId)
+        {
+            // Use column names instead of indexes
+            int tradeId = reader.GetInt32(reader.GetOrdinal("TradeId"));
+            string symbol = reader.GetString(reader.GetOrdinal("Symbol"));
+            decimal entryPrice = reader.GetDecimal(reader.GetOrdinal("EntryPrice"));
+            decimal takeProfitPrice = reader.GetDecimal(reader.GetOrdinal("TakeProfit"));
+            decimal stopLossPrice = reader.GetDecimal(reader.GetOrdinal("StopLoss"));
+
+            // Handle NULL in FundsAdded
+            decimal fundsAdded = reader.IsDBNull(reader.GetOrdinal("FundsAdded")) 
+                ? 0 
+                : Convert.ToDecimal(reader.GetDouble(reader.GetOrdinal("FundsAdded")));
+            decimal quantity = fundsAdded / entryPrice;
+
+            bool isLong = reader.GetString(reader.GetOrdinal("TradeType")) == "Long";
+            decimal leverage = reader.GetDecimal(reader.GetOrdinal("Leverage"));
+            string signal = reader.GetString(reader.GetOrdinal("Signal"));
+            string interval = reader.IsDBNull(reader.GetOrdinal("Interval")) 
+                ? "N/A" 
+                : reader.GetString(reader.GetOrdinal("Interval"));
+
+            // Get liquidation price and maintenance margin rate
+            decimal liquidationPrice = reader.IsDBNull(reader.GetOrdinal("LiquidationPrice")) 
+                ? 0 
+                : reader.GetDecimal(reader.GetOrdinal("LiquidationPrice"));
+            decimal maintenanceMarginRate = reader.IsDBNull(reader.GetOrdinal("MaintenanceMarginRate")) 
+                ? 0 
+                : reader.GetDecimal(reader.GetOrdinal("MaintenanceMarginRate"));
+
+            // Ensure EntryTime is treated as UTC
+            DateTime entryTime = reader.GetDateTime(reader.GetOrdinal("EntryTime"));
+            if (entryTime.Kind != DateTimeKind.Utc)
+            {
+                entryTime = DateTime.SpecifyKind(entryTime, DateTimeKind.Utc);
+            }
+            long timestamp = new DateTimeOffset(entryTime).ToUnixTimeMilliseconds();
+            
+            decimal takeProfitMultiplier = reader.IsDBNull(reader.GetOrdinal("TakeProfitMultiplier")) 
+                ? 0 
+                : reader.GetDecimal(reader.GetOrdinal("TakeProfitMultiplier"));
+            
+            decimal marginPerTrade = reader.IsDBNull(reader.GetOrdinal("MarginPerTrade")) 
+                ? 0 
+                : reader.GetDecimal(reader.GetOrdinal("MarginPerTrade"));
+
+            // Create the Trade object
+            var trade = new Trade(
+                tradeId: tradeId,
+                sessionId: sessionId,
+                symbol: symbol,
+                entryPrice: entryPrice,
+                takeProfitPrice: takeProfitPrice,
+                stopLossPrice: stopLossPrice,
+                quantity: quantity,
+                isLong: isLong,
+                leverage: leverage,
+                signal: signal,
+                interval: interval,
+                timestamp: timestamp,
+                takeProfitMultiplier: takeProfitMultiplier,
+                marginPerTrade: marginPerTrade,
+                liquidationPrice: liquidationPrice,
+                maintenanceMarginRate: maintenanceMarginRate
+            );
+
+            // Set additional properties
+            trade.ExitTime = reader.IsDBNull(reader.GetOrdinal("ExitTime")) 
+                ? (DateTime?)null 
+                : reader.GetDateTime(reader.GetOrdinal("ExitTime"));
+            if (trade.ExitTime.HasValue && trade.ExitTime.Value.Kind != DateTimeKind.Utc)
+            {
+                trade.ExitTime = DateTime.SpecifyKind(trade.ExitTime.Value, DateTimeKind.Utc);
+            }
+
+            trade.ExitPrice = reader.IsDBNull(reader.GetOrdinal("ExitPrice")) 
+                ? (decimal?)null 
+                : reader.GetDecimal(reader.GetOrdinal("ExitPrice"));
+            trade.Profit = reader.IsDBNull(reader.GetOrdinal("Profit")) 
+                ? (decimal?)null 
+                : reader.GetDecimal(reader.GetOrdinal("Profit"));
+
+            // Handle NULL in Duration
+            trade.Duration = reader.IsDBNull(reader.GetOrdinal("Duration")) 
+                ? 0 
+                : reader.GetInt32(reader.GetOrdinal("Duration"));
+
+            return trade;
+        }
+        
+        public (List<Trade> firstHalf, List<Trade> secondHalf) GetSessionHalves(string sessionId)
+        {
+            var trades = GetTrades(sessionId).OrderBy(t => t.EntryTime).ToList();
+            if (trades.Count == 0) return (new(), new());
+
+            var midpoint = trades[0].EntryTime + (trades[^1].EntryTime - trades[0].EntryTime) / 2;
+            return (
+                trades.Where(t => t.EntryTime <= midpoint).ToList(),
+                trades.Where(t => t.EntryTime > midpoint).ToList()
+            );
+        }
+
+        public (int candleCount, decimal tradesPerCandle) GetCandleMetrics(string sessionId, int intervalMinutes)
+        {
+            var trades = GetTrades(sessionId);
+            if (trades.Count == 0) return (0, 0);
+
+            var duration = trades.Max(t => t.EntryTime) - trades.Min(t => t.EntryTime);
+            var candles = (int)Math.Ceiling(duration.TotalMinutes / intervalMinutes);
+            return (candles, trades.Count / (decimal)candles);
+        }        
 
         public void Dispose()
         {

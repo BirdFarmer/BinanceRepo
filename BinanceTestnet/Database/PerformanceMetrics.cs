@@ -12,5 +12,10 @@ public class PerformanceMetrics
         public decimal MaximumDrawdown { get; set; }
         public decimal ProfitFactor { get; set; }
         public decimal SharpeRatio { get; set; }
+        public decimal AvgProfit { get; set; }
+        public decimal BestTrade { get; set; }
+        public decimal WorstTrade { get; set; }
+        public decimal MaxLoss { get; set; }
+        public int ExcessLossCount { get; set; }
 
 }
