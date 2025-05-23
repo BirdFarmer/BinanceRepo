@@ -73,30 +73,30 @@ namespace BinanceTestnet.Database
                         PreviousVolumeInUSDT REAL, 
                         LastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP
                     );";
-
-                // Updated Trades table with new columns
-                string createTradesTable = @"
-                    CREATE TABLE IF NOT EXISTS Trades (
-                        TradeId INTEGER PRIMARY KEY AUTOINCREMENT,
-                        SessionId TEXT NOT NULL,              -- Unique identifier for the backtest/live session
-                        Symbol TEXT NOT NULL,                -- Coin pair (e.g., BTCUSDT)
-                        TradeType TEXT NOT NULL,             -- 'Long' or 'Short'
-                        Signal TEXT NOT NULL,                -- Strategy name (e.g., RSI, MACD)
-                        EntryTime DATETIME NOT NULL,         -- Time the trade was opened
-                        ExitTime DATETIME,                   -- Time the trade was closed
-                        EntryPrice REAL NOT NULL,            -- Price at entry
-                        ExitPrice REAL,                     -- Price at exit
-                        Profit REAL,                         -- Profit or loss
-                        Leverage INTEGER,                   -- Leverage used
-                        TakeProfit REAL,                     -- Take profit level
-                        StopLoss REAL,                      -- Stop loss level
-                        Duration INTEGER,                    -- Duration of the trade in minutes
-                        FundsAdded REAL,                    -- Funds added to the wallet
-                        Interval TEXT,                      -- Interval (e.g., 1m, 5m, 1h)
-                        KlineTimestamp DATETIME,           -- Timestamp of the kline data (nullable)
-                        TakeProfitMultiplier DECIMAL,       -- Take profit multiplier
-                        MarginPerTrade DECIMAL              -- Margin per trade
-                    );";
+                    
+                    string createTradesTable = @"
+                        CREATE TABLE IF NOT EXISTS Trades (
+                            TradeId INTEGER PRIMARY KEY AUTOINCREMENT,
+                            SessionId TEXT NOT NULL,
+                            Symbol TEXT NOT NULL,
+                            TradeType TEXT NOT NULL,
+                            Signal TEXT NOT NULL,
+                            EntryTime DATETIME NOT NULL,
+                            ExitTime DATETIME,
+                            EntryPrice REAL NOT NULL,
+                            ExitPrice REAL,
+                            Profit REAL,
+                            Leverage INTEGER,
+                            TakeProfit REAL,
+                            StopLoss REAL,
+                            Duration INTEGER,
+                            FundsAdded REAL,
+                            Interval TEXT,
+                            KlineTimestamp DATETIME,
+                            TakeProfitMultiplier DECIMAL,
+                            MarginPerTrade DECIMAL,
+                            IsNearLiquidation BOOLEAN DEFAULT 0  -- New column
+                        );";
 
                 // New table for storing coin pair lists
                 string createCoinPairListsTable = @"

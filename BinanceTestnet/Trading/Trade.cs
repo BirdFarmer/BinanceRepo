@@ -28,10 +28,16 @@ public class Trade
     public decimal InitialMargin => Quantity * EntryPrice / Leverage;
     public decimal Quantity { get; }
     public decimal MarginPerTrade { get; } // Add this property
+    public decimal MaintenanceMarginRate { get; }
+    public decimal LiquidationPrice { get; }
+    
+    
 
-    public Trade(int tradeId, string sessionId, string symbol, decimal entryPrice, decimal takeProfitPrice, 
-                 decimal stopLossPrice, decimal quantity, bool isLong, decimal leverage, string signal, 
-                 string interval, long timestamp, decimal? takeProfitMultiplier, decimal marginPerTrade)
+    public Trade(
+        int tradeId, string sessionId, string symbol, decimal entryPrice, decimal takeProfitPrice, 
+        decimal stopLossPrice, decimal quantity, bool isLong, decimal leverage, string signal, 
+        string interval, long timestamp, decimal? takeProfitMultiplier, decimal marginPerTrade,
+        decimal liquidationPrice, decimal maintenanceMarginRate)
     {
         TradeId = tradeId;
         SessionId = sessionId;
@@ -50,6 +56,8 @@ public class Trade
         IsClosed = false;
         TakeProfitMultiplier = takeProfitMultiplier;
         MarginPerTrade = marginPerTrade;
+        LiquidationPrice = liquidationPrice;
+        MaintenanceMarginRate = maintenanceMarginRate;
     }
 
     /// <summary>
@@ -91,6 +99,13 @@ public class Trade
 
     public decimal CalculateRealizedReturn(decimal closingPrice)
     {
-        return ((closingPrice - EntryPrice) / EntryPrice) * (IsLong ? 1 : -1) * Leverage;
+        if (IsLong)
+        {
+            return ((closingPrice - EntryPrice) / EntryPrice) * Leverage;
+        }
+        else
+        {
+            return ((EntryPrice - closingPrice) / EntryPrice) * Leverage;
+        }
     }
 }

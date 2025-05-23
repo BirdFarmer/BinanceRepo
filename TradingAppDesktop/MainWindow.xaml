@@ -188,12 +188,12 @@
                     </ComboBox>
                     
                     <!-- Entry Size -->
-                    <Label Content="Entry Size (USDT):"/>
-                    <TextBox x:Name="EntrySizeTextBox" Text="20" TextChanged="ValidateInputs"/>
+                    <Label Content="Entry Size (USDT): "/>
+                    <TextBox x:Name="EntrySizeTextBox" Text="10" TextChanged="ValidateInputs"/>
                     
                     <!-- Leverage -->
                     <Label Content="Leverage"/>
-                    <TextBox x:Name="LeverageTextBox" Text="20" TextChanged="ValidateInputs"/>
+                    <TextBox x:Name="LeverageTextBox" Text="10" TextChanged="ValidateInputs"/>
                     
                     <!-- ATR Multiplier -->
                     <Label Content="ATR Multiplier:"/>

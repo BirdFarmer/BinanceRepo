@@ -13,6 +13,7 @@ using System.Globalization;
 using BinanceTestnet.Database;
 using BinanceLive.Tools;
 using Microsoft.Extensions.Logging;
+using SQLitePCL;
 
 namespace BinanceTestnet.Trading
 {
@@ -66,8 +67,6 @@ namespace BinanceTestnet.Trading
             _wallet = wallet;
             _databaseManager = new DatabaseManager(databasePath); // Create a new instance here
             _leverage = leverage;
-            // Remove this line
-            // _excelWriter = excelWriter;
 
             // Add this line
             _tradeLogger = new TradeLogger(databasePath);
@@ -172,6 +171,17 @@ namespace BinanceTestnet.Trading
             return _takeProfit;
         }
 
+        public string GetInterval()
+        {
+            return _interval;
+        }
+
+        public decimal GetMarginPerTrade()
+        {
+            return _marginPerTrade;
+        }
+
+
         public decimal GetStopLoss()
         {
             return _stopLoss;
@@ -180,6 +190,11 @@ namespace BinanceTestnet.Trading
         public decimal GetLeverage()
         {
             return _leverage;
+        }   
+
+        public SelectedTradingStrategy GetStrategy()
+        {
+            return _tradingStrategy;
         }   
 
         public (decimal lotSize, int pricePrecision, decimal tickSize) GetLotSizeAndPrecision(string symbol)
@@ -245,7 +260,9 @@ namespace BinanceTestnet.Trading
             await PlaceOrderAsync(symbol, price, false, signal, timestamp, takeProfit);
         }
 
-        private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, decimal? takeProfit = null, decimal? trailingActivationPercent = null, decimal? trailingCallbackPercent = null)
+        private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, 
+                                        decimal? takeProfit = null, decimal? trailingActivationPercent = null, 
+                                        decimal? trailingCallbackPercent = null)
         {
             lock (_activeTrades)
             {
@@ -255,8 +272,10 @@ namespace BinanceTestnet.Trading
                     return; // Skipping trade due to trade direction preference
                 }
 
-                if (_activeTrades.Count >= 25)
+                if (_activeTrades.Count >= 8)
                 {
+                    
+                    _logger.LogInformation($"Skip trade, maximum active trades reached: {_activeTrades.Count}");
                     return; // Max active trades limit reached
                 }
 
@@ -279,9 +298,9 @@ namespace BinanceTestnet.Trading
             else
             {
                 var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
-                if (tpPercent <= 0 || slPercent <= 0 || double.IsNaN((double) tpPercent) || 
-                    double.IsNaN((double) slPercent) || double.IsInfinity((double) tpPercent) || 
-                    double.IsInfinity((double) slPercent))
+                if (tpPercent <= 0 || slPercent <= 0 || double.IsNaN((double)tpPercent) || 
+                    double.IsNaN((double)slPercent) || double.IsInfinity((double)tpPercent) || 
+                    double.IsInfinity((double)slPercent))
                 {
                     return; // Skip the trade if values are invalid
                 }
@@ -303,8 +322,41 @@ namespace BinanceTestnet.Trading
             }
 
             decimal quantity = CalculateQuantity(price, symbol, _marginPerTrade);
+            
+            // Calculate liquidation price and maintenance margin rate
+            decimal maintenanceMarginRate = 0.004m; // 0.4% - typical for Binance
+            decimal liquidationPrice;
+            if (isLong)
+            {
+                liquidationPrice = price * (1 - (1 / _leverage) + maintenanceMarginRate);
+            }
+            else
+            {
+                liquidationPrice = price * (1 + (1 / _leverage) - maintenanceMarginRate);
+            }
+            
+            // Adjust stop loss if it would cause liquidation
+            decimal buffer = price * 0.001m; // 0.1% buffer
+            if (isLong)
+            {
+                if (stopLossPrice <= liquidationPrice)
+                {
+                    decimal newStopLoss = liquidationPrice + buffer;
+                    _logger.LogInformation($"Adjusted SL for {symbol} long from {stopLossPrice} to {newStopLoss} to avoid liquidation");
+                    stopLossPrice = newStopLoss;
+                }
+            }
+            else
+            {
+                if (stopLossPrice >= liquidationPrice)
+                {
+                    decimal newStopLoss = liquidationPrice - buffer;
+                    _logger.LogInformation($"Adjusted SL for {symbol} short from {stopLossPrice} to {newStopLoss} to avoid liquidation");
+                    stopLossPrice = newStopLoss;
+                }
+            }
 
-            // Create a new Trade object without specifying TradeId
+            // Create a new Trade object with liquidation information
             var trade = new Trade(
                 tradeId: 0, // Let SQLite generate the TradeId
                 sessionId: _sessionId,
@@ -319,13 +371,17 @@ namespace BinanceTestnet.Trading
                 interval: _interval,
                 timestamp: timestampEntry,
                 takeProfitMultiplier: _tpIteration,
-                marginPerTrade: _marginPerTrade
+                marginPerTrade: _marginPerTrade,
+                liquidationPrice: liquidationPrice,
+                maintenanceMarginRate: maintenanceMarginRate
             );
 
             if (_operationMode == OperationMode.LiveRealTrading)
             {
                 await PlaceRealOrdersAsync(trade, trailingActivationPercent, trailingCallbackPercent);
-                Console.WriteLine($"Trade {trade.Symbol} - TP: {takeProfitPrice}, SL: {stopLossPrice}, Quantity: {quantity}, Trailing Activation % {trailingActivationPercent}, Callback rate %: {trailingCallbackPercent}");
+                Console.WriteLine($"Trade {trade.Symbol} - TP: {takeProfitPrice}, SL: {stopLossPrice}, " +
+                                $"Liq: {liquidationPrice}, Qty: {quantity}, " +
+                                $"Trailing Act%: {trailingActivationPercent}, Callback%: {trailingCallbackPercent}");
             }
             else
             {
@@ -350,7 +406,6 @@ namespace BinanceTestnet.Trading
                 }
             }
         }
-
         private async Task<(decimal tpPercent, decimal slPercent)> CalculateATRBasedTPandSL(string symbol)
         {
             // Fetch historical data for ATR calculation
@@ -396,64 +451,89 @@ namespace BinanceTestnet.Trading
             {
                 if (trade == null || currentPrices == null || !currentPrices.ContainsKey(trade.Symbol))
                 {
-                    continue; // Skip invalid trades or missing price data
-                }
-
-                var closingPrice = currentPrices[trade.Symbol];
-
-                // Validate closing price
-                if (closingPrice <= 0)
-                {
-                    Console.WriteLine($"Invalid closing price for {trade.Symbol}. Skipping trade closure.");
                     continue;
                 }
 
-                // Check if the trade should be closed based on strategy logic
-                if (!ShouldCloseTrade(trade, closingPrice))
+                var currentPrice = currentPrices[trade.Symbol];
+                
+                // Check if price has crossed SL or TP at any point during the candle
+                bool shouldClose = false;
+                decimal closingPrice = currentPrice;
+                
+                if (trade.IsLong)
                 {
-                    continue; // Skip if the trade should not be closed
+                    // For long positions
+                    if (currentPrice <= trade.StopLoss)
+                    {
+                        shouldClose = true;
+                        closingPrice = trade.StopLoss; // Use the exact SL price
+                        _logger.LogInformation($"Closing {trade.Symbol} LONG at Stop Loss: {closingPrice}");
+                    }
+                    else if (currentPrice >= trade.TakeProfit)
+                    {
+                        shouldClose = true;
+                        closingPrice = trade.TakeProfit; // Use the exact TP price
+                        _logger.LogInformation($"Closing {trade.Symbol} LONG at Take Profit: {closingPrice}");
+                    }
+                }
+                else
+                {
+                    // For short positions
+                    if (currentPrice >= trade.StopLoss)
+                    {
+                        shouldClose = true;
+                        closingPrice = trade.StopLoss; // Use the exact SL price
+                        _logger.LogInformation($"Closing {trade.Symbol} SHORT at Stop Loss: {closingPrice}");
+                    }
+                    else if (currentPrice <= trade.TakeProfit)
+                    {
+                        shouldClose = true;
+                        closingPrice = trade.TakeProfit; // Use the exact TP price
+                        _logger.LogInformation($"Closing {trade.Symbol} SHORT at Take Profit: {closingPrice}");
+                    }
                 }
 
-                // Determine the exit time
+                if (!shouldClose)
+                {
+                    continue;
+                }
+
+                // Determine exit time
                 DateTime exitTime;
                 if (closeTime == 0)
                 {
-                    // Live trading: Use current UTC time
                     exitTime = DateTime.UtcNow;
                 }
                 else
                 {
-                    // Backtesting: Use the provided closeTime (convert to UTC)
                     exitTime = DateTimeOffset.FromUnixTimeMilliseconds(closeTime).UtcDateTime;
                 }
 
-                // Validate exit time
-                if (exitTime < trade.EntryTime)
-                {
-                    Console.WriteLine($"Invalid exit time for {trade.Symbol}. Exit time cannot be before entry time. Skipping trade closure.");
-                    continue;
-                }
-
-                // Close the trade with the calculated exit time and price
+                // Close the trade
                 trade.CloseTrade(closingPrice, exitTime);
 
-                // Calculate profit
-                var profit = trade.IsLong
-                    ? (trade.Quantity * (closingPrice - trade.EntryPrice)) + trade.InitialMargin
-                    : (trade.Quantity * (trade.EntryPrice - closingPrice)) + trade.InitialMargin;
+                // Calculate P&L for the trade (this is just the price movement component)
+                decimal priceMovementPnL;
+                if (trade.IsLong)
+                {
+                    priceMovementPnL = (closingPrice - trade.EntryPrice) * trade.Quantity;
+                }
+                else
+                {
+                    priceMovementPnL = (trade.EntryPrice - closingPrice) * trade.Quantity;
+                }
 
-                // Output trade closure details
-                Console.WriteLine($"Trade for {trade.Symbol} closed.");
-                Console.WriteLine($"Realized Return for {trade.Symbol}: {trade.Profit:P2}");
+                // Total funds change = initial margin returned + P&L
+                decimal totalFundsChange = trade.InitialMargin + priceMovementPnL;
 
-                // Update wallet and profit tracking
-                _wallet.AddFunds(profit);
-                profitOfClosed += profit;
+                // Update wallet and tracking
+                _wallet.AddFunds(totalFundsChange);
+                profitOfClosed += priceMovementPnL; // Track just the P&L component for statistics
 
-                // Remove the trade from active trades
+                // Remove from active trades
                 _activeTrades.TryRemove(trade.TradeId, out _);
 
-                // Log the closed trade to the database
+                // Log to database
                 _tradeLogger.LogCloseTrade(trade, _sessionId);
 
                 await Task.CompletedTask;
@@ -1006,6 +1086,32 @@ namespace BinanceTestnet.Trading
             {
                 throw new Exception($"Failed to set leverage: {leverageResponse.Content}");
             }
+        }
+
+        private (decimal liquidationPrice, decimal maintenanceMarginRate) CalculateLiquidationPrice(
+            string symbol, 
+            decimal entryPrice, 
+            decimal quantity, 
+            bool isLong, 
+            decimal leverage)
+        {
+            // Maintenance margin rate for Binance futures (typically 0.5% or 0.004 for most symbols)
+            // You might want to fetch this from exchange info or set a default
+            decimal maintenanceMarginRate = 0.004m; // 0.4%
+            
+            decimal liquidationPrice;
+            if (isLong)
+            {
+                // Long position liquidation price
+                liquidationPrice = entryPrice * (1 - (1 / leverage) + maintenanceMarginRate);
+            }
+            else
+            {
+                // Short position liquidation price
+                liquidationPrice = entryPrice * (1 + (1 / leverage) - maintenanceMarginRate);
+            }
+            
+            return (liquidationPrice, maintenanceMarginRate);
         }
 
         public async Task<long> GetServerTimeAsync(int delayMilliseconds = 100)

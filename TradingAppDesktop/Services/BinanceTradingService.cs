@@ -17,7 +17,7 @@ using RestSharp;
 using System.Diagnostics;
 using System.Linq.Expressions;
 using System.IO;
-using System.Windows;
+using System.Windows; // Ensure ReportSettings is part of this namespace or define it
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using System.Net.Http;
@@ -55,6 +55,9 @@ namespace TradingAppDesktop.Services
             _logger = logger;
             _loggerFactory = loggerFactory;
             
+            // Initialize report settings with defaults
+            _reportSettings = new ReportSettings(); // Ensure the ReportSettings class is defined or imported
+
             // Load configuration
             var config = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
@@ -67,7 +70,7 @@ namespace TradingAppDesktop.Services
                 Timeout = _defaultTimeout,
                 BaseAddress = new Uri("https://fapi.binance.com")
             });
-            _wallet = new Wallet(300);
+            _wallet = new Wallet(1000);
             //_cancellationTokenSource = new CancellationTokenSource();
         }
             
@@ -158,6 +161,13 @@ namespace TradingAppDesktop.Services
             _orderManager = CreateOrderManager(_wallet, leverage, operationMode, interval, 
                                         takeProfit, stopLoss, tradeDirection, selectedStrategies.First(), 
                                         _client, takeProfit, entrySize, databasePath, _sessionId);
+
+            _reportSettings.StrategyName = selectedStrategies.First().ToString();
+            _reportSettings.Leverage = (int)leverage;
+            _reportSettings.TakeProfitMultiplier = takeProfit;
+            _reportSettings.MarginPerTrade = entrySize;
+            _reportSettings.StopLossRatio = stopLoss;
+            _reportSettings.Interval = interval;                                        
 
             try
             {
@@ -449,32 +459,60 @@ namespace TradingAppDesktop.Services
 
         private void GenerateReport()
         {
-            // 1. Create settings with defaults
-            var settings = new ReportSettings();
-            
-            // 2. Generate report path
-            string reportDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, settings.OutputPath);
+            var settings = new ReportSettings
+            {
+                StrategyName = _orderManager.GetStrategy().ToString(),
+                Leverage = (int)_orderManager.GetLeverage(),
+                TakeProfitMultiplier = _orderManager.GetTakeProfit(),
+                StopLossRatio = _orderManager.GetStopLoss(),
+                MarginPerTrade = _orderManager.GetMarginPerTrade(),
+                Interval = _orderManager.GetInterval()
+            };
+
+            // 2. Generate report paths
+            string reportDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Reports");
             Directory.CreateDirectory(reportDir);
-            string reportPath = Path.Combine(reportDir, $"performance_report_{_sessionId}.txt");
             
-            // 3. Your existing report generation code
-            var metrics = _tradeLogger.CalculatePerformanceMetrics(_sessionId);
-            var reportGenerator = new ReportGenerator(_tradeLogger);
+            // Traditional CSV report
+            string csvReportPath = Path.Combine(reportDir, $"performance_report_{_sessionId}.csv");
+            
+            // Enhanced text report
+            string enhancedReportPath = Path.Combine(reportDir, $"enhanced_report_{_sessionId}.txt");
+
+                // HTML report (new)
+            string htmlReportPath = Path.Combine(reportDir, $"interactive_report_{_sessionId}.html");
+
+            // 3. Generate both reports
             var activeCoinPairs = _orderManager.DatabaseManager.GetClosestCoinPairList(DateTime.UtcNow);
             string coinPairsFormatted = string.Join(",", activeCoinPairs.Select(cp => $"\"{cp}\""));
-            reportGenerator.GenerateSummaryReport(_sessionId, reportPath, coinPairsFormatted);
-            
-            // 4. Auto-open if enabled
-            if (settings.AutoOpen)
+
+            // Generate traditional CSV report
+            var reportGenerator = new ReportGenerator(_tradeLogger);
+            reportGenerator.GenerateSummaryReport(_sessionId, csvReportPath, coinPairsFormatted);
+
+            // Generate enhanced text report
+            using (var writer = new StreamWriter(enhancedReportPath))
             {
-                try 
-                {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(reportPath) { 
-                        UseShellExecute = true 
-                    });
-                }
-                catch { /* Silent fail if opening doesn't work */ }
+                var enhancedReporter = new EnhancedReportGenerator(_tradeLogger, writer);
+                enhancedReporter.GenerateEnhancedReport(_sessionId, settings);
             }
+
+            var htmlReporter = new HtmlReportGenerator(_tradeLogger);
+            string htmlContent = htmlReporter.GenerateHtmlReport(_sessionId, settings);
+            File.WriteAllText(htmlReportPath, htmlContent);
+
+            // 4. Auto-open if enabled
+            try 
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlReportPath) { 
+                    UseShellExecute = true 
+                });
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(enhancedReportPath) { 
+                    UseShellExecute = true 
+                });
+            }
+            catch { /* Silent fail if opening doesn't work */ }
         }
 
         private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit, string backtestSessionName)
@@ -524,17 +562,17 @@ namespace TradingAppDesktop.Services
 
         private static (decimal entrySize, decimal leverage) GetEntrySizeAndLeverage(OperationMode operationMode)
         {
-                decimal leverage = 15; // Default leverage
-                decimal entrySize = 20; // Default entry size
+                decimal leverage = 10; // Default leverage
+                decimal entrySize = 10; // Default entry size
             if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
             {                
-                Console.Write("Enter Entry Size (default 20 USDT): ");
+                Console.Write("Enter Entry Size (default 10 USDT): ");
                 string entrySizeInput = Console.ReadLine();
                 entrySize = decimal.TryParse(entrySizeInput, out var parsedEntrySize) ? parsedEntrySize : 10;
 
-                Console.Write("Enter Leverage (1 to 25, default 15): ");
+                Console.Write("Enter Leverage (1 to 25, default 10): ");
                 string leverageInput = Console.ReadLine();
-                leverage = decimal.TryParse(leverageInput, out var parsedLeverage) ? parsedLeverage : 15;
+                leverage = decimal.TryParse(leverageInput, out var parsedLeverage) ? parsedLeverage : 10;
             }
 
             return (entrySize, leverage);
@@ -714,7 +752,7 @@ namespace TradingAppDesktop.Services
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         
-                        wallet = new Wallet(3000);
+                        wallet = new Wallet(1000);
                         orderManager.UpdateParams(wallet, tp);
                         orderManager.UpdateSettings(leverage, intervals[i]);
 
