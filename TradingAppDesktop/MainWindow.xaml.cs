@@ -60,7 +60,9 @@ namespace TradingAppDesktop
                 new StrategyItem(SelectedTradingStrategy.FibonacciRetracement, "Fibonacci", "Fibonacci retracement levels"),
                 new StrategyItem(SelectedTradingStrategy.Aroon, "Aroon", "Aroon oscillator strategy"),
                 new StrategyItem(SelectedTradingStrategy.HullSMA, "Hull SMA", "Hull moving average system"),
-                new StrategyItem(SelectedTradingStrategy.SMAExpansion, "SMA Expansion", "3 SMAs expanding, trade reversal") 
+                //new StrategyItem(SelectedTradingStrategy.SMAExpansion, "SMA Expansion", "3 SMAs expanding, trade reversal"), 
+                new StrategyItem(SelectedTradingStrategy.BollingerSqueeze, "Bollinger Squeeze", "Breaking out of Bollinger Bands squeeze"),
+                new StrategyItem(SelectedTradingStrategy.SupportResistance, "Support Resistance Break", "Breaking out and retesting pivots")  
             });
             
             TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));

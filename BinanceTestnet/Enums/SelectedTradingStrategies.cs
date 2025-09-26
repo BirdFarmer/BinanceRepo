@@ -12,5 +12,7 @@ public enum SelectedTradingStrategy
     FibonacciRetracement = 9,
     Aroon = 10,
     HullSMA = 11,
-    SMAExpansion = 12
+    SMAExpansion = 12,
+    BollingerSqueeze = 13,
+    SupportResistance = 14
 }

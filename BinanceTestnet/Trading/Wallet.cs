@@ -25,7 +25,7 @@ namespace BinanceTestnet.Trading
             {
                 Balance -= trade.Quantity * trade.EntryPrice / trade.Leverage;
                 var direction = trade.IsLong ? "Long" : "Short";
-                Console.WriteLine($"Successfully placed {direction} trade for {trade.Symbol}. Entry: {trade.EntryPrice}  TP: {trade.TakeProfit}  SL: {trade.StopLoss}" );
+                Console.WriteLine($"At {trade.EntryTime} Successfully placed {direction} trade for {trade.Symbol}. Entry: {trade.EntryPrice}  TP: {trade.TakeProfit}  SL: {trade.StopLoss}" );
                 if(trade.IsLong)
                     Console.WriteLine($"TP -> {trade.TakeProfit - trade.EntryPrice} - Entry - {trade.EntryPrice - trade.StopLoss} -> SL" );
                 else

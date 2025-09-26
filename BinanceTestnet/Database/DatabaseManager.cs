@@ -276,6 +276,7 @@ namespace BinanceTestnet.Database
                 string query = @"
                     SELECT Symbol 
                     FROM CoinPairData
+                    WHERE Symbol LIKE '%USDT'  -- ADD THIS FILTER
                     ORDER BY VolumeInUSDT DESC
                     LIMIT @limit;";
                 
@@ -307,7 +308,8 @@ namespace BinanceTestnet.Database
                 string query = @"
                     SELECT Symbol 
                     FROM CoinPairData
-                    ORDER BY ABS(PricePercentChange) DESC  -- Order by absolute price percent change
+                    WHERE Symbol LIKE '%USDT'  -- ADD THIS FILTER
+                    ORDER BY ABS(PricePercentChange) DESC
                     LIMIT @limit;";
                 
                 using (var command = new SqliteCommand(query, connection))
@@ -362,8 +364,8 @@ namespace BinanceTestnet.Database
             HashSet<string> uniqueSymbols = new HashSet<string>();
 
             // Proportions for each category
-            int volumeLimit = 40; // Target 40 coins from VolumeInUSDT
-            int priceChangeLimit = 40; // Target 40 coins from PricePercentChange
+            int volumeLimit = 100; // Target 40 coins from VolumeInUSDT
+            int priceChangeLimit = 80; // Target 40 coins from PricePercentChange
 
             using (var connection = new SqliteConnection(_connectionString))
             {
@@ -426,6 +428,37 @@ namespace BinanceTestnet.Database
             return topCoinPairs;
         }
 
+        public List<string> GetBiggestCoins(int limit = 100)
+        {
+            List<string> biggestCoins = new List<string>();
+
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+
+                // Focus on high-volume, high-market-cap coins
+                string query = @"
+                    SELECT Symbol 
+                    FROM CoinPairData
+                    WHERE Symbol LIKE '%USDT'  -- ADD THIS FILTER
+                    ORDER BY VolumeInUSDT DESC
+                    LIMIT @limit;";
+
+                using (var command = new SqliteCommand(query, connection))
+                {
+                    command.Parameters.AddWithValue("@limit", limit);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            biggestCoins.Add(reader.GetString(0));
+                        }
+                    }
+                }
+            }
+
+            return biggestCoins;
+        }
 
         private int AddSymbolsToList(SqliteConnection connection, List<string> topCoinPairs, HashSet<string> uniqueSymbols, string query, int limit)
         {

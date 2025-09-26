@@ -80,7 +80,7 @@ namespace BinanceLive.Strategies
     
             foreach (var strategyEnum in _selectedStrategies)
             {
-                switch(strategyEnum)
+                switch (strategyEnum)
                 {
                     case SelectedTradingStrategy.EmaStochRsi:
                         strategies.Add(new EmaStochRsiStrategy(_client, _apiKey, _orderManager, _wallet));
@@ -105,19 +105,26 @@ namespace BinanceLive.Strategies
                         break;
                     case SelectedTradingStrategy.RsiDivergence:
                         strategies.Add(new RsiDivergenceStrategy(_client, _apiKey, _orderManager, _wallet));
-                        break; 
+                        break;
                     case SelectedTradingStrategy.FibonacciRetracement:
                         strategies.Add(new FibonacciRetracementStrategy(_client, _apiKey, _orderManager, _wallet));
-                        break;       
+                        break;
                     case SelectedTradingStrategy.Aroon:
                         strategies.Add(new AroonStrategy(_client, _apiKey, _orderManager, _wallet));
-                        break;       
+                        break;
                     case SelectedTradingStrategy.HullSMA:
                         strategies.Add(new HullSMAStrategy(_client, _apiKey, _orderManager, _wallet));
-                        break;       
+                        break;
                     case SelectedTradingStrategy.SMAExpansion:
                         strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
-                        break;                                                              
+                        break;
+                    case SelectedTradingStrategy.BollingerSqueeze:
+                        strategies.Add(new BollingerSqueezeStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;              
+                    case SelectedTradingStrategy.SupportResistance:
+                        strategies.Add(new SupportResistanceStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;              
+                                                                        
                 }
             }
 

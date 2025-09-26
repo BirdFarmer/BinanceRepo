@@ -342,7 +342,7 @@ namespace BinanceTestnet.Trading
                 if (stopLossPrice <= liquidationPrice)
                 {
                     decimal newStopLoss = liquidationPrice + buffer;
-                    _logger.LogInformation($"Adjusted SL for {symbol} long from {stopLossPrice} to {newStopLoss} to avoid liquidation");
+                    //_logger.LogInformation($"Adjusted SL for {symbol} long from {stopLossPrice} to {newStopLoss} to avoid liquidation");
                     stopLossPrice = newStopLoss;
                 }
             }
@@ -351,7 +351,7 @@ namespace BinanceTestnet.Trading
                 if (stopLossPrice >= liquidationPrice)
                 {
                     decimal newStopLoss = liquidationPrice - buffer;
-                    _logger.LogInformation($"Adjusted SL for {symbol} short from {stopLossPrice} to {newStopLoss} to avoid liquidation");
+                    //_logger.LogInformation($"Adjusted SL for {symbol} short from {stopLossPrice} to {newStopLoss} to avoid liquidation");
                     stopLossPrice = newStopLoss;
                 }
             }
@@ -379,9 +379,9 @@ namespace BinanceTestnet.Trading
             if (_operationMode == OperationMode.LiveRealTrading)
             {
                 await PlaceRealOrdersAsync(trade, trailingActivationPercent, trailingCallbackPercent);
-                Console.WriteLine($"Trade {trade.Symbol} - TP: {takeProfitPrice}, SL: {stopLossPrice}, " +
-                                $"Liq: {liquidationPrice}, Qty: {quantity}, " +
-                                $"Trailing Act%: {trailingActivationPercent}, Callback%: {trailingCallbackPercent}");
+                // Console.WriteLine($"Trade {trade.Symbol} - TP: {takeProfitPrice}, SL: {stopLossPrice}, " +
+                //                 $"Liq: {liquidationPrice}, Qty: {quantity}, " +
+                //                 $"Trailing Act%: {trailingActivationPercent}, Callback%: {trailingCallbackPercent}");
             }
             else
             {
@@ -578,14 +578,14 @@ namespace BinanceTestnet.Trading
                 }
             }
 
-            Log.Information(logOutput);
+            Log.Debug(logOutput);
         }
 
         public void PrintTradeSummary()
         {
-            Log.Information($"No. of Trades: {noOfTrades}");
-            Log.Information($"Longs: {longs}");
-            Log.Information($"Shorts: {shorts}");
+            Log.Debug($"No. of Trades: {noOfTrades}");
+            Log.Debug($"Longs: {longs}");
+            Log.Debug($"Shorts: {shorts}");
         }
 
         public void PrintWalletBalance()
@@ -747,6 +747,7 @@ namespace BinanceTestnet.Trading
             if (trade != null && !await IsSymbolInOpenPositionAsync(trade.Symbol))
             {
                 await SetLeverageAsync(trade.Symbol, trade.Leverage, "ISOLATED");
+                await DelayAsync(200); // Small delay after leverage update
 
                 var orderType = trade.IsLong ? "BUY" : "SELL";
                 decimal price = trade.EntryPrice;
@@ -774,36 +775,32 @@ namespace BinanceTestnet.Trading
                 orderRequest.AddHeader("X-MBX-APIKEY", apiKey);
 
                 var response = await _client.ExecuteAsync(orderRequest);
+                await DelayAsync(300); // Delay after market order
 
                 if (response.IsSuccessful)
                 {
+                    // Deserialize the response to get order details
                     var orderData = JsonConvert.DeserializeObject<OrderResponse>(response.Content);
                     var orderId = orderData.orderId;
                     var qtyInTrade = orderData.executedQty;
-                    Console.WriteLine($"{orderType} Order placed for {trade.Symbol} at {trade.EntryPrice}. Quantity: {qtyInTrade}, Order ID: {orderId}");
+                    Console.WriteLine($"{orderType} Order placed for {trade.Symbol} at {trade.EntryPrice} with strategy {trade.Signal}. \nQuantity: {qtyInTrade}, Order ID: {orderId}");
 
                     trade.IsInTrade = true;                    
                     
                     // Regenerate timestamp for the next request
                     serverTime = await GetServerTimeAsync(5005);
+                    await DelayAsync(200); // Small delay after timestamp refresh
 
                     var pricePrecision = _lotSizeCache[trade.Symbol].pricePrecision;
                     string stopLossPriceString = trade.StopLoss.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
                     
-                    // **Fetch the tick size for the symbol** to ensure the price aligns with tick size.
-                    decimal tickSize = GetTickSize(trade.Symbol);
-                    
-                    // **Adjust the take profit price to align with the tick size.**
-                    decimal roundedTakeProfitPrice = Math.Floor(trade.TakeProfit / tickSize) * tickSize;
-                    string takeProfitPriceString = roundedTakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
-
                     // Step 2: Place Stop Loss as a separate STOP_MARKET order
                     var stopLossRequest = new RestRequest("/fapi/v1/order", Method.Post);
                     stopLossRequest.AddParameter("symbol", trade.Symbol);
-                    stopLossRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY"); // Opposite direction for SL
+                    stopLossRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY");
                     stopLossRequest.AddParameter("type", "STOP_MARKET");
                     stopLossRequest.AddParameter("stopPrice", stopLossPriceString);
-                    stopLossRequest.AddParameter("closePosition", "true"); // Close the entire position
+                    stopLossRequest.AddParameter("closePosition", "true");
                     stopLossRequest.AddParameter("timestamp", serverTime);
 
                     var stopLossQueryString = stopLossRequest.Parameters
@@ -816,29 +813,24 @@ namespace BinanceTestnet.Trading
                     stopLossRequest.AddHeader("X-MBX-APIKEY", apiKey);
 
                     var stopLossResponse = await _client.ExecuteAsync(stopLossRequest);
+                    await DelayAsync(300); // Delay after stop-loss order
 
                     if (stopLossResponse.IsSuccessful)
                     {
                         Console.WriteLine($"Stop Loss set for {trade.Symbol} at {trade.StopLoss}");
-
-                        orderData = JsonConvert.DeserializeObject<OrderResponse>(stopLossResponse.Content);
-                        orderId = orderData.orderId;
                     }
                     else
                     {
                         Console.WriteLine($"Failed to place Stop Loss for {trade.Symbol}. Error: {stopLossResponse.ErrorMessage}");
-                        Console.WriteLine($"Response Status Code: {stopLossResponse.StatusCode}");
-                        Console.WriteLine($"Response Content: {stopLossResponse.Content}");
                     }
 
-                    // Regenerate timestamp for the next request
-                    serverTime = await GetServerTimeAsync(5005);
-
                     // Step 3: Place Take Profit as a LIMIT order
-                    pricePrecision = _lotSizeCache[trade.Symbol].pricePrecision;
-                    tickSize = GetTickSize(trade.Symbol);
-                    roundedTakeProfitPrice = Math.Floor(trade.TakeProfit / tickSize) * tickSize;
-                    takeProfitPriceString = roundedTakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
+                    serverTime = await GetServerTimeAsync(5005);
+                    await DelayAsync(200); // Small delay after timestamp refresh
+
+                    decimal tickSize = GetTickSize(trade.Symbol);
+                    decimal roundedTakeProfitPrice = Math.Floor(trade.TakeProfit / tickSize) * tickSize;
+                    string takeProfitPriceString = roundedTakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
 
                     var takeProfitRequest = new RestRequest("/fapi/v1/order", Method.Post);
                     takeProfitRequest.AddParameter("symbol", trade.Symbol);
@@ -859,28 +851,23 @@ namespace BinanceTestnet.Trading
                     takeProfitRequest.AddHeader("X-MBX-APIKEY", apiKey);
 
                     var takeProfitResponse = await _client.ExecuteAsync(takeProfitRequest);
+                    await DelayAsync(300); // Delay after take-profit order
 
                     if (takeProfitResponse.IsSuccessful)
                     {
                         Console.WriteLine($"Take Profit set for {trade.Symbol} at {roundedTakeProfitPrice}");
-                        //Console.WriteLine($"Trying to put a trailing SL {trade.Symbol} triggered at {trailingActivationPercent} ");
-                        //await PlaceTrailingStopLossAsync(trade, trailingActivationPercent, trailingCallbackPercent, formattedQuantity, apiKey);
                     }
                     else
                     {
                         Console.WriteLine($"Failed to place Take Profit for {trade.Symbol}. Error: {takeProfitResponse.ErrorMessage}");
-                        Console.WriteLine($"Response Content: {takeProfitResponse.Content}");
                     }
                 }
                 else
                 {
                     Console.WriteLine($"Failed to place {orderType} Order for {trade.Symbol}. Error: {response.ErrorMessage}");
-                    Console.WriteLine($"Response Status Code: {response.StatusCode}");
-                    Console.WriteLine($"Response Content: {response.Content}");
                 }
             }
-        } 
-
+        }
         private async Task PlaceTrailingStopLossAsync(Trade trade, decimal? trailingActivationPercent, decimal? trailingCallbackPercent, string formattedQuantity, string apiKey)
         {
             long serverTime = await GetServerTimeAsync();
@@ -1113,6 +1100,11 @@ namespace BinanceTestnet.Trading
             
             return (liquidationPrice, maintenanceMarginRate);
         }
+
+        private async Task DelayAsync(int milliseconds)
+    {
+        await Task.Delay(milliseconds);
+    }
 
         public async Task<long> GetServerTimeAsync(int delayMilliseconds = 100)
         {

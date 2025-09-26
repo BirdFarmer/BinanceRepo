@@ -96,8 +96,8 @@ public class VolatilityBasedTPandSL
             var slPercent = tpPercent / stopLossDivider;
             
             // Print TP and SL percentages for debugging
-            Console.WriteLine($"Adjusted TP Percent: {tpPercent}");
-            Console.WriteLine($"Adjusted SL Percent: {slPercent}");
+            // Console.WriteLine($"Adjusted TP Percent: {tpPercent}");
+            // Console.WriteLine($"Adjusted SL Percent: {slPercent}");
             
             return (tpPercent, slPercent);
         }

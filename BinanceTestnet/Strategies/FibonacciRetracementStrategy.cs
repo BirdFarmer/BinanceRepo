@@ -11,10 +11,22 @@ using BinanceTestnet.Trading;
 
 namespace BinanceLive.Strategies
 {
-    public class FibonacciRetracementStrategy : StrategyBase
+     public class FibonacciRetracementStrategy : StrategyBase
     {
+        private int _trendBars;
+        private bool _isUptrend;
+        private bool _isDowntrend;
+        
+        // Using your PineScript parameters
+        private const int LookbackPeriod = 100;
+        private const int EmaPeriod = 50;
+        private const int RsiLength = 14;
+        private const decimal RsiUpper = 65m;
+        private const decimal RsiLower = 35m;
+        private const int MinTrendBars = 5;
+
         public FibonacciRetracementStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
-        : base(client, apiKey, orderManager, wallet)
+            : base(client, apiKey, orderManager, wallet)
         {
         }
 
@@ -22,156 +34,112 @@ namespace BinanceLive.Strategies
         {
             try
             {
-                // Fetch the latest 200 candles for the given symbol and interval
+                // Fetch enough candles for indicators
                 var request = CreateRequest("/fapi/v1/klines");
-                request.AddParameter("symbol", symbol, ParameterType.QueryString);
-                request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "200", ParameterType.QueryString);
+                request.AddParameter("symbol", symbol);
+                request.AddParameter("interval", interval);
+                request.AddParameter("limit", "150"); // Enough for 100 lookback + indicators
 
                 var response = await Client.ExecuteGetAsync(request);
-                if (response.IsSuccessful && response.Content != null)
+                if (!response.IsSuccessful || response.Content == null) return;
+
+                var klines = ParseKlines(response.Content);
+                if (klines == null || klines.Count < LookbackPeriod) return;
+
+                // Calculate indicators
+                var emaValues = CalculateEMA(klines.Select(k => k.Close).ToList(), EmaPeriod);
+                var rsiValues = CalculateRSI(klines.Select(k => k.Close).ToList(), RsiLength);
+                
+                var currentClose = klines.Last().Close;
+                var currentEMA = emaValues.Last();
+                var currentRSI = rsiValues.Last();
+
+                // Update trend state
+                UpdateTrendState(currentClose, currentEMA, currentRSI);
+
+                // Get Fibonacci levels
+                var (fibHigh, fibLow) = GetFibHighLow(klines);
+                var fibLevels = GetFibonacciLevels(fibHigh, fibLow);
+
+                var currentKline = klines.Last();
+                var prevKline = klines[^2];
+
+                // Generate signals (matches PineScript exactly)
+                if (_isUptrend && 
+                    currentKline.Low <= fibLevels[61.8m] && 
+                    prevKline.Low > fibLevels[61.8m])
                 {
-                    var klines = ParseKlines(response.Content);
-
-                    if (klines != null && klines.Count > 0)
-                    {
-                        // Initialize fibHigh and fibLow with values from the first kline
-                        decimal fibHigh = klines[0].High;
-                        decimal fibLow = klines[0].Low;
-                        int fibHighIndex = 0, fibLowIndex = 0;
-
-                        // Find the highest high and lowest low within the lookback period
-                        for (int i = 1; i < klines.Count; i++)
-                        {
-                            var kline = klines[i];
-
-                            if (kline.High > fibHigh)
-                            {
-                                fibHigh = kline.High;
-                                fibHighIndex = i;
-                            }
-                            if (kline.Low < fibLow)
-                            {
-                                fibLow = kline.Low;
-                                fibLowIndex = i;
-                            }
-                        }
-
-                        // Determine trade direction
-                        bool lookForLongReversals = fibLowIndex > fibHighIndex;
-                        bool lookForShortReversals = fibHighIndex > fibLowIndex;
-
-                        // Calculate Stochastic Oscillator values
-                        var stochasticResults = CalculateStochastic(klines, 14, 3, 3);
-
-                        if (fibLow < fibHigh)
-                        {
-                            var fibLevels = GetFibonacciLevels(fibHigh, fibLow);
-
-                            var currentKline = klines.Last();
-                            var prevKline = klines[^2];
-
-                            decimal lastPrice = currentKline.Close;
-                            decimal candleLow = currentKline.Low;
-                            decimal candleHigh = currentKline.High;
-                            decimal prevLow = prevKline.Low;
-                            decimal prevHigh = prevKline.High;
-
-                            var currentStoch = stochasticResults.Last();
-                            var prevStoch = stochasticResults[^2];
-
-                            // Long Entry Condition
-                            if (lookForLongReversals &&
-                                candleLow <= fibLevels[61.8m] &&
-                                prevLow > fibLevels[61.8m] &&
-                                currentStoch.K < 10)
-                            {
-                                await OrderManager.PlaceLongOrderAsync(symbol, lastPrice, "Fibonacci-Stochastic", currentKline.CloseTime);
-                                LogTradeSignal("LONG", symbol, lastPrice, fibHigh, fibLow);
-                            }
-                            // Short Entry Condition
-                            else if (lookForShortReversals &&
-                                    candleHigh >= fibLevels[38.2m] &&
-                                    prevHigh < fibLevels[38.2m] &&
-                                    currentStoch.K > 90)
-                            {
-                                await OrderManager.PlaceShortOrderAsync(symbol, lastPrice, "Fibonacci-Stochastic", currentKline.CloseTime);
-                                LogTradeSignal("SHORT", symbol, lastPrice, fibHigh, fibLow);
-                            }
-
-                            // Check for trade closures
-                            var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
-                            await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.CloseTime);
-                        }
-                        else
-                        {
-                            Console.WriteLine($"No valid high/low levels found for {symbol} within the lookback period.");
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine($"No klines data available for {symbol}.");
-                    }
+                    await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, 
+                        "Fib-Long", currentKline.CloseTime);
+                    LogTradeSignal("LONG", symbol, currentKline.Close, fibHigh, fibLow);
                 }
-                else
+                else if (_isDowntrend && 
+                         currentKline.High >= fibLevels[38.2m] && 
+                         prevKline.High < fibLevels[38.2m])
                 {
-                    HandleErrorResponse(symbol, response);
+                    await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, 
+                        "Fib-Short", currentKline.CloseTime);
+                    LogTradeSignal("SHORT", symbol, currentKline.Close, fibHigh, fibLow);
                 }
+
+                // Check exits
+                await OrderManager.CheckAndCloseTrades(
+                    new Dictionary<string, decimal> { { symbol, currentKline.Close } },
+                    currentKline.CloseTime);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error processing {symbol}: {ex.Message}");
+                Console.WriteLine($"Error in FibonacciRetracementStrategy: {ex.Message}");
             }
         }
-
-
+        
         private List<StochasticResult> CalculateStochastic(List<Kline> klines, int kPeriod, int kSmoothing, int dSmoothing)
-        {
-            var stochasticResults = new List<StochasticResult>();
-            var kValues = new List<decimal>();
-
-            for (int i = 0; i < klines.Count; i++)
             {
-                // Only calculate %K if we have enough data points for the kPeriod
-                if (i >= kPeriod - 1)
-                {
-                    // Calculate the highest high and lowest low over the last kPeriod candles
-                    decimal highestHigh = klines.Skip(i - kPeriod + 1).Take(kPeriod).Max(k => k.High);
-                    decimal lowestLow = klines.Skip(i - kPeriod + 1).Take(kPeriod).Min(k => k.Low);
+                var stochasticResults = new List<StochasticResult>();
+                var kValues = new List<decimal>();
 
-                    // Calculate the raw %K
-                    decimal rawK = 100 * (klines[i].Close - lowestLow) / (highestHigh - lowestLow);
-                    kValues.Add(rawK);
-                }
-                else
+                for (int i = 0; i < klines.Count; i++)
                 {
-                    kValues.Add(0);  // Placeholder until %K calculation is possible
+                    // Only calculate %K if we have enough data points for the kPeriod
+                    if (i >= kPeriod - 1)
+                    {
+                        // Calculate the highest high and lowest low over the last kPeriod candles
+                        decimal highestHigh = klines.Skip(i - kPeriod + 1).Take(kPeriod).Max(k => k.High);
+                        decimal lowestLow = klines.Skip(i - kPeriod + 1).Take(kPeriod).Min(k => k.Low);
+
+                        // Calculate the raw %K
+                        decimal rawK = 100 * (klines[i].Close - lowestLow) / (highestHigh - lowestLow);
+                        kValues.Add(rawK);
+                    }
+                    else
+                    {
+                        kValues.Add(0);  // Placeholder until %K calculation is possible
+                    }
+
+                    // Smooth %K values with a moving average of kSmoothing period
+                    decimal smoothedK = 0;
+                    if (i >= kPeriod + kSmoothing - 2)
+                    {
+                        smoothedK = kValues.Skip(i - kSmoothing + 1).Take(kSmoothing).Average();
+                    }
+
+                    // Calculate the %D (smoothed %K) using dSmoothing period
+                    decimal smoothedD = 0;
+                    if (i >= kPeriod + kSmoothing + dSmoothing - 3)
+                    {
+                        smoothedD = kValues.Skip(i - kSmoothing - dSmoothing + 2).Take(dSmoothing).Average();
+                    }
+
+                    // Add the result for the current candle to the list
+                    stochasticResults.Add(new StochasticResult
+                    {
+                        K = smoothedK,
+                        D = smoothedD
+                    });
                 }
 
-                // Smooth %K values with a moving average of kSmoothing period
-                decimal smoothedK = 0;
-                if (i >= kPeriod + kSmoothing - 2)
-                {
-                    smoothedK = kValues.Skip(i - kSmoothing + 1).Take(kSmoothing).Average();
-                }
-
-                // Calculate the %D (smoothed %K) using dSmoothing period
-                decimal smoothedD = 0;
-                if (i >= kPeriod + kSmoothing + dSmoothing - 3)
-                {
-                    smoothedD = kValues.Skip(i - kSmoothing - dSmoothing + 2).Take(dSmoothing).Average();
-                }
-
-                // Add the result for the current candle to the list
-                stochasticResults.Add(new StochasticResult
-                {
-                    K = smoothedK,
-                    D = smoothedD
-                });
+                return stochasticResults;
             }
-
-            return stochasticResults;
-        }
 
         public class StochasticResult
         {
@@ -179,120 +147,167 @@ namespace BinanceLive.Strategies
             public decimal D { get; set; }  // Smoothed %D
         }
 
-        public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
+         public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
         {
             try
             {
-                if (historicalData == null || !historicalData.Any())
+                if (historicalData == null || !historicalData.Any()) return;
+
+                var klines = historicalData.Skip(Math.Max(0, historicalData.Count() - 150)).ToList();
+                if (klines.Count < LookbackPeriod) return;
+
+                // Calculate indicators
+                var emaValues = CalculateEMA(klines.Select(k => k.Close).ToList(), EmaPeriod);
+                var rsiValues = CalculateRSI(klines.Select(k => k.Close).ToList(), RsiLength);
+
+                // Process each historical candle
+                for (int i = LookbackPeriod; i < klines.Count; i++)
                 {
-                    Console.WriteLine("No historical data provided.");
-                    return;
-                }
+                    var currentKline = klines[i];
+                    var prevKline = klines[i-1];
+                    var currentClose = currentKline.Close;
+                    var currentEMA = emaValues[i];
+                    var currentRSI = rsiValues[i];
 
-                var recentData = historicalData.Skip(Math.Max(0, historicalData.Count() - 300)).ToList();
+                    // Update trend state for historical data
+                    UpdateTrendState(currentClose, currentEMA, currentRSI);
 
-                decimal fibHigh = recentData[0].High;
-                decimal fibLow = recentData[0].Low;
-                int fibHighIndex = 0, fibLowIndex = 0;
-
-                for (int i = 1; i < recentData.Count; i++)
-                {
-                    var kline = recentData[i];
-                    if (kline.High > fibHigh)
-                    {
-                        fibHigh = kline.High;
-                        fibHighIndex = i;
-                    }
-                    if (kline.Low < fibLow)
-                    {
-                        fibLow = kline.Low;
-                        fibLowIndex = i;
-                    }
-                }
-
-                bool lookForLongReversals = fibLowIndex > fibHighIndex;
-                bool lookForShortReversals = fibHighIndex > fibLowIndex;
-
-                var stochasticResults = CalculateStochastic(recentData, 14, 3, 3);
-
-                if (fibHigh > fibLow)
-                {
+                    // Get Fibonacci levels from lookback window
+                    var lookbackWindow = klines.Skip(i - LookbackPeriod).Take(LookbackPeriod).ToList();
+                    var (fibHigh, fibLow) = GetFibHighLow(lookbackWindow);
                     var fibLevels = GetFibonacciLevels(fibHigh, fibLow);
 
-                    for (int i = 1; i < recentData.Count; i++)
+                    // Generate signals (identical to RunAsync)
+                    if (_isUptrend && 
+                        currentKline.Low <= fibLevels[61.8m] && 
+                        prevKline.Low > fibLevels[61.8m])
                     {
-                        var currentKline = recentData[i];
-                        var prevKline = recentData[i - 1];
-
-                        decimal lastPrice = currentKline.Close;
-                        decimal candleLow = currentKline.Low;
-                        decimal candleHigh = currentKline.High;
-                        decimal prevLow = prevKline.Low;
-                        decimal prevHigh = prevKline.High;
-                        string symbol = currentKline.Symbol;
-
-                        var currentStoch = stochasticResults[i];
-                        var prevStoch = stochasticResults[i - 1];
-
-                        // Long Entry Condition
-                        if (lookForLongReversals &&
-                            candleLow <= fibLevels[61.8m] &&
-                            prevLow > fibLevels[61.8m] &&
-                            currentStoch.K < 10)
-                        {
-                            await OrderManager.PlaceLongOrderAsync(symbol, lastPrice, "Fibonacci-Stochastic", currentKline.CloseTime);
-                            LogTradeSignal("LONG", symbol, lastPrice, fibHigh, fibLow);
-                        }
-                        // Short Entry Condition
-                        else if (lookForShortReversals &&
-                                candleHigh >= fibLevels[38.2m] &&
-                                prevHigh < fibLevels[38.2m] &&
-                                currentStoch.K > 90)
-                        {
-                            await OrderManager.PlaceShortOrderAsync(symbol, lastPrice, "Fibonacci-Stochastic", currentKline.CloseTime);
-                            LogTradeSignal("SHORT", symbol, lastPrice, fibHigh, fibLow);
-                        }
+                        await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, 
+                            "Fib-Long-Hist", currentKline.CloseTime);
+                        LogTradeSignal("LONG", currentKline.Symbol, currentKline.Close, fibHigh, fibLow);
                     }
-                }
-                else
-                {
-                    Console.WriteLine($"Invalid Fibonacci levels for {historicalData.First().Symbol}: High is not greater than Low.");
+                    else if (_isDowntrend && 
+                             currentKline.High >= fibLevels[38.2m] && 
+                             prevKline.High < fibLevels[38.2m])
+                    {
+                        await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, 
+                            "Fib-Short-Hist", currentKline.CloseTime);
+                        LogTradeSignal("SHORT", currentKline.Symbol, currentKline.Close, fibHigh, fibLow);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error during historical data backtest: {ex.Message}");
+                Console.WriteLine($"Error during historical backtest: {ex.Message}");
             }
         }
 
-
-        
-        private List<decimal> CalculateRsi(List<BinanceTestnet.Models.Quote> quotes, int period)
+                private void UpdateTrendState(decimal currentClose, decimal currentEMA, decimal currentRSI)
         {
-            List<decimal> rsiValues = new List<decimal>();
-            decimal gain = 0, loss = 0;
+            bool potentialUptrend = currentClose > currentEMA && currentRSI > RsiUpper;
+            bool potentialDowntrend = currentClose < currentEMA && currentRSI < RsiLower;
 
-            for (int i = 1; i < quotes.Count; i++)
+            if (potentialUptrend && !_isUptrend)
             {
-                decimal change = quotes[i].Close - quotes[i - 1].Close;
-                if (i <= period)
+                _trendBars++;
+                if (_trendBars >= MinTrendBars)
                 {
-                    gain += change > 0 ? change : 0;
-                    loss += change < 0 ? Math.Abs(change) : 0;
-                    if (i == period)
-                    {
-                        gain /= period;
-                        loss /= period;
-                        rsiValues.Add(100 - (100 / (1 + (gain / loss))));
-                    }
-                }
-                else
-                {
-                    gain = ((gain * (period - 1)) + (change > 0 ? change : 0)) / period;
-                    loss = ((loss * (period - 1)) + (change < 0 ? Math.Abs(change) : 0)) / period;
-                    rsiValues.Add(100 - (100 / (1 + (gain / loss))));
+                    _isUptrend = true;
+                    _isDowntrend = false;
+                    _trendBars = 0;
                 }
             }
+            else if (potentialDowntrend && !_isDowntrend)
+            {
+                _trendBars++;
+                if (_trendBars >= MinTrendBars)
+                {
+                    _isDowntrend = true;
+                    _isUptrend = false;
+                    _trendBars = 0;
+                }
+            }
+
+            // Reset if trend breaks
+            if ((currentClose <= currentEMA && _isUptrend) || 
+                (currentClose >= currentEMA && _isDowntrend))
+            {
+                _isUptrend = false;
+                _isDowntrend = false;
+                _trendBars = 0;
+            }
+        }
+
+        private (decimal High, decimal Low) GetFibHighLow(List<Kline> klines)
+        {
+            decimal fibHigh = klines[0].High;
+            decimal fibLow = klines[0].Low;
+
+            for (int i = 1; i < klines.Count; i++)
+            {
+                if (klines[i].High > fibHigh) fibHigh = klines[i].High;
+                if (klines[i].Low < fibLow) fibLow = klines[i].Low;
+            }
+
+            return (fibHigh, fibLow);
+        }
+        
+        private List<decimal> CalculateEMA(List<decimal> closes, int period)
+        {
+            var ema = new List<decimal>();
+            decimal multiplier = 2m / (period + 1);
+            
+            // Start with SMA as first EMA value
+            decimal firstEMA = closes.Take(period).Average();
+            ema.Add(firstEMA);
+            
+            // Calculate subsequent EMAs
+            for (int i = period; i < closes.Count; i++)
+            {
+                decimal currentEMA = (closes[i] - ema.Last()) * multiplier + ema.Last();
+                ema.Add(currentEMA);
+            }
+            
+            return ema;
+        }
+        
+        private List<decimal> CalculateRSI(List<decimal> closes, int period)
+        {
+            var rsiValues = new List<decimal>();
+            decimal avgGain = 0;
+            decimal avgLoss = 0;
+
+            // Calculate initial average gain/loss
+            for (int i = 1; i <= period; i++)
+            {
+                decimal change = closes[i] - closes[i-1];
+                if (change > 0)
+                    avgGain += change;
+                else
+                    avgLoss += Math.Abs(change);
+            }
+
+            avgGain /= period;
+            avgLoss /= period;
+
+            // First RSI value
+            decimal rs = avgLoss == 0 ? 100 : avgGain / avgLoss;
+            rsiValues.Add(100 - (100 / (1 + rs)));
+
+            // Subsequent RSI values
+            for (int i = period + 1; i < closes.Count; i++)
+            {
+                decimal change = closes[i] - closes[i-1];
+                decimal gain = change > 0 ? change : 0;
+                decimal loss = change < 0 ? Math.Abs(change) : 0;
+
+                avgGain = (avgGain * (period - 1) + gain) / period;
+                avgLoss = (avgLoss * (period - 1) + loss) / period;
+
+                rs = avgLoss == 0 ? 100 : avgGain / avgLoss;
+                rsiValues.Add(100 - (100 / (1 + rs)));
+            }
+
             return rsiValues;
         }
 
@@ -358,7 +373,7 @@ namespace BinanceLive.Strategies
                 { 0m, lowestLow },             // 0% Fibonacci level
                 { 23.6m, lowestLow + (highestHigh - lowestLow) * 0.236m }, // 23.6% level
                 { 38.2m, lowestLow + (highestHigh - lowestLow) * 0.382m }, // 38.2% level
-                { 50m, lowestLow + (highestHigh - lowestLow) * 0.5m },    // 50% level
+                { 50m, lowestLow + (highestHigh - lowestLow) * 0.5m },     // 50% level
                 { 61.8m, lowestLow + (highestHigh - lowestLow) * 0.618m }, // 61.8% level
                 { 78.6m, lowestLow + (highestHigh - lowestLow) * 0.786m }, // 76.4% level
                 { 100m, highestHigh }           // 100% Fibonacci level

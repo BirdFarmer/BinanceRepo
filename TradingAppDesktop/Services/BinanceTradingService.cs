@@ -153,7 +153,8 @@ namespace TradingAppDesktop.Services
 
             // Get Symbols
             _logger.LogInformation("Fetching symbols to trade...");
-            var symbols = await GetBestListOfSymbols(_client, databaseManager, DateTime.Today.AddDays(-1));
+            //var symbols = await GetBestListOfSymbols(_client, databaseManager, DateTime.Today.AddDays(-1));
+            var symbols = await GetBestListOfSymbols(_client, databaseManager);
             _logger.LogInformation($"Selected {symbols.Count} symbols: {string.Join(", ", symbols.Take(5))}...");
 
             // Initialize OrderManager
@@ -618,42 +619,41 @@ namespace TradingAppDesktop.Services
 
         private static async Task<List<string>> GetBestListOfSymbols(RestClient client, DatabaseManager dbManager, DateTime? targetDateTime = null)
         {
-            // If targetDateTime is provided (backtesting), try to retrieve the closest coin pair list
+            // Backtesting branch
             if (targetDateTime.HasValue)
             {
                 var closestCoinPairList = dbManager.GetClosestCoinPairList(targetDateTime.Value);
                 if (closestCoinPairList.Any())
                 {
-                    return closestCoinPairList; // Use the retrieved list
+                    return closestCoinPairList;
                 }
                 else
                 {
-                    // If no list is found, fall back to the top 80 biggest coins by volume
-                    var topBiggestCoins = dbManager.GetTopCoinPairsByVolume(80);
+                    // Changed to use biggest coins for fallback
+                    var topBiggestCoins = dbManager.GetBiggestCoins(50);
                     if (topBiggestCoins.Any())
                     {
-                        return topBiggestCoins; // Use the top 80 biggest coins
+                        return topBiggestCoins;
                     }
                 }
             }
 
-            // For live trading or if the database is empty, fetch symbols from Binance Futures API
+            // Live trading branch
             var symbols = await FetchCoinPairsFromFuturesAPI(client);
 
-            // Upsert symbols into the database (with volume, price, etc.)
             foreach (var symbolInfo in symbols)
             {
                 dbManager.UpsertCoinPairData(symbolInfo.Symbol, symbolInfo.Price, symbolInfo.Volume);
             }
 
-            // Query the database to get the top 80 symbols by price change
-            var topSymbolsByPriceChange = dbManager.GetTopCoinPairs(80);
+            // Now using biggest coins for live trading too
+            var topSymbols = dbManager.GetBiggestCoins(50);
+            dbManager.UpsertCoinPairList(topSymbols, DateTime.UtcNow);
 
-            // Store the coin pair list
-            dbManager.UpsertCoinPairList(topSymbolsByPriceChange, DateTime.UtcNow);
-
-            return topSymbolsByPriceChange;
+            return topSymbols;
         }
+
+        
         private static async Task<List<CoinPairInfo>> FetchCoinPairsFromFuturesAPI(RestClient client)
         {
             var coinPairList = new List<CoinPairInfo>();
@@ -667,7 +667,7 @@ namespace TradingAppDesktop.Services
             if (response.IsSuccessful && response.Content != null)
             {
                 var exchangeInfo = JsonConvert.DeserializeObject<ExchangeInfoResponse>(response.Content);
-                
+
                 // Filter the symbols based on active trading pairs
                 foreach (var symbol in exchangeInfo.Symbols)
                 {
