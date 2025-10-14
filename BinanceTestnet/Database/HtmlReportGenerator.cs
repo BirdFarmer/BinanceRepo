@@ -460,7 +460,7 @@ namespace BinanceTestnet.Database
                     html.AppendLine(GenerateRegimeTimelineHtml(regimeSegments));
 
                     // Add actionable insights based on regime performance
-                    html.AppendLine(GenerateRegimeInsightsHtml(regimeSegments, allTrades, strategyPerformance, coinPerformance) );
+                    html.AppendLine(GenerateRegimeInsightsHtml(regimeSegments, allTrades, strategyPerformance, coinPerformance));
                 }
                 catch (Exception ex)
                 {
@@ -615,6 +615,10 @@ namespace BinanceTestnet.Database
                     </div>             
                 """);
 
+                html.AppendLine(GetWeekendWeekdayAnalysis(allTrades));
+                html.AppendLine(GetExtendedHoursAnalysis(allTrades)); 
+                html.AppendLine(GetDayOfWeekAnalysis(allTrades));
+
                 // 5. Critical Trades (Top 5)
                 var criticalTrades = allTrades
                     .Where(t => t.Profit.HasValue)
@@ -702,6 +706,7 @@ namespace BinanceTestnet.Database
                             </div>
                         </div>
                     """);
+
 
                 // 7. Footer
                 html.AppendLine($$"""
@@ -910,18 +915,18 @@ namespace BinanceTestnet.Database
         {
             foreach (var segment in segments)
             {
-                var segmentTrades = trades.Where(t => 
-                    t.EntryTime >= segment.StartTime && 
+                var segmentTrades = trades.Where(t =>
+                    t.EntryTime >= segment.StartTime &&
                     t.EntryTime < segment.EndTime).ToList();
-                
+
                 segment.TradeCount = segmentTrades.Count;
                 segment.TotalPnL = segmentTrades.Sum(t => t.Profit ?? 0);
-                segment.WinRate = segmentTrades.Count > 0 ? 
+                segment.WinRate = segmentTrades.Count > 0 ?
                     (decimal)segmentTrades.Count(t => t.Profit > 0) / segmentTrades.Count * 100 : 0;
             }
-            
+
             return segments;
-        }        
+        }
 
         private string GetMarketSession(DateTime time)
         {
@@ -1101,17 +1106,31 @@ namespace BinanceTestnet.Database
         private string GenerateRegimeInsightsHtml(List<MarketRegimeSegment> segments, List<Trade> allTrades, Dictionary<string, decimal> strategyPerformance, Dictionary<string, decimal> coinPerformance)
         {
             var insights = new List<string>();
-            
-            // 1. Market Session Insights
+
+            // NEW: Regime Performance Analysis
+            var regimePerformance = segments
+                .Where(s => s.TradeCount > 5)
+                .Select(s => new
+                {
+                    Regime = s.Regime,
+                    WinRate = s.WinRate,
+                    AvgPnL = s.TotalPnL / Math.Max(s.TradeCount, 1),
+                    Trades = s.TradeCount
+                });
+
+            // 1. Market Session Insights (ENHANCED with regime context)
             var sessionPerformance = allTrades
                 .GroupBy(t => GetMarketSession(t.EntryTime))
                 .Select(g => new {
                     Session = g.Key,
                     WinRate = (decimal)g.Count(t => t.Profit > 0) / g.Count() * 100,
                     AvgPnL = g.Average(t => t.Profit ?? 0),
-                    Count = g.Count()
+                    Count = g.Count(),
+                    // NEW: Add regime context
+                    BestRegime = CleanRegimeName(GetBestRegimeForSession(g.ToList(), segments)),
+                    WorstRegime = CleanRegimeName(GetWorstRegimeForSession(g.ToList(), segments))
                 })
-                .Where(x => x.Count >= 10) // Only consider sessions with meaningful data
+                .Where(x => x.Count >= 10)
                 .OrderByDescending(x => x.WinRate)
                 .ToList();
 
@@ -1121,19 +1140,30 @@ namespace BinanceTestnet.Database
                 var worstSession = sessionPerformance.Last();
                 
                 if (bestSession.WinRate > 50)
-                    insights.Add($"Focus on <strong>{bestSession.Session}</strong> sessions ({bestSession.WinRate:F1}% win rate)");
+                {
+                    var hasValidBestRegime = !string.IsNullOrEmpty(bestSession.BestRegime) && bestSession.BestRegime != "Unknown";
+                    var regimeContext = hasValidBestRegime ? $" (best in {bestSession.BestRegime} regimes)" : "";
+                    insights.Add($"Focus on <strong>{bestSession.Session}</strong> sessions ({bestSession.WinRate:F1}% win rate{regimeContext})");
+                }
                     
                 if (worstSession.WinRate < 40 && worstSession.Count >= 15)
-                    insights.Add($"Reduce trading during <strong>{worstSession.Session}</strong> sessions ({worstSession.WinRate:F1}% win rate)");
+                {
+                    var hasValidWorstRegime = !string.IsNullOrEmpty(worstSession.WorstRegime) && worstSession.WorstRegime != "Unknown";
+                    var regimeContext = hasValidWorstRegime ? $" (avoids {worstSession.WorstRegime} regimes)" : "";
+                    insights.Add($"Reduce trading during <strong>{worstSession.Session}</strong> sessions ({worstSession.WinRate:F1}% win rate{regimeContext})");
+                }
             }
 
-            // 2. Strategy Performance Insights
+            // 2. Strategy Performance Insights (ENHANCED with regime context)
             var strategyRanking = strategyPerformance
                 .Select(kvp => new {
                     Strategy = kvp.Key,
                     PnL = kvp.Value,
                     Trades = allTrades.Count(t => t.Signal == kvp.Key),
-                    WinRate = CalculateWinRate(allTrades.Where(t => t.Signal == kvp.Key).ToList())
+                    WinRate = CalculateWinRate(allTrades.Where(t => t.Signal == kvp.Key).ToList()),
+                    // NEW: Regime performance
+                    BestRegime = CleanRegimeName(GetBestRegimeForStrategy(kvp.Key, allTrades, segments)),
+                    WorstRegime = CleanRegimeName(GetWorstRegimeForStrategy(kvp.Key, allTrades, segments))
                 })
                 .Where(s => s.Trades >= 10)
                 .OrderByDescending(s => s.PnL)
@@ -1143,10 +1173,28 @@ namespace BinanceTestnet.Database
             {
                 var topStrategy = strategyRanking.First();
                 if (topStrategy.PnL > 0 && topStrategy.Trades >= 20)
-                    insights.Add($"Prioritize <strong>{topStrategy.Strategy}</strong> strategy (+{topStrategy.PnL:F1} PnL)");
+                {
+                    var regimeAdvice = topStrategy.BestRegime != null ? 
+                        $" in <strong>{topStrategy.BestRegime}</strong> markets" : "";
+                    insights.Add($"Prioritize <strong>{topStrategy.Strategy}</strong> strategy{regimeAdvice} (+{topStrategy.PnL:F1} PnL)");
+                }
+
+                // NEW: Add regime-specific warnings
+                var problematicStrategies = strategyRanking
+                    .Where(s => s.WorstRegime != null && s.Trades >= 15)
+                    .Take(2); // Limit to top 2 warnings
+
+                foreach (var strategy in problematicStrategies)
+                {
+                    if (strategy.WorstRegime != "Unknown" && !string.IsNullOrEmpty(strategy.WorstRegime))
+                    {
+                        insights.Add($"Avoid <strong>{strategy.Strategy}</strong> in <strong>{strategy.WorstRegime}</strong> regimes ({strategy.WinRate:F1}% WR)");
+                    }
+                }
+                
             }
 
-            // 3. Duration Insights
+            // 3. Duration Insights (keep as-is - already good)
             var durationGroups = allTrades
                 .GroupBy(t => (int)(t.Duration / 30))
                 .Select(g => new {
@@ -1170,7 +1218,32 @@ namespace BinanceTestnet.Database
                     insights.Add($"Avoid closing in <strong>{worstDuration.Range}</strong> range ({worstDuration.WinRate:F1}% win rate)");
             }
 
-            // 4. Position Bias Insight
+            // 4. NEW: Regime-Specific Activation Rules
+            if (regimePerformance.Any())
+            {
+                var bestRegime = regimePerformance.OrderByDescending(r => r.AvgPnL).First();
+                var worstRegime = regimePerformance.OrderBy(r => r.AvgPnL).First();
+                
+                if (bestRegime.AvgPnL > 0.5m && bestRegime.Trades >= 10)
+                {
+                    var regimeName = CleanRegimeName(bestRegime.Regime.Type.ToString());
+                    if (regimeName != "Unknown" && !string.IsNullOrEmpty(regimeName))
+                    {
+                        insights.Add($"<strong>Activate</strong> during <strong>{regimeName}</strong> regimes (+{bestRegime.AvgPnL:F1} avg PnL)");
+                    }
+                }
+                    
+                if (worstRegime.AvgPnL < -0.3m && worstRegime.Trades >= 10)
+                {
+                    var regimeName = CleanRegimeName(worstRegime.Regime.Type.ToString());
+                    if (regimeName != "Unknown" && !string.IsNullOrEmpty(regimeName))
+                    {
+                        insights.Add($"<strong>Reduce exposure</strong> in <strong>{regimeName}</strong> regimes ({worstRegime.AvgPnL:F1} avg PnL)");
+                    }
+                }
+            }
+
+            // 5. Position Bias Insight (keep as-is)
             var longTrades = allTrades.Where(t => t.IsLong).ToList();
             var shortTrades = allTrades.Where(t => !t.IsLong).ToList();
             
@@ -1179,22 +1252,47 @@ namespace BinanceTestnet.Database
                 var longWinRate = CalculateWinRate(longTrades);
                 var shortWinRate = CalculateWinRate(shortTrades);
                 
-                if (longWinRate - shortWinRate > 10) // Significant difference
+                if (longWinRate - shortWinRate > 10)
                     insights.Add($"Consider <strong>long bias</strong> ({longWinRate:F1}% vs {shortWinRate:F1}% short win rate)");
             }
 
-            // 5. Coin Performance Insight
+            // 6. Coin Performance Insight (keep as-is)
             var topCoins = coinPerformance
                 .Where(kvp => allTrades.Count(t => t.Symbol == kvp.Key) >= 5)
                 .OrderByDescending(kvp => kvp.Value)
                 .Take(3)
                 .ToList();
 
-            if (topCoins.Any(c => c.Value > 10)) // Only mention if significant PnL
+            if (topCoins.Any(c => c.Value > 10))
             {
                 var bestCoin = topCoins.First();
                 insights.Add($"<strong>{bestCoin.Key}</strong> performing well (+{bestCoin.Value:F1} PnL)");
             }
+
+            // 7. Weekend/Off-Hours Insights
+            var weekendTrades = allTrades.Where(t => 
+                t.EntryTime.DayOfWeek == DayOfWeek.Saturday || 
+                t.EntryTime.DayOfWeek == DayOfWeek.Sunday).ToList();
+                
+            if (weekendTrades.Any())
+            {
+                var weekendWinRate = CalculateWinRate(weekendTrades);
+                var weekdayWinRate = CalculateWinRate(allTrades.Except(weekendTrades).ToList());
+                
+                if (weekendWinRate - weekdayWinRate > 15)
+                    insights.Add($"<strong>Weekend opportunities</strong> detected ({weekendWinRate:F1}% vs {weekdayWinRate:F1}% weekday)");
+                else if (weekdayWinRate - weekendWinRate > 15)
+                    insights.Add($"<strong>Focus on weekdays</strong> ({weekdayWinRate:F1}% vs {weekendWinRate:F1}% weekend)");
+            }
+
+            // 8. Extended Hours Insight
+            var extendedHours = allTrades.Where(t => t.EntryTime.Hour >= 22 || t.EntryTime.Hour < 6).ToList();
+            if (extendedHours.Any() && extendedHours.Count >= 10)
+            {
+                var extendedWinRate = CalculateWinRate(extendedHours);
+                if (extendedWinRate < 40)
+                    insights.Add($"<strong>Reduce overnight trading</strong> ({extendedWinRate:F1}% win rate in extended hours)");
+            }            
 
             // Generate the HTML
             if (!insights.Any())
@@ -1202,12 +1300,211 @@ namespace BinanceTestnet.Database
 
             return $"""
                 <div class="suggestion">
-                    <h3>🎯 This Trade Sessions's Focus</h3>
+                    <h3>🎯 This Trade Session's Focus</h3>
                     <ul>
                         {string.Join("", insights.Take(5).Select(i => $"<li>{i}</li>"))}
                     </ul>
                 </div>
             """;
+        }
+
+        private string CleanRegimeName(string regimeName)
+        {
+            if (string.IsNullOrEmpty(regimeName) || regimeName == "Unknown") 
+                return "Unknown";
+            
+            // Clean up the enum name
+            return regimeName switch
+            {
+                "BullishTrend" => "Bullish",
+                "BearishTrend" => "Bearish", 
+                "HighVolatility" => "High Volatility",
+                "RangingMarket" => "Ranging",
+                "Unknown" => "Unknown",
+                "MarketRegime" => "Unknown", // Handle the generic case
+                _ => regimeName.Replace("Market", "").Replace("Trend", "").Trim()
+            };
+        }
+
+        private string GetDayOfWeekAnalysis(List<Trade> trades)
+        {
+            var dayGroups = trades
+                .GroupBy(t => t.EntryTime.DayOfWeek)
+                .Select(g => new
+                {
+                    Day = g.Key.ToString(),
+                    Count = g.Count(),
+                    WinRate = CalculateWinRate(g.ToList()),
+                    AvgPnL = g.Average(t => t.Profit ?? 0),
+                    TotalPnL = g.Sum(t => t.Profit ?? 0)
+                })
+                .OrderBy(x => x.Day == "Sunday" ? 7 : (int)Enum.Parse(typeof(DayOfWeek), x.Day))
+                .ToList();
+
+            return $$"""
+                <div class="section">
+                    <h2>📆 Day-of-Week Performance</h2>
+                    <table>
+                        <tr>
+                            <th>Day</th>
+                            <th>Trades</th>
+                            <th>Win Rate</th>
+                            <th>Avg PnL</th>
+                            <th>Total PnL</th>
+                        </tr>
+                        {{string.Join("\n", dayGroups.Select(d => $$"""
+                        <tr>
+                            <td>{{d.Day}}</td>
+                            <td>{{d.Count}}</td>
+                            <td>{{d.WinRate.ToString("F1")}}%</td>
+                            <td class="{{(d.AvgPnL >= 0 ? "positive" : "negative")}}">
+                                {{d.AvgPnL.ToString("F2")}}
+                            </td>
+                            <td class="{{(d.TotalPnL >= 0 ? "positive" : "negative")}}">
+                                {{d.TotalPnL.ToString("F2")}}
+                            </td>
+                        </tr>
+                        """))}}
+                    </table>
+                </div>
+            """;
+        }        
+
+        private string GetExtendedHoursAnalysis(List<Trade> trades)
+        {
+            // Define low-liquidity hours (varies by market)
+            var extendedHours = trades.Where(t =>
+                (t.EntryTime.Hour >= 22 || t.EntryTime.Hour < 6) // Late US to Early Asia
+            ).ToList();
+
+            var regularHours = trades.Where(t =>
+                t.EntryTime.Hour >= 6 && t.EntryTime.Hour < 22
+            ).ToList();
+
+            return $$"""
+                <div class="section">
+                    <h2>🌙 Extended Hours Performance</h2>
+                    <div class="warning">
+                        <strong>Note:</strong> Extended hours = 22:00-06:00 UTC (Lower liquidity periods)
+                    </div>
+                    <table>
+                        <tr>
+                            <th>Trading Hours</th>
+                            <th>Trades</th>
+                            <th>Win Rate</th>
+                            <th>Avg PnL</th>
+                            <th>Volatility Impact</th>
+                        </tr>
+                        <tr>
+                            <td>Regular Hours (06:00-22:00 UTC)</td>
+                            <td>{{regularHours.Count}}</td>
+                            <td>{{CalculateWinRate(regularHours).ToString("F1")}}%</td>
+                            <td class="{{(regularHours.Average(t => t.Profit ?? 0) >= 0 ? "positive" : "negative")}}">
+                                {{regularHours.Average(t => t.Profit ?? 0).ToString("F2")}}
+                            </td>
+                            <td>Standard</td>
+                        </tr>
+                        <tr>
+                            <td>Extended Hours (22:00-06:00 UTC)</td>
+                            <td>{{extendedHours.Count}}</td>
+                            <td>{{CalculateWinRate(extendedHours).ToString("F1")}}%</td>
+                            <td class="{{(extendedHours.Average(t => t.Profit ?? 0) >= 0 ? "positive" : "negative")}}">
+                                {{extendedHours.Average(t => t.Profit ?? 0).ToString("F2")}}
+                            </td>
+                            <td>Higher spreads</td>
+                        </tr>
+                    </table>
+                </div>
+            """;
+        }
+        private string GetWeekendWeekdayAnalysis(List<Trade> trades)
+        {
+            var weekdayTrades = trades.Where(t => t.EntryTime.DayOfWeek != DayOfWeek.Saturday &&
+                                                t.EntryTime.DayOfWeek != DayOfWeek.Sunday).ToList();
+            var weekendTrades = trades.Where(t => t.EntryTime.DayOfWeek == DayOfWeek.Saturday ||
+                                                t.EntryTime.DayOfWeek == DayOfWeek.Sunday).ToList();
+
+            return $$"""
+                <div class="section">
+                    <h2>📅 Weekend vs Weekday Performance</h2>
+                    <table>
+                        <tr>
+                            <th>Period</th>
+                            <th>Trades</th>
+                            <th>Win Rate</th>
+                            <th>Avg PnL</th>
+                            <th>Avg Duration</th>
+                        </tr>
+                        <tr>
+                            <td>Weekdays (Mon-Fri)</td>
+                            <td>{{weekdayTrades.Count}}</td>
+                            <td>{{CalculateWinRate(weekdayTrades).ToString("F1")}}%</td>
+                            <td class="{{(weekdayTrades.Average(t => t.Profit ?? 0) >= 0 ? "positive" : "negative")}}">
+                                {{weekdayTrades.Average(t => t.Profit ?? 0).ToString("F2")}}
+                            </td>
+                            <td>{{weekdayTrades.Average(t => t.Duration).ToString("F0")}} mins</td>
+                        </tr>
+                        <tr>
+                            <td>Weekend (Sat-Sun)</td>
+                            <td>{{weekendTrades.Count}}</td>
+                            <td>{{CalculateWinRate(weekendTrades).ToString("F1")}}%</td>
+                            <td class="{{(weekendTrades.Average(t => t.Profit ?? 0) >= 0 ? "positive" : "negative")}}">
+                                {{weekendTrades.Average(t => t.Profit ?? 0).ToString("F2")}}
+                            </td>
+                            <td>{{weekendTrades.Average(t => t.Duration).ToString("F0")}} mins</td>
+                        </tr>
+                    </table>
+                </div>
+            """;
+        }        
+
+        // NEW: Helper methods for regime analysis
+        private string GetBestRegimeForSession(List<Trade> sessionTrades, List<MarketRegimeSegment> segments)
+        {
+            // Cross-reference session trades with regime performance
+            var regimePerformance = segments
+                .Where(s => sessionTrades.Any(t => IsTimeInSegment(t.EntryTime, s)))
+                .OrderByDescending(s => s.TotalPnL / Math.Max(s.TradeCount, 1))
+                .FirstOrDefault();
+            
+            return regimePerformance?.Regime?.Type.ToString() ?? "Unknown";
+        }
+
+        private string GetWorstRegimeForSession(List<Trade> sessionTrades, List<MarketRegimeSegment> segments)
+        {
+            var regimePerformance = segments
+                .Where(s => sessionTrades.Any(t => IsTimeInSegment(t.EntryTime, s)))
+                .OrderBy(s => s.TotalPnL / Math.Max(s.TradeCount, 1))
+                .FirstOrDefault();
+            
+            return regimePerformance?.Regime?.Type.ToString() ?? "Unknown";
+        }
+
+        private string GetBestRegimeForStrategy(string strategy, List<Trade> allTrades, List<MarketRegimeSegment> segments)
+        {
+            var strategyTrades = allTrades.Where(t => t.Signal == strategy).ToList();
+            var regimePerformance = segments
+                .Where(s => strategyTrades.Any(t => IsTimeInSegment(t.EntryTime, s)))
+                .OrderByDescending(s => s.TotalPnL / Math.Max(s.TradeCount, 1))
+                .FirstOrDefault();
+            
+            return regimePerformance?.Regime?.Type.ToString() ?? "Unknown";
+        }
+
+        private string GetWorstRegimeForStrategy(string strategy, List<Trade> allTrades, List<MarketRegimeSegment> segments)
+        {
+            var strategyTrades = allTrades.Where(t => t.Signal == strategy).ToList();
+            var regimePerformance = segments
+                .Where(s => strategyTrades.Any(t => IsTimeInSegment(t.EntryTime, s)))
+                .OrderBy(s => s.TotalPnL / Math.Max(s.TradeCount, 1))
+                .FirstOrDefault();
+            
+            return regimePerformance?.Regime?.Type.ToString() ?? "Unknown";
+        }
+
+        private bool IsTimeInSegment(DateTime time, MarketRegimeSegment segment)
+        {
+            return time >= segment.StartTime && time <= segment.EndTime;
         }
     }
 }
