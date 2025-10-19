@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
-using BinanceTestnet.MarketAnalysis; 
+using BinanceTestnet.MarketAnalysis;
 
 namespace BinanceTestnet.Database
 {
@@ -11,6 +11,8 @@ namespace BinanceTestnet.Database
     {
         private readonly TradeLogger _tradeLogger;
         private readonly MarketContextAnalyzer _marketAnalyzer;
+        
+        List<MarketRegimeSegment> savedRegimeSegments = new List<MarketRegimeSegment>();
 
         public HtmlReportGenerator(TradeLogger tradeLogger, MarketContextAnalyzer marketAnalyzer)
         {
@@ -29,6 +31,21 @@ namespace BinanceTestnet.Database
             try
             {
                 var allTrades = _tradeLogger.GetTrades(sessionId);
+                if (allTrades == null || !allTrades.Any())
+                {
+                    return $$"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head><title>No Trade Data</title></head>
+                        <body>
+                            <h1>📊 No Trade Data Available</h1>
+                            <p>Session {{sessionId}} contains no trades to analyze.</p>
+                            <p>Please check if trading was active during this session.</p>
+                        </body>
+                        </html>
+                    """;
+                }                
+
                 var metrics = _tradeLogger.CalculatePerformanceMetrics(sessionId);
                 var strategyPerformance = _tradeLogger.GetStrategyPerformance(sessionId);
                 var coinPerformance = _tradeLogger.GetCoinPerformance(sessionId);
@@ -37,11 +54,21 @@ namespace BinanceTestnet.Database
                 // Calculate time segments
                 var minDate = allTrades.Min(t => t.EntryTime);
                 var maxDate = allTrades.Max(t => t.EntryTime);
-                var midpoint = minDate.AddDays((maxDate - minDate).TotalDays / 2);
 
-                var firstHalfTrades = allTrades.Where(t => t.EntryTime < midpoint).ToList();
-                var secondHalfTrades = allTrades.Where(t => t.EntryTime >= midpoint).ToList();
+                // Handle single trade or empty case
+                var firstHalfTrades = allTrades;
+                var secondHalfTrades = new List<Trade>();
+                var midpoint = minDate;
 
+                if (allTrades.Count >= 2)
+                {
+                    midpoint = minDate.AddDays((maxDate - minDate).TotalDays / 2);
+                    firstHalfTrades = allTrades.Where(t => t.EntryTime < midpoint).ToList();
+                    secondHalfTrades = allTrades.Where(t => t.EntryTime >= midpoint).ToList();
+
+                    // Use firstHalfTrades and secondHalfTrades here
+                }
+                
                 // Pre-calculate all metrics
                 var firstHalfWinRate = CalculateWinRate(firstHalfTrades);
                 var secondHalfWinRate = CalculateWinRate(secondHalfTrades);
@@ -145,6 +172,50 @@ namespace BinanceTestnet.Database
                                 body { margin: 0; padding: 0; }
                                 .section { break-inside: avoid; }
                             }
+                            .executive-kpi {
+                                background: rgba(255,255,255,0.1) !important;
+                                border: 1px solid rgba(255,255,255,0.2) !important;
+                                backdrop-filter: blur(10px);
+                            }
+                            .executive-kpi h3 {
+                                color: white !important;
+                                font-size: 0.9em;
+                                margin-bottom: 8px;
+                            }
+                            .executive-kpi .positive {
+                                color: #a8e6cf !important;
+                                font-weight: bold;
+                            }
+                            .executive-kpi .negative {
+                                color: #ff8b94 !important;
+                                font-weight: bold;
+                            }
+                            .executive-summary {
+                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                color: white;
+                                border-radius: 8px;
+                                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                            }
+
+                            .executive-kpi {
+                                background: rgba(255,255,255,0.1);
+                                border: 1px solid rgba(255,255,255,0.2);
+                                border-radius: 6px;
+                                padding: 15px;
+                                backdrop-filter: blur(10px);
+                            }
+
+                            .insight-list {
+                                background: rgba(255,255,255,0.1);
+                                border-radius: 6px;
+                                padding: 15px;
+                                margin: 15px 0;
+                            }
+
+                            .insight-list li {
+                                margin-bottom: 10px;
+                                line-height: 1.4;
+                            }
                         </style>
                     </head>
                     <body>
@@ -155,6 +226,8 @@ namespace BinanceTestnet.Database
                             <p>Last Trade: {{allTrades.Max(t => t.EntryTime).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}} UTC</p>
                             <p>Duration: {{(allTrades.Max(t => t.EntryTime) - allTrades.Min(t => t.EntryTime)).TotalDays.ToString("F1", CultureInfo.InvariantCulture)}} days</p>
                         </div>
+                        <!-- NEW: Executive Summary Section -->
+                        {{GenerateExecutiveSummary(metrics, allTrades, strategyPerformance, savedRegimeSegments, limitedMetrics.NetProfit, executedTrades.Count)}}                        
                     """);
 
                 // 2. Complete Strategy Parameters (all strategies)
@@ -172,59 +245,7 @@ namespace BinanceTestnet.Database
                     </div>
                 """);
 
-                // 3. Enhanced Performance Snapshot
-                html.AppendLine($$"""
-                    <div class="section">
-                        <h2>📈 Performance Snapshot</h2>
-                        <div class="metric-grid">
-                            <div class="metric-card">
-                                <h3>Win Rate</h3>
-                                <p class="{{(metrics.WinRate >= 50 ? "positive" : "negative")}}">{{metrics.WinRate.ToString("F2")}}%</p>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Net PnL</h3>
-                                <p class="{{(metrics.NetProfit >= 0 ? "positive" : "negative")}}">{{metrics.NetProfit.ToString("F2")}}</p>
-                            </div>
-                            <div class="metric-card">
-                                <h3>ROI</h3>
-                                <p>{{(metrics.NetProfit / (settings.MarginPerTrade * metrics.TotalTrades)).ToString("F2")}}</p>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Max Drawdown</h3>
-                                <p class="negative">{{metrics.MaximumDrawdown.ToString("F2")}}</p>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Sharpe Ratio</h3>
-                                <p class="{{(metrics.SharpeRatio >= 0 ? "positive" : "negative")}}">{{metrics.SharpeRatio.ToString("F2")}}</p>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Avg Duration</h3>
-                                <p>{{(metrics.TotalTrades > 0 ? allTrades.Average(t => t.Duration) : 0).ToString("F1")}} mins</p>
-                            </div>
-                        </div>
-                        <table>
-                            <tr><th>Position</th><th>Trades</th><th>Win Rate</th><th>Avg PnL</th></tr>
-                            <tr>
-                                <td>Long</td>
-                                <td>{{tradeDistribution.LongTrades}}</td>
-                                <td>{{CalculateWinRate(allTrades.Where(t => t.IsLong).ToList()).ToString("F1")}}%</td>
-                                <td class="{{(allTrades.Where(t => t.IsLong).Average(t => t.Profit ?? 0) >= 0 ? "positive" : "negative")}}">
-                                    {{allTrades.Where(t => t.IsLong).Average(t => t.Profit ?? 0).ToString("F2")}}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Short</td>
-                                <td>{{tradeDistribution.ShortTrades}}</td>
-                                <td>{{CalculateWinRate(allTrades.Where(t => !t.IsLong).ToList()).ToString("F1")}}%</td>
-                                <td class="{{(allTrades.Where(t => !t.IsLong).Average(t => t.Profit ?? 0) >= 0 ? "positive" : "negative")}}">
-                                    {{allTrades.Where(t => !t.IsLong).Average(t => t.Profit ?? 0).ToString("F2")}}
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-                """);
-
-                // Add comparison section
+                // Realistic 8-Trade Limit Simulation
                 html.AppendLine($$"""
                     <div class="section">
                         <h2>🔀 Realistic 8-Trade Limit Simulation</h2>
@@ -276,6 +297,60 @@ namespace BinanceTestnet.Database
                     </div>
                 """);
 
+
+                // 3. Performance Snapshot
+                html.AppendLine($$"""
+                    <div class="section">
+                        <h2>📈 Performance Snapshot</h2>
+                        <div class="metric-grid">
+                            <div class="metric-card">
+                                <h3>Win Rate</h3>
+                                <p class="{{(metrics.WinRate >= 50 ? "positive" : "negative")}}">{{metrics.WinRate.ToString("F2")}}%</p>
+                            </div>
+                            <div class="metric-card">
+                                <h3>Net PnL</h3>
+                                <p class="{{(metrics.NetProfit >= 0 ? "positive" : "negative")}}">{{metrics.NetProfit.ToString("F2")}}</p>
+                            </div>
+                            <div class="metric-card">
+                                <h3>ROI</h3>
+                                <p>{{(metrics.NetProfit / (settings.MarginPerTrade * metrics.TotalTrades)).ToString("F2")}}</p>
+                            </div>
+                            <div class="metric-card">
+                                <h3>Max Drawdown</h3>
+                                <p class="negative">{{metrics.MaximumDrawdown.ToString("F2")}}</p>
+                            </div>
+                            <div class="metric-card">
+                                <h3>Sharpe Ratio</h3>
+                                <p class="{{(metrics.SharpeRatio >= 0 ? "positive" : "negative")}}">{{metrics.SharpeRatio.ToString("F2")}}</p>
+                            </div>
+                            <div class="metric-card">
+                                <h3>Avg Duration</h3>
+                                <p>{{(metrics.TotalTrades > 0 ? allTrades.Average(t => t.Duration) : 0).ToString("F1")}} mins</p>
+                            </div>
+                        </div>
+                        <table>
+                            <tr><th>Position</th><th>Trades</th><th>Win Rate</th><th>Avg PnL</th></tr>
+                            <tr>
+                                <td>Long</td>
+                                <td>{{tradeDistribution.LongTrades}}</td>
+                                <td>{{CalculateWinRate(allTrades.Where(t => t.IsLong).ToList()).ToString("F1")}}%</td>
+                                <td class="{{(allTrades.Where(t => t.IsLong).Average(t => t.Profit ?? 0) >= 0 ? "positive" : "negative")}}">
+                                    {{allTrades.Where(t => t.IsLong).Average(t => t.Profit ?? 0).ToString("F2")}}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Short</td>
+                                <td>{{tradeDistribution.ShortTrades}}</td>
+                                <td>{{CalculateWinRate(allTrades.Where(t => !t.IsLong).ToList()).ToString("F1")}}%</td>
+                                <td class="{{(allTrades.Where(t => !t.IsLong).Average(t => t.Profit ?? 0) >= 0 ? "positive" : "negative")}}">
+                                    {{allTrades.Where(t => !t.IsLong).Average(t => t.Profit ?? 0).ToString("F2")}}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                """);
+
+                //Performance Over Time
                 html.AppendLine($$"""
                     <div class="section">
                         <h2>⏳ Performance Over Time</h2>
@@ -323,7 +398,8 @@ namespace BinanceTestnet.Database
                     """);
 
                 var durationGroups = allTrades
-                    .GroupBy(t => (int)(t.Duration / 30)) // 30-minute intervals
+                    .GroupBy(t => (int)(t.Duration / 30))
+                    .Where(g => g.Count() >= 5)
                     .OrderBy(g => g.Key)
                     .Select(g => new
                     {
@@ -331,7 +407,18 @@ namespace BinanceTestnet.Database
                         Count = g.Count(),
                         AvgProfit = g.Average(t => t.Profit ?? 0),
                         WinRate = CalculateWinRate(g.ToList())
-                    });
+                    })
+                    .ToList();
+
+                if (!durationGroups.Any())
+                {
+                    // Handle case where no duration groups meet the threshold
+                    html.AppendLine("""
+                        <div class="warning">
+                            <strong>Note:</strong> Insufficient trades for duration analysis (need at least 5 trades per duration range)
+                        </div>
+                    """);
+                }                    
 
                 foreach (var group in durationGroups)
                 {
@@ -343,6 +430,52 @@ namespace BinanceTestnet.Database
                                 {{group.AvgProfit.ToString("F2", CultureInfo.InvariantCulture)}}
                             </td>
                             <td>{{group.WinRate.ToString("F1", CultureInfo.InvariantCulture)}}%</td>
+                        </tr>
+                    """);
+                }
+
+                var shownTrades = durationGroups.Sum(g => g.Count);
+                var filteredOut = allTrades.Count - shownTrades;
+                if (filteredOut > 0)
+                {
+                    html.AppendLine($$"""
+                        <div class="warning">
+                            <strong>Note:</strong> Showing {{shownTrades}} trades ({{filteredOut}} trades in sparse duration ranges not shown)
+                        </div>
+                    """);
+                }                
+
+                html.AppendLine("""
+                        </table>
+                    </div>
+                """);
+
+               // 5. Full Strategy Comparison
+                html.AppendLine("""
+                    <div class="section strategy-comparison">
+                        <h2>🔄 Strategy Comparison</h2>
+                        <table>
+                            <tr>
+                                <th>Strategy</th>
+                                <th>PnL</th>
+                                <th>Win Rate</th>
+                                <th>Trades</th>
+                                <th>Long/Short</th>
+                            </tr>
+                """);
+
+                foreach (var strategy in strategyPerformance)
+                {
+                    var stratTrades = allTrades.Where(t => t.Signal == strategy.Key).ToList();
+                    var winRate = CalculateWinRate(stratTrades);
+
+                    html.AppendLine($$"""
+                        <tr>
+                            <td>{{strategy.Key}}</td>
+                            <td class="{{(strategy.Value >= 0 ? "positive" : "negative")}}">{{strategy.Value.ToString("F1")}}</td>
+                            <td>{{winRate.ToString("F1")}}%</td>
+                            <td>{{stratTrades.Count}}</td>
+                            <td>{{stratTrades.Count(t => t.IsLong)}}/{{stratTrades.Count(t => !t.IsLong)}}</td>
                         </tr>
                     """);
                 }
@@ -459,8 +592,11 @@ namespace BinanceTestnet.Database
                     // Add to HTML report
                     html.AppendLine(GenerateRegimeTimelineHtml(regimeSegments));
 
-                    // Add actionable insights based on regime performance
-                    html.AppendLine(GenerateRegimeInsightsHtml(regimeSegments, allTrades, strategyPerformance, coinPerformance));
+                    // SAVE regimeSegments for later use
+                    savedRegimeSegments = regimeSegments;  
+
+                    // // Add actionable insights based on regime performance
+                    // html.AppendLine(GenerateRegimeInsightsHtml(regimeSegments, allTrades, strategyPerformance, coinPerformance));
                 }
                 catch (Exception ex)
                 {
@@ -473,85 +609,6 @@ namespace BinanceTestnet.Database
                         </div>
                     """);
                 }
-
-                // 4. Detailed Active Window (with date)
-                var activeWindow = allTrades
-                    .GroupBy(t => t.EntryTime.ToString("yyyy-MM-dd HH:mm"))
-                    .OrderByDescending(g => g.Count())
-                    .First();
-
-                html.AppendLine($$"""
-                    <div class="section">
-                        <h2>⏰ Most Active Trading Window</h2>
-                        <div class="warning">
-                            <strong>{{activeWindow.Key}} UTC</strong><br>
-                            {{activeWindow.Count()}} trades executed<br>
-                            Avg PnL: {{activeWindow.Average(t => t.Profit ?? 0).ToString("P2")}}
-                        </div>
-                    </div>
-                """);
-
-                // 5. Full Strategy Comparison
-                html.AppendLine("""
-                    <div class="section strategy-comparison">
-                        <h2>🔄 Strategy Comparison</h2>
-                        <table>
-                            <tr>
-                                <th>Strategy</th>
-                                <th>PnL</th>
-                                <th>Win Rate</th>
-                                <th>Trades</th>
-                                <th>Long/Short</th>
-                            </tr>
-                """);
-
-                foreach (var strategy in strategyPerformance)
-                {
-                    var stratTrades = allTrades.Where(t => t.Signal == strategy.Key).ToList();
-                    var winRate = CalculateWinRate(stratTrades);
-
-                    html.AppendLine($$"""
-                        <tr>
-                            <td>{{strategy.Key}}</td>
-                            <td class="{{(strategy.Value >= 0 ? "positive" : "negative")}}">{{strategy.Value.ToString("F1")}}</td>
-                            <td>{{winRate.ToString("F1")}}%</td>
-                            <td>{{stratTrades.Count}}</td>
-                            <td>{{stratTrades.Count(t => t.IsLong)}}/{{stratTrades.Count(t => !t.IsLong)}}</td>
-                        </tr>
-                    """);
-                }
-
-                html.AppendLine("""
-                        </table>
-                    </div>
-                """);
-
-                html.AppendLine("""
-                        </table>
-                    </div>
-                """);
-
-                // 6. Risk Analysis
-                var (nearLiquidation, _) = _tradeLogger.CalculateLiquidationStats(sessionId, 0.9m);
-                html.AppendLine($$"""
-                    <div class="section">
-                        <h2>⚠️ Risk Analysis</h2>
-                        <div class="metric-grid">
-                            <div class="metric-card">
-                                <h3>Liquidation Threshold</h3>
-                                <p class="negative">{{settings.GetLiquidationThreshold().ToString("F2")}}%</p>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Near-Liquidations</h3>
-                                <p class="{{(nearLiquidation == 0 ? "positive" : "negative")}}">{{nearLiquidation}}</p>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Max Loss</h3>
-                                <p class="negative">{{allTrades.Min(t => t.Profit ?? 0).ToString("F1")}}</p>
-                            </div>
-                        </div>
-                    </div>
-                """);
 
                 // 4. Session Segmentation                
                 var (candleCount, tradesPerCandle) = _tradeLogger.GetCandleMetrics(sessionId, settings.GetIntervalMinutes());
@@ -586,7 +643,7 @@ namespace BinanceTestnet.Database
                             </tr>
                         </table>
                         <div class="warning">
-                            <strong>⚠️ Most Active Window:</strong> {{allTrades.GroupBy(t => t.EntryTime.ToString("HH:mm")).OrderByDescending(g => g.Count()).First().Key}} UTC
+                            <strong>⚠️ Most Active Window:</strong> {{GetMostActiveWindow(allTrades)}} UTC
                         </div>
                     </div>                    
                     <div class="section">
@@ -617,7 +674,49 @@ namespace BinanceTestnet.Database
 
                 html.AppendLine(GetWeekendWeekdayAnalysis(allTrades));
                 html.AppendLine(GetExtendedHoursAnalysis(allTrades)); 
-                html.AppendLine(GetDayOfWeekAnalysis(allTrades));
+                html.AppendLine(GetDayOfWeekAnalysis(allTrades));                
+
+                // 4. Detailed Active Window (with date)
+                var activeWindowGroup = allTrades
+                    .GroupBy(t => t.EntryTime.ToString("yyyy-MM-dd HH:mm"))
+                    .OrderByDescending(g => g.Count())
+                    .FirstOrDefault();
+
+                if (activeWindowGroup != null)
+                {
+                    html.AppendLine($$"""
+                        <div class="section">
+                            <h2>⏰ Most Active Trading Window</h2>
+                            <div class="warning">
+                                <strong>{{activeWindowGroup.Key}} UTC</strong><br>
+                                {{activeWindowGroup.Count()}} trades executed<br>
+                                Avg PnL: {{activeWindowGroup.Average(t => t.Profit ?? 0).ToString("F2")}}
+                            </div>
+                        </div>
+                    """);
+                }
+
+                // 6. Risk Analysis
+                var (nearLiquidation, _) = _tradeLogger.CalculateLiquidationStats(sessionId, 0.9m);
+                html.AppendLine($$"""
+                    <div class="section">
+                        <h2>⚠️ Risk Analysis</h2>
+                        <div class="metric-grid">
+                            <div class="metric-card">
+                                <h3>Liquidation Threshold</h3>
+                                <p class="negative">{{settings.GetLiquidationThreshold().ToString("F2")}}%</p>
+                            </div>
+                            <div class="metric-card">
+                                <h3>Near-Liquidations</h3>
+                                <p class="{{(nearLiquidation == 0 ? "positive" : "negative")}}">{{nearLiquidation}}</p>
+                            </div>
+                            <div class="metric-card">
+                                <h3>Max Loss</h3>
+                                <p class="negative">{{allTrades.Min(t => t.Profit ?? 0).ToString("F1")}}</p>
+                            </div>
+                        </div>
+                    </div>
+                """);
 
                 // 5. Critical Trades (Top 5)
                 var criticalTrades = allTrades
@@ -708,6 +807,10 @@ namespace BinanceTestnet.Database
                     """);
 
 
+
+                // Add actionable insights based on regime performance
+                html.AppendLine(GenerateRegimeInsightsHtml(savedRegimeSegments, allTrades, strategyPerformance, coinPerformance));
+                
                 // 7. Footer
                 html.AppendLine($$"""
                         <div style="text-align: center; margin-top: 30px; color: #7f8c8d; font-size: 0.9em;">
@@ -1505,6 +1608,228 @@ namespace BinanceTestnet.Database
         private bool IsTimeInSegment(DateTime time, MarketRegimeSegment segment)
         {
             return time >= segment.StartTime && time <= segment.EndTime;
+        }
+
+        // Add this method to generate the executive summary
+        private string GenerateExecutiveSummary(PerformanceMetrics metrics, List<Trade> allTrades, 
+            Dictionary<string, decimal> strategyPerformance, List<MarketRegimeSegment> regimeSegments,
+            decimal limitedNetProfit, int limitedTrades)
+        {
+            var summary = new StringBuilder();
+            
+            summary.AppendLine("""
+                <div class="section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                    <h2 style="color: white; border-bottom: 2px solid rgba(255,255,255,0.3);">🚀 Executive Summary</h2>
+                    <div class="metric-grid" style="grid-template-columns: repeat(2, 1fr);">
+                """);
+
+            // Key Performance Indicators
+            var kpis = new[]
+            {
+                new { 
+                    Title = "Overall Performance", 
+                    Value = metrics.NetProfit >= 0 ? "PROFITABLE" : "UNPROFITABLE",
+                    Class = metrics.NetProfit >= 0 ? "positive" : "negative",
+                    Icon = metrics.NetProfit >= 0 ? "📈" : "📉"
+                },
+                new { 
+                    Title = "Risk-Adjusted Score", 
+                    Value = GetRiskAdjustedScore(metrics),
+                    Class = GetRiskScoreClass(metrics),
+                    Icon = "🎯"
+                },
+                new { 
+                    Title = "8-Trade Limit Impact", 
+                    Value = limitedNetProfit > metrics.NetProfit ? "POSITIVE" : "NEGATIVE",
+                    Class = limitedNetProfit > metrics.NetProfit ? "positive" : "negative",
+                    Icon = limitedNetProfit > metrics.NetProfit ? "✅" : "⚠️"
+                },
+                new { 
+                    Title = "Market Alignment", 
+                    Value = GetMarketAlignmentScore(regimeSegments),
+                    Class = GetAlignmentClass(regimeSegments),
+                    Icon = "🎪"
+                }
+            };
+
+            foreach (var kpi in kpis)
+            {
+                summary.AppendLine($$"""
+                    <div class="metric-card" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+                        <h3 style="color: white; font-size: 0.9em;">{{kpi.Icon}} {{kpi.Title}}</h3>
+                        <p class="{{kpi.Class}}" style="font-size: 1.2em; font-weight: bold; margin: 5px 0;">{{kpi.Value}}</p>
+                    </div>
+                """);
+            }
+
+            summary.AppendLine("</div>");
+
+            // Top 3 Actionable Insights
+            var topInsights = GenerateTopInsights(metrics, allTrades, strategyPerformance, regimeSegments);
+            
+            summary.AppendLine($$"""
+                <div style="margin-top: 20px; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 5px;">
+                    <h3 style="color: white; margin-top: 0;">🎯 Top 3 Actionable Insights</h3>
+                    <ol style="color: white; padding-left: 20px;">
+                        {{string.Join("", topInsights.Select((insight, index) => $"<li style=\"margin-bottom: 8px;\">{insight}</li>"))}}
+                    </ol>
+                </div>
+            """);
+
+            // Quick Stats
+            summary.AppendLine($$"""
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 15px;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.8em; font-weight: bold;">{{metrics.WinRate:F1}}%</div>
+                        <div style="font-size: 0.8em;">Win Rate</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.8em; font-weight: bold;" class="{{(metrics.NetProfit >= 0 ? "positive" : "negative")}}">{{metrics.NetProfit:F0}}</div>
+                        <div style="font-size: 0.8em;">Net PnL</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.8em; font-weight: bold;">{{allTrades.Count}}</div>
+                        <div style="font-size: 0.8em;">Total Trades</div>
+                    </div>
+                </div>
+            """);
+
+            summary.AppendLine("</div>");
+            return summary.ToString();
+        }
+
+        // Helper methods for the executive summary
+        private string GetRiskAdjustedScore(PerformanceMetrics metrics)
+        {
+            if (metrics.SharpeRatio > 1) return "EXCELLENT";
+            if (metrics.SharpeRatio > 0) return "GOOD";
+            if ((double)metrics.SharpeRatio > -0.5) return "MODERATE";
+            return "POOR";
+        }
+
+        private string GetRiskScoreClass(PerformanceMetrics metrics)
+        {
+            if (metrics.SharpeRatio > 1) return "positive";
+            if (metrics.SharpeRatio > 0) return "positive";
+            if ((double)metrics.SharpeRatio > -0.5) return "warning";
+            return "negative";
+        }
+
+        private string GetMarketAlignmentScore(List<MarketRegimeSegment> segments)
+        {
+            if (!segments.Any()) return "UNKNOWN";
+            
+            var profitableSegments = segments.Count(s => s.TotalPnL > 0);
+            var totalSegments = segments.Count(s => s.TradeCount > 0);
+            
+            var alignment = (decimal)profitableSegments / totalSegments * 100;
+            
+            if (alignment > 70) return "STRONG";
+            if (alignment > 50) return "MODERATE";
+            return "WEAK";
+        }
+
+        private string GetAlignmentClass(List<MarketRegimeSegment> segments)
+        {
+            if (!segments.Any()) return "warning";
+            
+            var profitableSegments = segments.Count(s => s.TotalPnL > 0);
+            var totalSegments = segments.Count(s => s.TradeCount > 0);
+            
+            var alignment = (decimal)profitableSegments / totalSegments * 100;
+            
+            if (alignment > 70) return "positive";
+            if (alignment > 50) return "warning";
+            return "negative";
+        }
+
+        private List<string> GenerateTopInsights(PerformanceMetrics metrics, List<Trade> allTrades,
+            Dictionary<string, decimal> strategyPerformance, List<MarketRegimeSegment> regimeSegments)
+        {
+            var insights = new List<string>();
+
+            // 1. Best performing strategy insight
+            var bestStrategy = strategyPerformance
+                .Where(kvp => allTrades.Count(t => t.Signal == kvp.Key) >= 10)
+                .OrderByDescending(kvp => kvp.Value)
+                .FirstOrDefault();
+
+            if (!bestStrategy.Equals(default(KeyValuePair<string, decimal>)) && bestStrategy.Value > 0)
+            {
+                insights.Add($"<strong>{bestStrategy.Key}</strong> was your best strategy (+{bestStrategy.Value:F1} PnL)");
+            }
+
+            // 2. Market timing insight
+            var sessionPerformance = allTrades
+                .GroupBy(t => GetMarketSession(t.EntryTime))
+                .Select(g => new
+                {
+                    Session = g.Key,
+                    WinRate = (decimal)g.Count(t => t.Profit > 0) / g.Count() * 100
+                })
+                .OrderByDescending(x => x.WinRate)
+                .FirstOrDefault();
+
+            if (sessionPerformance != null && sessionPerformance.WinRate > 55)
+            {
+                insights.Add($"Focus on <strong>{sessionPerformance.Session}</strong> sessions ({sessionPerformance.WinRate:F1}% win rate)");
+            }
+
+            // 3. Risk management insight
+            var maxLoss = allTrades.Min(t => t.Profit ?? 0);
+            if (maxLoss < -5)
+            {
+                insights.Add($"Review risk management - largest loss was {maxLoss:F1} (consider tighter stops)");
+            }
+            else if (metrics.WinRate < 45)
+            {
+                insights.Add("Win rate below 45% - consider strategy adjustments or position sizing changes");
+            }
+            else
+            {
+                var bestDuration = allTrades
+                    .GroupBy(t => (int)(t.Duration / 60))
+                    .Select(g => new
+                    {
+                        Hours = g.Key,
+                        WinRate = (decimal)g.Count(t => t.Profit > 0) / g.Count() * 100
+                    })
+                    .OrderByDescending(g => g.WinRate)
+                    .FirstOrDefault();
+
+                if (bestDuration != null && bestDuration.WinRate > 60)
+                {
+                    insights.Add($"Best performance in <strong>{bestDuration.Hours}-{bestDuration.Hours + 1} hour</strong> trades ({bestDuration.WinRate:F1}% win rate)");
+                }
+            }
+
+            // Ensure we have exactly 3 insights
+            while (insights.Count < 3)
+            {
+                insights.Add("Collect more trade data for personalized insights");
+            }
+
+            return insights.Take(3).ToList();
+        }
+        
+        private string GetMostActiveWindow(List<Trade> trades)
+        {
+            if (trades == null || !trades.Any())
+                return "No trades";
+            
+            try
+            {
+                var activeWindow = trades
+                    .GroupBy(t => t.EntryTime.ToString("HH:mm"))
+                    .OrderByDescending(g => g.Count())
+                    .FirstOrDefault();
+                    
+                return activeWindow?.Key ?? "Unknown";
+            }
+            catch (Exception)
+            {
+                return "Unknown";
+            }
         }
     }
 }
