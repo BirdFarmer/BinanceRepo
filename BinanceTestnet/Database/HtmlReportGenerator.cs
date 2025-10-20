@@ -299,6 +299,8 @@ namespace BinanceTestnet.Database
 
 
                 // 3. Performance Snapshot
+                var (totalFees, netPnLAfterFees) = CalculateFeeImpact(allTrades, settings.MarginPerTrade);                
+
                 html.AppendLine($$"""
                     <div class="section">
                         <h2>📈 Performance Snapshot</h2>
@@ -311,6 +313,11 @@ namespace BinanceTestnet.Database
                                 <h3>Net PnL</h3>
                                 <p class="{{(metrics.NetProfit >= 0 ? "positive" : "negative")}}">{{metrics.NetProfit.ToString("F2")}}</p>
                             </div>
+                            <div class="metric-card">
+                                <h3>Net PnL (After Fees)</h3>
+                                <p class="{{(netPnLAfterFees >= 0 ? "positive" : "negative")}}">{{netPnLAfterFees.ToString("F2")}}</p>
+                                <small>Fees: {{totalFees.ToString("F2")}}</small>
+                            </div>                            
                             <div class="metric-card">
                                 <h3>ROI</h3>
                                 <p>{{(metrics.NetProfit / (settings.MarginPerTrade * metrics.TotalTrades)).ToString("F2")}}</p>
@@ -1811,19 +1818,19 @@ namespace BinanceTestnet.Database
 
             return insights.Take(3).ToList();
         }
-        
+
         private string GetMostActiveWindow(List<Trade> trades)
         {
             if (trades == null || !trades.Any())
                 return "No trades";
-            
+
             try
             {
                 var activeWindow = trades
                     .GroupBy(t => t.EntryTime.ToString("HH:mm"))
                     .OrderByDescending(g => g.Count())
                     .FirstOrDefault();
-                    
+
                 return activeWindow?.Key ?? "Unknown";
             }
             catch (Exception)
@@ -1831,5 +1838,15 @@ namespace BinanceTestnet.Database
                 return "Unknown";
             }
         }
+        
+        private (decimal totalFees, decimal netPnL) CalculateFeeImpact(List<Trade> trades, decimal entrySize)
+        {
+            // Binance futures: ~0.04% per trade (maker/taker both sides)
+            const decimal FEE_RATE = 0.0004m;
+            decimal totalFees = trades.Count * entrySize * FEE_RATE * 2; // Entry & exit
+            decimal totalPnL = trades.Sum(t => t.Profit ?? 0);
+            
+            return (totalFees, totalPnL - totalFees);
+        }        
     }
 }
