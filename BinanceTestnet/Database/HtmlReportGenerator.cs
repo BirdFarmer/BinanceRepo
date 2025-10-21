@@ -703,6 +703,8 @@ namespace BinanceTestnet.Database
                     """);
                 }
 
+                html.AppendLine(GenerateEquityCurveHtml(allTrades));
+                
                 // 6. Risk Analysis
                 var (nearLiquidation, _) = _tradeLogger.CalculateLiquidationStats(sessionId, 0.9m);
                 html.AppendLine($$"""
@@ -1848,5 +1850,66 @@ namespace BinanceTestnet.Database
             
             return (totalFees, totalPnL - totalFees);
         }        
+
+        private string GenerateEquityCurveHtml(List<Trade> trades)
+        {
+            var validTrades = trades?
+                .Where(t => t.ExitTime != default && t.Profit.HasValue)
+                .OrderBy(t => t.ExitTime)
+                .ToList() ?? new List<Trade>();
+
+            if (!validTrades.Any())
+            {
+                return """
+                    <div class="section">
+                        <h2>📈 Equity Curve</h2>
+                        <div class="warning">No completed trades with profit data available</div>
+                    </div>
+                    """;
+            }
+
+            // Calculate cumulative PnL
+            var cumulative = 0m;
+            var points = new List<decimal>();
+            
+            foreach (var trade in validTrades)
+            {
+                cumulative += trade.Profit.Value;
+                points.Add(cumulative);
+            }
+
+            // Simple text-based version for now
+            return $$"""
+                <div class="section">
+                    <h2>📈 Equity Curve</h2>
+                    <div style="background: #f0f0f0; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="font-size: 1.2em; font-weight: bold; margin-bottom: 10px;">
+                            Cumulative PnL Progression
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <div>
+                                <strong>Start:</strong><br>
+                                {{points.First().ToString("F1")}}
+                            </div>
+                            <div>
+                                <strong>End:</strong><br>
+                                {{points.Last().ToString("F1")}}
+                            </div>
+                            <div>
+                                <strong>Peak:</strong><br>
+                                {{points.Max().ToString("F1")}}
+                            </div>
+                            <div>
+                                <strong>Low:</strong><br>
+                                {{points.Min().ToString("F1")}}
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <small>{{points.Count}} trades analyzed</small>
+                        </div>
+                    </div>
+                </div>
+                """;
+        }    
     }
 }
