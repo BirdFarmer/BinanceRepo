@@ -11,7 +11,7 @@ namespace BinanceTestnet.Database
     {
         private readonly TradeLogger _tradeLogger;
         private readonly MarketContextAnalyzer _marketAnalyzer;
-        
+
         List<MarketRegimeSegment> savedRegimeSegments = new List<MarketRegimeSegment>();
 
         public HtmlReportGenerator(TradeLogger tradeLogger, MarketContextAnalyzer marketAnalyzer)
@@ -44,7 +44,7 @@ namespace BinanceTestnet.Database
                         </body>
                         </html>
                     """;
-                }                
+                }
 
                 var metrics = _tradeLogger.CalculatePerformanceMetrics(sessionId);
                 var strategyPerformance = _tradeLogger.GetStrategyPerformance(sessionId);
@@ -68,7 +68,7 @@ namespace BinanceTestnet.Database
 
                     // Use firstHalfTrades and secondHalfTrades here
                 }
-                
+
                 // Pre-calculate all metrics
                 var firstHalfWinRate = CalculateWinRate(firstHalfTrades);
                 var secondHalfWinRate = CalculateWinRate(secondHalfTrades);
@@ -216,6 +216,11 @@ namespace BinanceTestnet.Database
                                 margin-bottom: 10px;
                                 line-height: 1.4;
                             }
+                            .heatmap-table td {
+                                text-align: center;
+                                vertical-align: middle;
+                                padding: 8px 4px;
+                            }
                         </style>
                     </head>
                     <body>
@@ -299,7 +304,7 @@ namespace BinanceTestnet.Database
 
 
                 // 3. Performance Snapshot
-                var (totalFees, netPnLAfterFees) = CalculateFeeImpact(allTrades, settings.MarginPerTrade);                
+                var (totalFees, netPnLAfterFees) = CalculateFeeImpact(allTrades, settings.MarginPerTrade);
 
                 html.AppendLine($$"""
                     <div class="section">
@@ -425,7 +430,7 @@ namespace BinanceTestnet.Database
                             <strong>Note:</strong> Insufficient trades for duration analysis (need at least 5 trades per duration range)
                         </div>
                     """);
-                }                    
+                }
 
                 foreach (var group in durationGroups)
                 {
@@ -450,14 +455,14 @@ namespace BinanceTestnet.Database
                             <strong>Note:</strong> Showing {{shownTrades}} trades ({{filteredOut}} trades in sparse duration ranges not shown)
                         </div>
                     """);
-                }                
+                }
 
                 html.AppendLine("""
                         </table>
                     </div>
                 """);
 
-               // 5. Full Strategy Comparison
+                // 5. Full Strategy Comparison
                 html.AppendLine("""
                     <div class="section strategy-comparison">
                         <h2>🔄 Strategy Comparison</h2>
@@ -492,6 +497,29 @@ namespace BinanceTestnet.Database
                     </div>
                 """);
 
+                // NEW: Strategy vs Regime Heatmap
+                try
+                {
+                    var regimeTF = GetRegimeTimeframe(settings.Interval);
+                    var tradingRegimes = await _marketAnalyzer.GetRegimeSegmentsAsync(
+                        allTrades.Min(t => t.EntryTime),
+                        allTrades.Max(t => t.EntryTime),
+                        regimeTF  // Clean and simple
+                    );                    
+                    var regimePerformance = CalculateStrategyRegimePerformance(allTrades, tradingRegimes);
+                    html.AppendLine(GenerateStrategyHeatmapHtml(regimePerformance));
+                }
+                catch (Exception ex)
+                {
+                    html.AppendLine($$"""
+                        <div class="section">
+                            <h2>🎯 Strategy vs Market Regime Heatmap</h2>
+                            <div class="warning">
+                                Heatmap analysis temporarily unavailable: {{ex.Message}}
+                            </div>
+                        </div>
+                    """);
+                }
                 // NEW: Safe Dual BTC Market Context Analysis
                 try
                 {
@@ -600,7 +628,7 @@ namespace BinanceTestnet.Database
                     html.AppendLine(GenerateRegimeTimelineHtml(regimeSegments));
 
                     // SAVE regimeSegments for later use
-                    savedRegimeSegments = regimeSegments;  
+                    savedRegimeSegments = regimeSegments;
 
                     // // Add actionable insights based on regime performance
                     // html.AppendLine(GenerateRegimeInsightsHtml(regimeSegments, allTrades, strategyPerformance, coinPerformance));
@@ -680,8 +708,8 @@ namespace BinanceTestnet.Database
                 """);
 
                 html.AppendLine(GetWeekendWeekdayAnalysis(allTrades));
-                html.AppendLine(GetExtendedHoursAnalysis(allTrades)); 
-                html.AppendLine(GetDayOfWeekAnalysis(allTrades));                
+                html.AppendLine(GetExtendedHoursAnalysis(allTrades));
+                html.AppendLine(GetDayOfWeekAnalysis(allTrades));
 
                 // 4. Detailed Active Window (with date)
                 var activeWindowGroup = allTrades
@@ -704,7 +732,7 @@ namespace BinanceTestnet.Database
                 }
 
                 html.AppendLine(GenerateEquityCurveHtml(allTrades));
-                
+
                 // 6. Risk Analysis
                 var (nearLiquidation, _) = _tradeLogger.CalculateLiquidationStats(sessionId, 0.9m);
                 html.AppendLine($$"""
@@ -819,7 +847,7 @@ namespace BinanceTestnet.Database
 
                 // Add actionable insights based on regime performance
                 html.AppendLine(GenerateRegimeInsightsHtml(savedRegimeSegments, allTrades, strategyPerformance, coinPerformance));
-                
+
                 // 7. Footer
                 html.AppendLine($$"""
                         <div style="text-align: center; margin-top: 30px; color: #7f8c8d; font-size: 0.9em;">
@@ -1132,89 +1160,6 @@ namespace BinanceTestnet.Database
             };
         }
 
-        private string GenerateGeneralBTCInsights(MarketContext context, MarketRegimeType regime)
-        {
-            var performance = context.PerformanceByGeneralRegime.ContainsKey(regime)
-                ? context.PerformanceByGeneralRegime[regime]
-                : new StrategyPerformance();
-
-            var insights = new List<string>();
-
-            if (performance.TradeCount > 0)
-            {
-                insights.Add($"{performance.TradeCount} trades in this regime");
-                insights.Add($"Win rate: {performance.WinRate:F1}%");
-
-                if (performance.AvgProfit > 0)
-                    insights.Add($"Average profit: {performance.AvgProfit:F2}");
-                else
-                    insights.Add($"Average loss: {performance.AvgProfit:F2}");
-            }
-
-            return insights.Any()
-                ? $$"""<div class="suggestion"><strong>📈 General Market Insights:</strong> {{string.Join(" • ", insights)}}</div>"""
-                : "<div class='warning'>⚠️ No trade data for general market analysis</div>";
-        }
-
-        private string GenerateTradingBTCInsights(MarketContext context, MarketRegimeType regime, string tradingTimeframe)
-        {
-            var performance = context.PerformanceByTradingRegime.ContainsKey(regime)
-                ? context.PerformanceByTradingRegime[regime]
-                : new StrategyPerformance();
-
-            var insights = new List<string>();
-
-            if (performance.TradeCount > 0)
-            {
-                insights.Add($"{performance.TradeCount} trades executed");
-                insights.Add($"{performance.WinRate:F1}% win rate");
-
-                // Strategy alignment insight
-                if (performance.WinRate > 50)
-                    insights.Add("Strategies aligned with market conditions");
-                else if (performance.WinRate < 40)
-                    insights.Add("Consider adjusting strategy parameters");
-
-                // Duration insight
-                if (performance.AvgProfit > 0)
-                    insights.Add($"Avg profit: {performance.AvgProfit:F2}");
-            }
-            else
-            {
-                insights.Add("No trades in this specific regime");
-            }
-
-            return $$"""<div class="suggestion"><strong>🎯 Trading Context Insights:</strong> {{string.Join(" • ", insights)}}</div>""";
-        }
-
-        private string GenerateRegimeComparison(MarketContext context)
-        {
-            var sameRegime = context.GeneralMarketRegime.Type == context.TradingAlignedRegime.Type;
-            var generalConfidence = context.GeneralMarketRegime.OverallConfidence;
-            var tradingConfidence = context.TradingAlignedRegime.OverallConfidence;
-
-            if (sameRegime)
-            {
-                return $$"""
-                    <div class="suggestion">
-                        <strong>✅ Regime Alignment:</strong> Both analyses agree on <strong>{{context.GeneralMarketRegime.Type}}</strong> market
-                        (General: {{generalConfidence}}% confidence, Trading: {{tradingConfidence}}% confidence)
-                    </div>
-                """;
-            }
-            else
-            {
-                return $$"""
-                    <div class="warning">
-                        <strong>⚠️ Regime Mismatch:</strong> 
-                        General analysis: <strong>{{context.GeneralMarketRegime.Type}}</strong> ({{generalConfidence}}% confidence) | 
-                        Trading analysis: <strong>{{context.TradingAlignedRegime.Type}}</strong> ({{tradingConfidence}}% confidence)
-                        <br><em>This may indicate different market conditions at different timeframes</em>
-                    </div>
-                """;
-            }
-        }
-
         private string GenerateRegimeInsightsHtml(List<MarketRegimeSegment> segments, List<Trade> allTrades, Dictionary<string, decimal> strategyPerformance, Dictionary<string, decimal> coinPerformance)
         {
             var insights = new List<string>();
@@ -1233,7 +1178,8 @@ namespace BinanceTestnet.Database
             // 1. Market Session Insights (ENHANCED with regime context)
             var sessionPerformance = allTrades
                 .GroupBy(t => GetMarketSession(t.EntryTime))
-                .Select(g => new {
+                .Select(g => new
+                {
                     Session = g.Key,
                     WinRate = (decimal)g.Count(t => t.Profit > 0) / g.Count() * 100,
                     AvgPnL = g.Average(t => t.Profit ?? 0),
@@ -1250,14 +1196,14 @@ namespace BinanceTestnet.Database
             {
                 var bestSession = sessionPerformance.First();
                 var worstSession = sessionPerformance.Last();
-                
+
                 if (bestSession.WinRate > 50)
                 {
                     var hasValidBestRegime = !string.IsNullOrEmpty(bestSession.BestRegime) && bestSession.BestRegime != "Unknown";
                     var regimeContext = hasValidBestRegime ? $" (best in {bestSession.BestRegime} regimes)" : "";
                     insights.Add($"Focus on <strong>{bestSession.Session}</strong> sessions ({bestSession.WinRate:F1}% win rate{regimeContext})");
                 }
-                    
+
                 if (worstSession.WinRate < 40 && worstSession.Count >= 15)
                 {
                     var hasValidWorstRegime = !string.IsNullOrEmpty(worstSession.WorstRegime) && worstSession.WorstRegime != "Unknown";
@@ -1268,7 +1214,8 @@ namespace BinanceTestnet.Database
 
             // 2. Strategy Performance Insights (ENHANCED with regime context)
             var strategyRanking = strategyPerformance
-                .Select(kvp => new {
+                .Select(kvp => new
+                {
                     Strategy = kvp.Key,
                     PnL = kvp.Value,
                     Trades = allTrades.Count(t => t.Signal == kvp.Key),
@@ -1286,7 +1233,7 @@ namespace BinanceTestnet.Database
                 var topStrategy = strategyRanking.First();
                 if (topStrategy.PnL > 0 && topStrategy.Trades >= 20)
                 {
-                    var regimeAdvice = topStrategy.BestRegime != null ? 
+                    var regimeAdvice = topStrategy.BestRegime != null ?
                         $" in <strong>{topStrategy.BestRegime}</strong> markets" : "";
                     insights.Add($"Prioritize <strong>{topStrategy.Strategy}</strong> strategy{regimeAdvice} (+{topStrategy.PnL:F1} PnL)");
                 }
@@ -1303,13 +1250,14 @@ namespace BinanceTestnet.Database
                         insights.Add($"Avoid <strong>{strategy.Strategy}</strong> in <strong>{strategy.WorstRegime}</strong> regimes ({strategy.WinRate:F1}% WR)");
                     }
                 }
-                
+
             }
 
             // 3. Duration Insights (keep as-is - already good)
             var durationGroups = allTrades
                 .GroupBy(t => (int)(t.Duration / 30))
-                .Select(g => new {
+                .Select(g => new
+                {
                     Range = $"{g.Key * 30}-{(g.Key + 1) * 30} mins",
                     WinRate = CalculateWinRate(g.ToList()),
                     Count = g.Count()
@@ -1322,10 +1270,10 @@ namespace BinanceTestnet.Database
             {
                 var bestDuration = durationGroups.First();
                 var worstDuration = durationGroups.Last();
-                
+
                 if (bestDuration.WinRate > 55 && bestDuration.Count >= 10)
                     insights.Add($"Let winners run <strong>{bestDuration.Range}</strong> ({bestDuration.WinRate:F1}% win rate)");
-                    
+
                 if (worstDuration.WinRate < 40 && worstDuration.Count >= 10)
                     insights.Add($"Avoid closing in <strong>{worstDuration.Range}</strong> range ({worstDuration.WinRate:F1}% win rate)");
             }
@@ -1335,7 +1283,7 @@ namespace BinanceTestnet.Database
             {
                 var bestRegime = regimePerformance.OrderByDescending(r => r.AvgPnL).First();
                 var worstRegime = regimePerformance.OrderBy(r => r.AvgPnL).First();
-                
+
                 if (bestRegime.AvgPnL > 0.5m && bestRegime.Trades >= 10)
                 {
                     var regimeName = CleanRegimeName(bestRegime.Regime.Type.ToString());
@@ -1344,7 +1292,7 @@ namespace BinanceTestnet.Database
                         insights.Add($"<strong>Activate</strong> during <strong>{regimeName}</strong> regimes (+{bestRegime.AvgPnL:F1} avg PnL)");
                     }
                 }
-                    
+
                 if (worstRegime.AvgPnL < -0.3m && worstRegime.Trades >= 10)
                 {
                     var regimeName = CleanRegimeName(worstRegime.Regime.Type.ToString());
@@ -1358,12 +1306,12 @@ namespace BinanceTestnet.Database
             // 5. Position Bias Insight (keep as-is)
             var longTrades = allTrades.Where(t => t.IsLong).ToList();
             var shortTrades = allTrades.Where(t => !t.IsLong).ToList();
-            
+
             if (longTrades.Count >= 20 && shortTrades.Count >= 20)
             {
                 var longWinRate = CalculateWinRate(longTrades);
                 var shortWinRate = CalculateWinRate(shortTrades);
-                
+
                 if (longWinRate - shortWinRate > 10)
                     insights.Add($"Consider <strong>long bias</strong> ({longWinRate:F1}% vs {shortWinRate:F1}% short win rate)");
             }
@@ -1382,15 +1330,15 @@ namespace BinanceTestnet.Database
             }
 
             // 7. Weekend/Off-Hours Insights
-            var weekendTrades = allTrades.Where(t => 
-                t.EntryTime.DayOfWeek == DayOfWeek.Saturday || 
+            var weekendTrades = allTrades.Where(t =>
+                t.EntryTime.DayOfWeek == DayOfWeek.Saturday ||
                 t.EntryTime.DayOfWeek == DayOfWeek.Sunday).ToList();
-                
+
             if (weekendTrades.Any())
             {
                 var weekendWinRate = CalculateWinRate(weekendTrades);
                 var weekdayWinRate = CalculateWinRate(allTrades.Except(weekendTrades).ToList());
-                
+
                 if (weekendWinRate - weekdayWinRate > 15)
                     insights.Add($"<strong>Weekend opportunities</strong> detected ({weekendWinRate:F1}% vs {weekdayWinRate:F1}% weekday)");
                 else if (weekdayWinRate - weekendWinRate > 15)
@@ -1404,7 +1352,7 @@ namespace BinanceTestnet.Database
                 var extendedWinRate = CalculateWinRate(extendedHours);
                 if (extendedWinRate < 40)
                     insights.Add($"<strong>Reduce overnight trading</strong> ({extendedWinRate:F1}% win rate in extended hours)");
-            }            
+            }
 
             // Generate the HTML
             if (!insights.Any())
@@ -1422,14 +1370,14 @@ namespace BinanceTestnet.Database
 
         private string CleanRegimeName(string regimeName)
         {
-            if (string.IsNullOrEmpty(regimeName) || regimeName == "Unknown") 
+            if (string.IsNullOrEmpty(regimeName) || regimeName == "Unknown")
                 return "Unknown";
-            
+
             // Clean up the enum name
             return regimeName switch
             {
                 "BullishTrend" => "Bullish",
-                "BearishTrend" => "Bearish", 
+                "BearishTrend" => "Bearish",
                 "HighVolatility" => "High Volatility",
                 "RangingMarket" => "Ranging",
                 "Unknown" => "Unknown",
@@ -1480,7 +1428,7 @@ namespace BinanceTestnet.Database
                     </table>
                 </div>
             """;
-        }        
+        }
 
         private string GetExtendedHoursAnalysis(List<Trade> trades)
         {
@@ -1568,7 +1516,7 @@ namespace BinanceTestnet.Database
                     </table>
                 </div>
             """;
-        }        
+        }
 
         // NEW: Helper methods for regime analysis
         private string GetBestRegimeForSession(List<Trade> sessionTrades, List<MarketRegimeSegment> segments)
@@ -1578,7 +1526,7 @@ namespace BinanceTestnet.Database
                 .Where(s => sessionTrades.Any(t => IsTimeInSegment(t.EntryTime, s)))
                 .OrderByDescending(s => s.TotalPnL / Math.Max(s.TradeCount, 1))
                 .FirstOrDefault();
-            
+
             return regimePerformance?.Regime?.Type.ToString() ?? "Unknown";
         }
 
@@ -1588,7 +1536,7 @@ namespace BinanceTestnet.Database
                 .Where(s => sessionTrades.Any(t => IsTimeInSegment(t.EntryTime, s)))
                 .OrderBy(s => s.TotalPnL / Math.Max(s.TradeCount, 1))
                 .FirstOrDefault();
-            
+
             return regimePerformance?.Regime?.Type.ToString() ?? "Unknown";
         }
 
@@ -1599,7 +1547,7 @@ namespace BinanceTestnet.Database
                 .Where(s => strategyTrades.Any(t => IsTimeInSegment(t.EntryTime, s)))
                 .OrderByDescending(s => s.TotalPnL / Math.Max(s.TradeCount, 1))
                 .FirstOrDefault();
-            
+
             return regimePerformance?.Regime?.Type.ToString() ?? "Unknown";
         }
 
@@ -1610,7 +1558,7 @@ namespace BinanceTestnet.Database
                 .Where(s => strategyTrades.Any(t => IsTimeInSegment(t.EntryTime, s)))
                 .OrderBy(s => s.TotalPnL / Math.Max(s.TradeCount, 1))
                 .FirstOrDefault();
-            
+
             return regimePerformance?.Regime?.Type.ToString() ?? "Unknown";
         }
 
@@ -1620,12 +1568,12 @@ namespace BinanceTestnet.Database
         }
 
         // Add this method to generate the executive summary
-        private string GenerateExecutiveSummary(PerformanceMetrics metrics, List<Trade> allTrades, 
+        private string GenerateExecutiveSummary(PerformanceMetrics metrics, List<Trade> allTrades,
             Dictionary<string, decimal> strategyPerformance, List<MarketRegimeSegment> regimeSegments,
             decimal limitedNetProfit, int limitedTrades)
         {
             var summary = new StringBuilder();
-            
+
             summary.AppendLine("""
                 <div class="section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                     <h2 style="color: white; border-bottom: 2px solid rgba(255,255,255,0.3);">🚀 Executive Summary</h2>
@@ -1635,26 +1583,26 @@ namespace BinanceTestnet.Database
             // Key Performance Indicators
             var kpis = new[]
             {
-                new { 
-                    Title = "Overall Performance", 
+                new {
+                    Title = "Overall Performance",
                     Value = metrics.NetProfit >= 0 ? "PROFITABLE" : "UNPROFITABLE",
                     Class = metrics.NetProfit >= 0 ? "positive" : "negative",
                     Icon = metrics.NetProfit >= 0 ? "📈" : "📉"
                 },
-                new { 
-                    Title = "Risk-Adjusted Score", 
+                new {
+                    Title = "Risk-Adjusted Score",
                     Value = GetRiskAdjustedScore(metrics),
                     Class = GetRiskScoreClass(metrics),
                     Icon = "🎯"
                 },
-                new { 
-                    Title = "8-Trade Limit Impact", 
+                new {
+                    Title = "8-Trade Limit Impact",
                     Value = limitedNetProfit > metrics.NetProfit ? "POSITIVE" : "NEGATIVE",
                     Class = limitedNetProfit > metrics.NetProfit ? "positive" : "negative",
                     Icon = limitedNetProfit > metrics.NetProfit ? "✅" : "⚠️"
                 },
-                new { 
-                    Title = "Market Alignment", 
+                new {
+                    Title = "Market Alignment",
                     Value = GetMarketAlignmentScore(regimeSegments),
                     Class = GetAlignmentClass(regimeSegments),
                     Icon = "🎪"
@@ -1675,7 +1623,7 @@ namespace BinanceTestnet.Database
 
             // Top 3 Actionable Insights
             var topInsights = GenerateTopInsights(metrics, allTrades, strategyPerformance, regimeSegments);
-            
+
             summary.AppendLine($$"""
                 <div style="margin-top: 20px; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 5px;">
                     <h3 style="color: white; margin-top: 0;">🎯 Top 3 Actionable Insights</h3>
@@ -1727,12 +1675,12 @@ namespace BinanceTestnet.Database
         private string GetMarketAlignmentScore(List<MarketRegimeSegment> segments)
         {
             if (!segments.Any()) return "UNKNOWN";
-            
+
             var profitableSegments = segments.Count(s => s.TotalPnL > 0);
             var totalSegments = segments.Count(s => s.TradeCount > 0);
-            
+
             var alignment = (decimal)profitableSegments / totalSegments * 100;
-            
+
             if (alignment > 70) return "STRONG";
             if (alignment > 50) return "MODERATE";
             return "WEAK";
@@ -1741,12 +1689,12 @@ namespace BinanceTestnet.Database
         private string GetAlignmentClass(List<MarketRegimeSegment> segments)
         {
             if (!segments.Any()) return "warning";
-            
+
             var profitableSegments = segments.Count(s => s.TotalPnL > 0);
             var totalSegments = segments.Count(s => s.TradeCount > 0);
-            
+
             var alignment = (decimal)profitableSegments / totalSegments * 100;
-            
+
             if (alignment > 70) return "positive";
             if (alignment > 50) return "warning";
             return "negative";
@@ -1840,16 +1788,16 @@ namespace BinanceTestnet.Database
                 return "Unknown";
             }
         }
-        
+
         private (decimal totalFees, decimal netPnL) CalculateFeeImpact(List<Trade> trades, decimal entrySize)
         {
             // Binance futures: ~0.04% per trade (maker/taker both sides)
             const decimal FEE_RATE = 0.0004m;
             decimal totalFees = trades.Count * entrySize * FEE_RATE * 2; // Entry & exit
             decimal totalPnL = trades.Sum(t => t.Profit ?? 0);
-            
+
             return (totalFees, totalPnL - totalFees);
-        }        
+        }
 
         private string GenerateEquityCurveHtml(List<Trade> trades)
         {
@@ -1871,7 +1819,7 @@ namespace BinanceTestnet.Database
             // Calculate cumulative PnL
             var cumulative = 0m;
             var points = new List<decimal>();
-            
+
             foreach (var trade in validTrades)
             {
                 cumulative += trade.Profit.Value;
@@ -1910,6 +1858,139 @@ namespace BinanceTestnet.Database
                     </div>
                 </div>
                 """;
-        }    
+        }
+
+        private string GenerateStrategyHeatmapHtml(List<StrategyRegimePerformance> performances)
+        {
+            if (!performances.Any() || performances.All(p =>
+                p.BullishWinRate == 0 && p.BearishWinRate == 0 &&
+                p.RangingWinRate == 0 && p.HighVolWinRate == 0))
+            {
+                return """
+                    <div class="section">
+                        <h2>🎯 Strategy vs Market Regime Heatmap</h2>
+                        <div class="warning">
+                            Not enough regime data available for heatmap analysis. 
+                            Need more trades across different market conditions.
+                        </div>
+                    </div>
+                    """;
+            }
+
+            var html = new StringBuilder();
+            html.AppendLine("""
+                <div class="section">
+                    <h2>🎯 Strategy vs Market Regime Heatmap</h2>
+                    <div class="suggestion">
+                        <strong>Color Guide:</strong> 
+                        <span style="color: #27ae60;">🟢 Use (>55% WR)</span> | 
+                        <span style="color: #ffc107;">🟡 Moderate (40-55% WR)</span> | 
+                        <span style="color: #e74c3c;">🔴 Avoid (<40% WR)</span> |
+                        <span>─ (No data)</span>
+                    </div>
+                    <table>
+                        <tr>
+                            <th>Strategy</th>
+                            <th>Bullish<br><small>▲ Trend</small></th>
+                            <th>Bearish<br><small>▼ Trend</small></th>
+                            <th>Ranging<br><small>➡️ Sideways</small></th>
+                            <th>High Vol<br><small>⚡ Spike</small></th>
+                            <th>Overall PnL</th>
+                        </tr>
+                """);
+
+            foreach (var perf in performances.OrderByDescending(p => p.TotalPnL))
+            {
+                html.AppendLine($$"""
+                    <tr>
+                        <td><strong>{{perf.Strategy}}</strong></td>
+                        <td style="text-align: center; font-size: 1.2em;">{{GetHeatmapCell(perf.BullishWinRate)}}</td>
+                        <td style="text-align: center; font-size: 1.2em;">{{GetHeatmapCell(perf.BearishWinRate)}}</td>
+                        <td style="text-align: center; font-size: 1.2em;">{{GetHeatmapCell(perf.RangingWinRate)}}</td>
+                        <td style="text-align: center; font-size: 1.2em;">{{GetHeatmapCell(perf.HighVolWinRate)}}</td>
+                        <td class="{{(perf.TotalPnL >= 0 ? "positive" : "negative")}}" style="text-align: right; font-weight: bold;">
+                            {{perf.TotalPnL.ToString("+0.0;-0.0")}}
+                        </td>
+                    </tr>
+                """);
+            }
+
+            html.AppendLine("</table></div>");
+            return html.ToString();
+        }
+
+        private string GetHeatmapCell(decimal winRate)
+        {
+            if (winRate == 0) return "─";
+            if (winRate > 55) return "<span style=\"color: #27ae60;\">🟢</span>";
+            if (winRate > 40) return "<span style=\"color: #ffc107;\">🟡</span>";
+            return "<span style=\"color: #e74c3c;\">🔴</span>";
+        }
+
+        private List<StrategyRegimePerformance> CalculateStrategyRegimePerformance(
+            List<Trade> trades,
+            List<MarketRegimeSegment> regimeSegments)
+        {
+            var results = new List<StrategyRegimePerformance>();
+            var strategies = trades.Select(t => t.Signal).Distinct();
+
+            foreach (var strategy in strategies)
+            {
+                var strategyTrades = trades.Where(t => t.Signal == strategy).ToList();
+                var performance = new StrategyRegimePerformance
+                {
+                    Strategy = strategy,
+                    TotalPnL = strategyTrades.Sum(t => t.Profit ?? 0)
+                };
+
+                // Calculate win rates for each regime type
+                performance.BullishWinRate = CalculateWinRateForRegime(strategyTrades, regimeSegments, MarketRegimeType.BullishTrend);
+                performance.BearishWinRate = CalculateWinRateForRegime(strategyTrades, regimeSegments, MarketRegimeType.BearishTrend);
+                performance.RangingWinRate = CalculateWinRateForRegime(strategyTrades, regimeSegments, MarketRegimeType.RangingMarket);
+                performance.HighVolWinRate = CalculateWinRateForRegime(strategyTrades, regimeSegments, MarketRegimeType.HighVolatility);
+
+                results.Add(performance);
+            }
+
+            return results;
+        }
+
+        private decimal CalculateWinRateForRegime(List<Trade> trades, List<MarketRegimeSegment> segments, MarketRegimeType regimeType)
+        {
+            var regimeTrades = trades.Where(t =>
+                segments.Any(s =>
+                    s.Regime.Type == regimeType &&
+                    t.EntryTime >= s.StartTime &&
+                    t.EntryTime <= s.EndTime))
+                .ToList();
+
+            if (regimeTrades.Count == 0) return 0;
+
+            return (decimal)regimeTrades.Count(t => t.Profit > 0) / regimeTrades.Count * 100;
+        }
+
+        private string GetRegimeTimeframe(string tradingTimeframe)
+        {
+            return tradingTimeframe.ToLower() switch
+            {
+                "1m" => "5m",
+                "5m" => "15m", 
+                "15m" => "1h",
+                "30m" => "1h",
+                "1h" => "4h", 
+                "4h" => "1d",
+                _ => "1h"
+            };
+        }
+    }    
+
+    public class StrategyRegimePerformance
+    {
+        public string Strategy { get; set; } = string.Empty;
+        public decimal BullishWinRate { get; set; }
+        public decimal BearishWinRate { get; set; }
+        public decimal RangingWinRate { get; set; }
+        public decimal HighVolWinRate { get; set; }
+        public decimal TotalPnL { get; set; }
     }
 }
