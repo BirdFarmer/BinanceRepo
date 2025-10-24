@@ -71,7 +71,7 @@ namespace BinanceTestnet.MarketAnalysis
     {
         public DateTime StartTime { get; set; }
         public DateTime EndTime { get; set; }
-        public MarketRegime Regime { get; set; }
+        public MarketRegime? Regime { get; set; } // Made nullable to resolve compile error
         public int TradeCount { get; set; }
         public decimal TotalPnL { get; set; }
         public decimal WinRate { get; set; }
@@ -89,8 +89,16 @@ namespace BinanceTestnet.MarketAnalysis
         public decimal LongProfit { get; set; }
         public decimal ShortProfit { get; set; }
         public double AvgTradeDuration { get; set; }
-        
+
         public decimal LongShortWinRateDiff => LongWinRate - ShortWinRate;
         public decimal LongShortProfitDiff => LongProfit - ShortProfit;
+
+        // Added properties for heatmap calculations
+        public string Strategy { get; set; } = string.Empty;
+        public decimal BullishWinRate { get; set; }
+        public decimal BearishWinRate { get; set; }
+        public decimal RangingWinRate { get; set; }
+        public decimal HighVolWinRate { get; set; }
+        public decimal TotalPnL { get; set; }
     }    
 }
