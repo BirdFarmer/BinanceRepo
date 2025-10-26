@@ -22,6 +22,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using System.Net.Http;
 using System.Threading;
+using BinanceTestnet.MarketAnalysis;
 
 namespace TradingAppDesktop.Services
 {
@@ -47,6 +48,8 @@ namespace TradingAppDesktop.Services
                                 !_cancellationTokenSource.IsCancellationRequested;
 
         private readonly ILogger<BinanceTradingService> _logger;
+        
+        private MarketContextAnalyzer _marketAnalyzer;
         private readonly ILoggerFactory _loggerFactory;
         private readonly object _startLock = new();
         
@@ -134,6 +137,7 @@ namespace TradingAppDesktop.Services
                 
                 databaseManager.InitializeDatabase();
                 _tradeLogger = new TradeLogger(databasePath);
+                _marketAnalyzer = new MarketContextAnalyzer(_client, _logger);
 
                 if (isFirstRun)
                 {
@@ -216,7 +220,7 @@ namespace TradingAppDesktop.Services
             }
 
             _logger.LogInformation("Trading session completed");
-            GenerateReport();
+            await GenerateReport();
         }
 
         public async Task<ExchangeInfo> GetExchangeInfoAsync()
@@ -356,7 +360,7 @@ namespace TradingAppDesktop.Services
                 }
             }
         }
-        private void OnTermination(object sender, ConsoleCancelEventArgs e)
+        private async Task OnTermination(object sender, ConsoleCancelEventArgs e)
         {
             if (e != null)
             {
@@ -405,7 +409,7 @@ namespace TradingAppDesktop.Services
             _orderManager.CloseAllActiveTrades(currentPrices, DateTime.UtcNow.Ticks);
 
             _logger.LogInformation("All open trades closed.");
-            GenerateReport();
+            await GenerateReport();
             Environment.Exit(0);
         }
 
@@ -458,7 +462,7 @@ namespace TradingAppDesktop.Services
             }
         }
 
-        private void GenerateReport()
+        private async Task GenerateReport()
         {
             var settings = new ReportSettings
             {
@@ -498,8 +502,9 @@ namespace TradingAppDesktop.Services
                 enhancedReporter.GenerateEnhancedReport(_sessionId, settings);
             }
 
-            var htmlReporter = new HtmlReportGenerator(_tradeLogger);
-            string htmlContent = htmlReporter.GenerateHtmlReport(_sessionId, settings);
+            var htmlReporter = new HtmlReportGenerator(_tradeLogger, _marketAnalyzer);
+            string htmlContent = await htmlReporter.GenerateHtmlReport(_sessionId, settings);
+            //string htmlContent = htmlReporter.GenerateHtmlReport(_sessionId, settings);
             File.WriteAllText(htmlReportPath, htmlContent);
 
             // 4. Auto-open if enabled
