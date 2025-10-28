@@ -81,7 +81,8 @@ namespace TradingAppDesktop.Services
         public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, 
                                     List<SelectedTradingStrategy> selectedStrategies, string interval, 
                                     decimal entrySize, decimal leverage, decimal takeProfit, decimal stopLoss, 
-                                    DateTime? startDate = null, DateTime? endDate = null)
+                                    DateTime? startDate = null, DateTime? endDate = null,
+                                    List<string> customCoinSelection = null)
         {
             _logger.LogDebug($"State update - IsRunning: {_isRunning}, StartInProgress: {_startInProgress}, IsStopping: {_isStopping}");
             lock (_startLock)
@@ -157,9 +158,23 @@ namespace TradingAppDesktop.Services
 
             // Get Symbols
             _logger.LogInformation("Fetching symbols to trade...");
-            //var symbols = await GetBestListOfSymbols(_client, databaseManager, DateTime.Today.AddDays(-1));
-            var symbols = await GetBestListOfSymbols(_client, databaseManager);
-            _logger.LogInformation($"Selected {symbols.Count} symbols: {string.Join(", ", symbols.Take(5))}...");
+            List<string> symbols;
+            if (customCoinSelection != null && customCoinSelection.Any())
+            {
+                // Use the custom coin selection from the coin selection window
+                symbols = customCoinSelection;
+                _logger.LogInformation($"Using custom coin selection: {symbols.Count} symbols");
+
+                // Save this selection to database for persistence
+                databaseManager.UpsertCoinPairList(symbols, DateTime.UtcNow);
+            }
+            else
+            {
+                // Use the default auto-selection logic
+                _logger.LogInformation("Fetching symbols to trade using auto-selection...");
+                symbols = await GetBestListOfSymbols(_client, databaseManager);
+                _logger.LogInformation($"Auto-selected {symbols.Count} symbols: {string.Join(", ", symbols.Take(5))}...");
+            }    
 
             // Initialize OrderManager
             _logger.LogDebug("Initializing OrderManager...");

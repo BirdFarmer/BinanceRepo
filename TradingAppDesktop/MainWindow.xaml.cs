@@ -13,6 +13,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using TradingAppDesktop.Controls;
+using TradingAppDesktop.Views;
 
 
 namespace TradingAppDesktop
@@ -22,18 +23,20 @@ namespace TradingAppDesktop
         private BinanceTradingService _tradingService;
         private bool _isStarting = false; // Add this class field
         private readonly object _startLock = new(); // Add this for thread safety
+        private List<string> _customCoinSelection = null;
+
 
         public MainWindow()
         {
             InitializeComponent();
-            
+
             // One-time initialization that doesn't need loaded controls
             Console.SetOut(new TextBoxWriter(LogText));
             StartButton.Click += StartButton_Click;
             StopButton.Click += StopButton_Click;
-            
+
             // UI-dependent initialization
-            this.Loaded += (s, e) => 
+            this.Loaded += (s, e) =>
             {
                 InitializeComboBoxes();
                 AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1}ATR)";
@@ -46,7 +49,7 @@ namespace TradingAppDesktop
             // Operation Mode
             OperationModeComboBox.ItemsSource = Enum.GetValues(typeof(OperationMode));
             OperationModeComboBox.SelectedIndex = 0;
-            
+
             StrategySelector.SetAvailableStrategies(new List<StrategyItem>
             {
                 new StrategyItem(SelectedTradingStrategy.EmaStochRsi, "EMA + Stoch RSI", "Combines EMA crossover with Stochastic RSI"),
@@ -62,9 +65,9 @@ namespace TradingAppDesktop
                 new StrategyItem(SelectedTradingStrategy.HullSMA, "Hull SMA", "Hull moving average system"),
                 //new StrategyItem(SelectedTradingStrategy.SMAExpansion, "SMA Expansion", "3 SMAs expanding, trade reversal"), 
                 new StrategyItem(SelectedTradingStrategy.BollingerSqueeze, "Bollinger Squeeze", "Breaking out of Bollinger Bands squeeze"),
-                new StrategyItem(SelectedTradingStrategy.SupportResistance, "Support Resistance Break", "Breaking out and retesting pivots")  
+                new StrategyItem(SelectedTradingStrategy.SupportResistance, "Support Resistance Break", "Breaking out and retesting pivots")
             });
-            
+
             TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));
             TradeDirectionComboBox.SelectedIndex = 0; // Default to first option
 
@@ -90,13 +93,13 @@ namespace TradingAppDesktop
         {
             if (OperationModeComboBox.SelectedItem is OperationMode mode)
             {
-                BacktestPanel.Visibility = mode == OperationMode.Backtest 
-                    ? Visibility.Visible 
+                BacktestPanel.Visibility = mode == OperationMode.Backtest
+                    ? Visibility.Visible
                     : Visibility.Collapsed;
             }
             //ValidateInputs();
         }
-        
+
         private void AtrMultiplier_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (!IsLoaded || AtrMultiplierText == null) return;
@@ -153,20 +156,20 @@ namespace TradingAppDesktop
 
             if ((OperationMode)OperationModeComboBox.SelectedItem == OperationMode.Backtest)
             {
-                if (!string.IsNullOrEmpty(StartDateTextBox.Text) && 
+                if (!string.IsNullOrEmpty(StartDateTextBox.Text) &&
                     !DateTime.TryParse(StartDateTextBox.Text, out _))
                 {
                     StartDateTextBox.BorderBrush = Brushes.Red;
                     isValid = false;
                 }
-                if (!string.IsNullOrEmpty(EndDateTextBox.Text) && 
+                if (!string.IsNullOrEmpty(EndDateTextBox.Text) &&
                     !DateTime.TryParse(EndDateTextBox.Text, out _))
                 {
                     EndDateTextBox.BorderBrush = Brushes.Red;
                     isValid = false;
                 }
-                
-            }            
+
+            }
 
             StartButton.IsEnabled = isValid;
         }
@@ -183,12 +186,12 @@ namespace TradingAppDesktop
                 _isStarting = true;
             }
 
-            try 
+            try
             {
                 StartButton.IsEnabled = false;
                 StopButton.IsEnabled = true;
                 Log("Attempting to start trading...");
-                
+
                 var selectedStrategies = StrategySelector.SelectedStrategies.ToList();
 
                 // Get other parameters
@@ -199,18 +202,23 @@ namespace TradingAppDesktop
                 decimal leverage = decimal.Parse(LeverageTextBox.Text);
                 decimal atrMultiplier = (decimal)AtrMultiplierSlider.Value;
                 decimal riskReward = (decimal)RiskRewardSlider.Value;
-                
+
                 DateTime? startDate = null, endDate = null;
                 if (operationMode == OperationMode.Backtest)
                 {
                     var dates = GetBacktestDates();
                     startDate = dates.startDate;
                     endDate = dates.endDate;
-                    
+
                     Log($"Backtest period: {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}");
                 }
                 
-                // Start trading
+                // PASS THE CUSTOM COIN SELECTION
+                Log(_customCoinSelection != null 
+                    ? $"Using custom coin selection: {_customCoinSelection.Count} coins"
+                    : "Using auto coin selection");
+
+                // Start trading with custom coin selection
                 await _tradingService.StartTrading(
                     (OperationMode)OperationModeComboBox.SelectedItem,
                     (SelectedTradeDirection)TradeDirectionComboBox.SelectedItem,
@@ -218,12 +226,18 @@ namespace TradingAppDesktop
                     timeFrame,
                     entrySize,
                     leverage, 
-                    atrMultiplier, // Using ATR multiplier as take profit
+                    atrMultiplier,
                     riskReward,
                     startDate,
-                    endDate
+                    endDate,
+                    _customCoinSelection  
                 );
-                
+
+                // Clear custom selection after use (optional)
+                _customCoinSelection = null;
+
+
+
                 Log("Trading started successfully");
             }
             catch (Exception ex)
@@ -240,9 +254,9 @@ namespace TradingAppDesktop
                 StartButton.IsEnabled = !_tradingService.IsRunning;
                 StopButton.IsEnabled = _tradingService.IsRunning;
             }
-             
+
             Log($"Service state: Running={_tradingService.IsRunning}");
-            
+
         }
 
         private async void StopButton_Click(object sender, RoutedEventArgs e)
@@ -252,9 +266,9 @@ namespace TradingAppDesktop
             {
                 bool closeAll = OperationModeComboBox.SelectedItem is not OperationMode.LiveRealTrading;
                 StopButton.IsEnabled = false;
-                
+
                 await Task.Run(() => _tradingService.StopTrading(closeAll));
-                
+
                 Log(closeAll ? "Closed all trades" : "Stopped new trades (positions remain open)");
             }
             catch (Exception ex)
@@ -271,7 +285,7 @@ namespace TradingAppDesktop
         public void SetTradingService(BinanceTradingService service)
         {
             _tradingService = service;
-        }        
+        }
 
         private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
         {
@@ -318,7 +332,7 @@ namespace TradingAppDesktop
                 }
             }
         }
-        
+
         private void LogText_TextChanged(object sender, TextChangedEventArgs e)
         {
             LogText.ScrollToEnd();
@@ -332,21 +346,21 @@ namespace TradingAppDesktop
             decimal leverage,
             decimal takeProfit)
         {
-            
+
             if (!IsLoaded) return;
             // Set UI controls
             OperationModeComboBox.SelectedItem = operationMode;
             TradeDirectionComboBox.SelectedItem = tradeDirection;
             EntrySizeTextBox.Text = entrySize.ToString();
             LeverageTextBox.Text = leverage.ToString();
-    
+
             if (AtrMultiplierText != null && AtrMultiplierSlider != null)
             {
                 AtrMultiplierSlider.Value = (double)takeProfit;
                 AtrMultiplierText.Text = $"{takeProfit:F1} (TP: +{takeProfit:F1}ATR)";
             }
-            
-            
+
+
             Log("Application initialized with default parameters");
         }
 
@@ -364,12 +378,12 @@ namespace TradingAppDesktop
             // Force-stop any running trading operations
             var tradingService = ((App)Application.Current).TradingService;
             tradingService?.StopTrading(closeAllTrades: true);
-            
+
             // Ensure full application shutdown
             Application.Current.Shutdown();
             base.OnClosed(e);
         }
-    
+
         // Custom writer for UI output (updated for TextBox)
         private class TextBoxWriter : TextWriter
         {
@@ -379,7 +393,7 @@ namespace TradingAppDesktop
 
             public override void WriteLine(string value)
             {
-                _output.Dispatcher.Invoke(() => 
+                _output.Dispatcher.Invoke(() =>
                 {
                     _output.AppendText(value + Environment.NewLine);
                     _output.ScrollToEnd();
@@ -397,18 +411,18 @@ namespace TradingAppDesktop
                 LogText.Text += $"{DateTime.Now:T} - {message}\n";
                 LogText.ScrollToEnd();
                 StatusText.Text = message;
-                
+
                 // Auto-scroll to bottom
                 // var scrollViewer = FindVisualParent<ScrollViewer>(LogText);
                 // scrollViewer?.ScrollToEnd();
             });
-        }        
+        }
 
         private (DateTime startDate, DateTime endDate) GetBacktestDates()
         {
             DateTime startDate;
             DateTime endDate;
-            
+
             // Parse or default start date
             if (DateTime.TryParse(StartDateTextBox.Text, out startDate))
             {
@@ -418,9 +432,9 @@ namespace TradingAppDesktop
             {
                 startDate = DateTime.UtcNow.AddDays(-7); // Default: 1 week ago
             }
-                
+
             var timeFrame = ((TimeFrameItem)TimeFrameComboBox.SelectedItem).Value;
-            
+
             // Parse or calculate end date based on candles
             if (DateTime.TryParse(EndDateTextBox.Text, out endDate))
             {
@@ -431,14 +445,14 @@ namespace TradingAppDesktop
                 int candleCount = 900; // Your specified default
                 endDate = CalculateEndDate(startDate, timeFrame, candleCount);
             }
-            
+
             // Ensure we don't exceed exchange limits (1000 candles)
             if ((endDate - startDate).TotalDays > GetMaxDaysForTimeFrame(timeFrame))
             {
                 endDate = startDate.AddDays(GetMaxDaysForTimeFrame(timeFrame));
                 Log($"Adjusted end date to stay within 1000 candle limit");
             }
-            
+
             return (startDate, endDate);
         }
 
@@ -454,7 +468,7 @@ namespace TradingAppDesktop
                 "4h" => TimeSpan.FromHours(4),
                 _ => TimeSpan.FromHours(1)
             };
-            
+
             return startDate.Add(interval * candleCount);
         }
 
@@ -471,7 +485,7 @@ namespace TradingAppDesktop
                 "4h" => 1000.0 / 6,         // 1000*4 hours
                 _ => 30                     // Fallback (days)
             };
-        }        
+        }
 
         private void StartDateTextBox_LostFocus(object sender, RoutedEventArgs e)
         {
@@ -488,12 +502,12 @@ namespace TradingAppDesktop
                 EndDateTextBox.Text = date.ToString("yyyy-MM-dd HH:mm");
             }
         }
-    
+
         private void OnStrategySelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // This will now work with the control's built-in UpdateSelection
             UpdateSelection();
-            
+
             // Additional logic if needed:
             StatusText.Text = $"{StrategySelector.SelectedCount} strategies selected";
         }
@@ -505,7 +519,41 @@ namespace TradingAppDesktop
                 child = VisualTreeHelper.GetParent(child);
             return child as T;
         }
+
+        // Add this method to your MainWindow class
+        private void CoinSelectionButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string databasePath = Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "TradingData.db"
+                );
+
+                var coinSelectionWindow = new CoinSelectionWindow(databasePath);
+                coinSelectionWindow.Owner = this;
+                coinSelectionWindow.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+                // SUBSCRIBE TO THE COINS UPDATED EVENT
+                coinSelectionWindow.OnCoinsUpdated += (selectedCoins) =>
+                {
+                    _customCoinSelection = selectedCoins;
+                    Log($"Coin selection updated: {selectedCoins.Count} coins saved for next session");
+                };
+
+                coinSelectionWindow.ShowDialog();
+
+                Log("Coin selection updated - new symbols will be used in next trading cycle");
+            }
+            catch (Exception ex)
+            {
+                Log($"Error opening coin selection: {ex.Message}");
+                MessageBox.Show($"Could not open coin selection: {ex.Message}", "Error",
+                              MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
+    
     public class StrategyComboBoxItem
     {
         public SelectedTradingStrategy Strategy { get; set; }

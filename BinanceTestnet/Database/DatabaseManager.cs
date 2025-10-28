@@ -363,9 +363,9 @@ namespace BinanceTestnet.Database
             List<string> topCoinPairs = new List<string>();
             HashSet<string> uniqueSymbols = new HashSet<string>();
 
-            // Proportions for each category
-            int volumeLimit = 100; // Target 40 coins from VolumeInUSDT
-            int priceChangeLimit = 80; // Target 40 coins from PricePercentChange
+            // Calculate proportions based on totalLimit
+            int volumeLimit = (int)(totalLimit * 0.5);      // 50% from volume
+            int priceChangeLimit = (int)(totalLimit * 0.5); // 50% from price change
 
             using (var connection = new SqliteConnection(_connectionString))
             {
@@ -373,41 +373,40 @@ namespace BinanceTestnet.Database
 
                 // Exclude the lowest 150 volume coin pairs
                 string excludeLowestVolumeQuery = @"
-                    WITH ExcludedSymbols AS (
-                        SELECT Symbol
-                        FROM CoinPairData
-                        WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                        ORDER BY VolumeInUSDT ASC
-                        LIMIT 150
-                    )
-                ";
+            WITH ExcludedSymbols AS (
+                SELECT Symbol
+                FROM CoinPairData
+                WHERE Symbol LIKE '%USDT'
+                ORDER BY VolumeInUSDT ASC
+                LIMIT 150
+            )";
 
-                // Get top coin pairs by highest USDT volume (VolumeInUSDT)
+                // Get top coin pairs by highest USDT volume
                 string topVolumeQuery = excludeLowestVolumeQuery + @"
-                    SELECT Symbol
-                    FROM CoinPairData
-                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
-                    ORDER BY VolumeInUSDT DESC
-                    LIMIT @limit;";
+            SELECT Symbol
+            FROM CoinPairData
+            WHERE Symbol LIKE '%USDT'
+            AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+            ORDER BY VolumeInUSDT DESC
+            LIMIT @limit;";
 
-                // Get top coin pairs by biggest price change percentage (PricePercentChange)
+                // Get top coin pairs by biggest price change percentage
                 string topPriceChangeQuery = excludeLowestVolumeQuery + @"
-                    SELECT Symbol
-                    FROM CoinPairData
-                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
-                    ORDER BY ABS(PricePercentChange) DESC
-                    LIMIT @limit;";
+            SELECT Symbol
+            FROM CoinPairData
+            WHERE Symbol LIKE '%USDT'
+            AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+            ORDER BY ABS(PricePercentChange) DESC
+            LIMIT @limit;";
 
-                // Get top coin pairs by composite score (VolumeInUSDT * ABS(PricePercentChange))
+                // Get top coin pairs by composite score
                 string topCompositeScoreQuery = excludeLowestVolumeQuery + @"
-                    SELECT Symbol
-                    FROM CoinPairData
-                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
-                    ORDER BY (VolumeInUSDT * ABS(PricePercentChange)) DESC
-                    LIMIT @limit;";
+            SELECT Symbol
+            FROM CoinPairData
+            WHERE Symbol LIKE '%USDT'
+            AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+            ORDER BY (VolumeInUSDT * ABS(PricePercentChange)) DESC
+            LIMIT @limit;";
 
                 // Add symbols from VolumeInUSDT
                 int addedFromVolume = AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topVolumeQuery, volumeLimit);
@@ -415,13 +414,17 @@ namespace BinanceTestnet.Database
                 // Add symbols from PricePercentChange
                 int addedFromPriceChange = AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topPriceChangeQuery, priceChangeLimit);
 
-                // If the total is less than 80, fill the remaining slots with composite score
+                // If the total is less than totalLimit, fill the remaining slots with composite score
                 if (topCoinPairs.Count < totalLimit)
                 {
                     int remainingToAdd = totalLimit - topCoinPairs.Count;
-
-                    // Use composite score as filler
                     AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topCompositeScoreQuery, remainingToAdd);
+                }
+
+                // Final safety check - trim to exact limit if we somehow went over
+                if (topCoinPairs.Count > totalLimit)
+                {
+                    topCoinPairs = topCoinPairs.Take(totalLimit).ToList();
                 }
             }
 
