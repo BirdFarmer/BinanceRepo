@@ -233,8 +233,8 @@ namespace TradingAppDesktop
                     _customCoinSelection  
                 );
 
-                // Clear custom selection after use (optional)
-                _customCoinSelection = null;
+                // Keep custom selection for subsequent runs unless the user changes it
+                // _customCoinSelection = null; // removed so selection persists across runs
 
 
 
