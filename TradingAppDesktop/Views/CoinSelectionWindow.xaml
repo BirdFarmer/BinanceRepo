@@ -142,6 +142,9 @@
                                     Background="#27ae60" Foreground="White" 
                                     Height="35" FontWeight="Bold" Margin="0,0,0,5"/>
                             
+                <TextBlock Text="List name (optional)" Margin="0,4,0,2"/>
+                <TextBox x:Name="ListNameTextBox" Height="26" Margin="0,0,0,6"/>
+
                             <Button Content="Save Current List" x:Name="SaveListButton"
                                     Click="SaveListButton_Click"
                                     Background="#3498db" Foreground="White" 

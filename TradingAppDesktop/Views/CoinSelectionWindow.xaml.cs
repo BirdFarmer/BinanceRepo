@@ -34,8 +34,10 @@ namespace TradingAppDesktop.Views
         private void InitializeUI()
         {
             // Set up initial UI state
-            AutoSelectionMethod.SelectedIndex = 3; // Default to Composite Score
+            if (AutoSelectionMethod != null)
+                AutoSelectionMethod.SelectedIndex = 3; // Default to Composite Score
             UpdateSelectionSummary();
+            RefreshSavedLists();
         }
 
         private void LoadCurrentSelection()
@@ -64,16 +66,61 @@ namespace TradingAppDesktop.Views
                 var topCoins = _databaseManager.GetTopCoinPairsByVolume(5);
                 var totalSymbols = _databaseManager.GetBiggestCoins(1000).Count;
 
+                if (DatabaseInfoText != null)
                 DatabaseInfoText.Text = $"Database: {totalSymbols} symbols\n" +
                                        $"Last refresh: {DateTime.Now:HH:mm:ss}\n" +
                                        $"Top 5 by volume:\n{string.Join(", ", topCoins)}";
-
-                StatusText.Text = "Database connected - Ready for refresh";
+                if (StatusText != null)
+                    StatusText.Text = "Database connected - Ready for refresh";
             }
             catch (Exception ex)
             {
-                DatabaseInfoText.Text = $"Database error: {ex.Message}";
-                StatusText.Text = "Database connection failed";
+                if (DatabaseInfoText != null)
+                    DatabaseInfoText.Text = $"Database error: {ex.Message}";
+                if (StatusText != null)
+                    StatusText.Text = "Database connection failed";
+            }
+        }
+
+        private class SavedListItem
+        {
+            public int Id { get; set; }
+            public string? Name { get; set; }
+            public DateTime Start { get; set; }
+            public DateTime? End { get; set; }
+            public int Count { get; set; }
+            public override string ToString()
+            {
+                var label = End == null ? "(active)" : "";
+                if (!string.IsNullOrWhiteSpace(Name))
+                {
+                    return $"{Name}  —  {Start:yyyy-MM-dd HH:mm} {label}  —  {Count} coins";
+                }
+                return $"{Start:yyyy-MM-dd HH:mm} {label}  —  {Count} coins";
+            }
+        }
+
+        private void RefreshSavedLists()
+        {
+            try
+            {
+                var lists = _databaseManager.GetAllCoinPairLists();
+                SavedListsListBox.Items.Clear();
+                foreach (var (id, name, start, end, coins) in lists)
+                {
+                    SavedListsListBox.Items.Add(new SavedListItem
+                    {
+                        Id = id,
+                        Name = name,
+                        Start = start,
+                        End = end,
+                        Count = coins.Count
+                    });
+                }
+            }
+            catch
+            {
+                // ignore list load errors to avoid blocking UI
             }
         }
 
@@ -181,7 +228,9 @@ namespace TradingAppDesktop.Views
             try
             {
                 // Save the current selection to database
-                _databaseManager.UpsertCoinPairList(_currentSelectedCoins, DateTime.UtcNow);
+                var listName = ListNameTextBox?.Text?.Trim();
+                if (string.IsNullOrWhiteSpace(listName)) listName = null;
+                _databaseManager.UpsertCoinPairList(_currentSelectedCoins, DateTime.UtcNow, listName);
 
                 // NOTIFY MAIN WINDOW ABOUT THE UPDATE
                 OnCoinsUpdated?.Invoke(_currentSelectedCoins);
@@ -217,10 +266,15 @@ namespace TradingAppDesktop.Views
             // Simple save - just use the existing database method
             try
             {
-                _databaseManager.UpsertCoinPairList(_currentSelectedCoins, DateTime.UtcNow);
-                MessageBox.Show($"Saved {_currentSelectedCoins.Count} coins to database",
+                var listName = ListNameTextBox?.Text?.Trim();
+                if (string.IsNullOrWhiteSpace(listName)) listName = null;
+                _databaseManager.UpsertCoinPairList(_currentSelectedCoins, DateTime.UtcNow, listName);
+                MessageBox.Show($"Saved {_currentSelectedCoins.Count} coins to database" +
+                              (string.IsNullOrWhiteSpace(listName) ? "" : $" as '{listName}'"),
                               "Saved", MessageBoxButton.OK, MessageBoxImage.Information);
                 StatusText.Text = "Selection saved to database";
+                if (ListNameTextBox != null) ListNameTextBox.Text = string.Empty;
+                RefreshSavedLists();
             }
             catch (Exception ex)
             {
@@ -448,9 +502,63 @@ namespace TradingAppDesktop.Views
         }
 
         // Placeholder methods for saved lists functionality
-        private void SavedListsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
-        private void LoadSavedListButton_Click(object sender, RoutedEventArgs e) { }
-        private void DeleteSavedListButton_Click(object sender, RoutedEventArgs e) { }
+        private void SavedListsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // no-op; we load explicitly on button click
+        }
+
+        private void LoadSavedListButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (SavedListsListBox.SelectedItem is not SavedListItem item)
+            {
+                MessageBox.Show("Please select a saved list first.");
+                return;
+            }
+            try
+            {
+                var coins = _databaseManager.GetCoinPairListById(item.Id);
+                if (coins.Any())
+                {
+                    _currentSelectedCoins = coins;
+                    UpdateSelectedCoinsList();
+                    if (SelectionMethodText != null)
+                        SelectionMethodText.Text = string.IsNullOrWhiteSpace(item.Name) ?
+                            "Method: Saved List" : $"Method: Saved List ('{item.Name}')";
+                    if (ListNameTextBox != null)
+                        ListNameTextBox.Text = item.Name ?? string.Empty;
+                    if (StatusText != null)
+                        StatusText.Text = $"Loaded saved list from {item.Start:yyyy-MM-dd HH:mm} ({coins.Count} coins)";
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load saved list: {ex.Message}");
+            }
+        }
+
+        private void DeleteSavedListButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (SavedListsListBox.SelectedItem is not SavedListItem item)
+            {
+                MessageBox.Show("Please select a saved list to delete.");
+                return;
+            }
+            var confirm = MessageBox.Show("Delete this saved list? This action cannot be undone.",
+                "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirm != MessageBoxResult.Yes) return;
+
+            try
+            {
+                _databaseManager.DeleteCoinPairList(item.Id);
+                RefreshSavedLists();
+                if (StatusText != null)
+                    StatusText.Text = "Saved list deleted";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to delete saved list: {ex.Message}");
+            }
+        }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
