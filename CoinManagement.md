@@ -50,6 +50,17 @@ ADAUSDT
 ### Saved Lists Tab
 Manage and load previously saved coin selections.
 
+Capabilities:
+- View all previously saved selections from the database
+- Load a saved list into the preview panel and apply it to trading
+- Delete a saved list from the database
+- Refresh the list to pick up newly saved selections immediately
+
+Notes:
+- Saved items currently display their coin count and saved time range
+- Lists are persisted in the app database and survive restarts
+- Lists display their saved name
+
 ## How to Use
 
 ### Using Auto-Select:
@@ -83,10 +94,14 @@ Manage and load previously saved coin selections.
 - The main trading system is notified
 - Your next trading session will use ONLY these coins
 - The selection persists until you change it
+- The selection now remains active across multiple runs; it is no longer cleared after a session completes
 
 ## Quick Actions
 - **Apply to Trading**: Saves and applies current selection
-- **Save Current List**: Saves selection without immediate application
+- **Save Current List**: Saves selection without immediate application (appears in Saved Lists immediately)
+- **Load Saved List**: Loads the highlighted saved list into the preview panel
+- **Delete Saved List**: Removes the highlighted saved list from the database
+- **Refresh Lists**: Reloads the Saved Lists from the database
 - **Clear Selection**: Removes all selected coins
 - **Close**: Exits without saving changes
 
@@ -119,11 +134,37 @@ Manage and load previously saved coin selections.
 - Remove spaces or special characters
 - Check for typos in coin symbolsf
 
+**Saved List Not Showing Up**
+- Click "Refresh Lists" in the Saved Lists tab
+- Ensure you clicked "Save Current List" after generating or entering your selection
+- Verify the app is pointing to the expected database file (shown in the Saved Lists tab)
+
+**Cannot Load/Delete a List**
+- Select a list in the Saved Lists tab before clicking Load or Delete
+- If the list was deleted externally, click Refresh to update the view
+
 ## Important Notes
 - Custom selections apply only to new trading sessions
 - Selections are saved between app restarts
 - If no custom selection exists, system uses automatic selection
 - Changing selections won't affect currently running sessions
+
+## Developer notes
+- Database methods added in `BinanceTestnet/Database/DatabaseManager.cs`:
+	- `GetAllCoinPairLists()` — returns all saved lists (Id, pairs, start/end)
+	- `GetCoinPairListById(int id)` — returns coin pairs for a specific list
+	- `DeleteCoinPairList(int id)` — deletes a saved list
+- UI wiring in `TradingAppDesktop/Views/CoinSelectionWindow.xaml.cs`:
+	- Populates Saved Lists on open and after saving
+	- Load and Delete handlers operate on the selected list
+	- Saving a list now immediately refreshes the Saved Lists panel
+
+
+## Changelog
+- 2025-10-30:
+	- Saved Lists are fully functional: list, load, delete, and refresh
+	- Saving a list immediately updates the Saved Lists view
+	- Custom coin selections persist across runs (no longer cleared after a session)
 
 ## Verification
 After applying your selection:
