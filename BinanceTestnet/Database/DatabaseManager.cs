@@ -123,7 +123,34 @@ namespace BinanceTestnet.Database
                 // Execute the query to create the CoinPairLists table
                 command.CommandText = createCoinPairListsTable;
                 command.ExecuteNonQuery();
+
+                // Ensure Name column exists for CoinPairLists (schema upgrade)
+                EnsureCoinPairListsHasNameColumn(connection);
             });
+        }
+
+        private void EnsureCoinPairListsHasNameColumn(SqliteConnection connection)
+        {
+            bool hasName = false;
+            using (var pragma = new SqliteCommand("PRAGMA table_info('CoinPairLists');", connection))
+            using (var reader = pragma.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    var colName = reader.GetString(1);
+                    if (string.Equals(colName, "Name", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasName = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasName)
+            {
+                using var alter = new SqliteCommand("ALTER TABLE CoinPairLists ADD COLUMN Name TEXT;", connection);
+                alter.ExecuteNonQuery();
+            }
         }
 
         public void UpsertCoinPairData(string symbol, decimal currentPrice, decimal currentVolume)
@@ -200,8 +227,14 @@ namespace BinanceTestnet.Database
         
         public void UpsertCoinPairList(List<string> coinPairs, DateTime startDateTime)
         {
+            UpsertCoinPairList(coinPairs, startDateTime, null);
+        }
+
+        public void UpsertCoinPairList(List<string> coinPairs, DateTime startDateTime, string? name)
+        {
             CreateConnection(connection =>
             {
+                EnsureCoinPairListsHasNameColumn(connection);
                 // Format the coin pairs as a comma-separated string with each pair enclosed in quotes
                 string formattedCoinPairs = string.Join(",", coinPairs.Select(cp => $"\"{cp}\""));
 
@@ -219,13 +252,14 @@ namespace BinanceTestnet.Database
 
                 // Step 2: Insert the new list with a null EndDateTime
                 string insertNewListQuery = @"
-                    INSERT INTO CoinPairLists (CoinPairs, StartDateTime, EndDateTime)
-                    VALUES (@CoinPairs, @StartDateTime, NULL);";
+                    INSERT INTO CoinPairLists (CoinPairs, StartDateTime, EndDateTime, Name)
+                    VALUES (@CoinPairs, @StartDateTime, NULL, @Name);";
 
                 using (var insertCommand = new SqliteCommand(insertNewListQuery, connection))
                 {
                     insertCommand.Parameters.AddWithValue("@CoinPairs", formattedCoinPairs);
                     insertCommand.Parameters.AddWithValue("@StartDateTime", startDateTime);
+                    insertCommand.Parameters.AddWithValue("@Name", (object?)name ?? DBNull.Value);
                     insertCommand.ExecuteNonQuery();
                 }
             });
@@ -263,6 +297,86 @@ namespace BinanceTestnet.Database
             });
 
             return coinPairs;
+        }
+
+        public List<(int Id, string? Name, DateTime StartDateTime, DateTime? EndDateTime, List<string> CoinPairs)> GetAllCoinPairLists()
+        {
+            var lists = new List<(int, string?, DateTime, DateTime?, List<string>)>();
+
+            CreateConnection(connection =>
+            {
+                // Check if Name column exists
+                bool hasName = false;
+                using (var pragma = new SqliteCommand("PRAGMA table_info('CoinPairLists');", connection))
+                using (var r = pragma.ExecuteReader())
+                {
+                    while (r.Read())
+                    {
+                        if (string.Equals(r.GetString(1), "Name", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasName = true; break;
+                        }
+                    }
+                }
+
+                string query = hasName
+                    ? "SELECT Id, Name, CoinPairs, StartDateTime, EndDateTime FROM CoinPairLists ORDER BY StartDateTime DESC;"
+                    : "SELECT Id, NULL as Name, CoinPairs, StartDateTime, EndDateTime FROM CoinPairLists ORDER BY StartDateTime DESC;";
+
+                using var command = new SqliteCommand(query, connection);
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    int id = reader.GetInt32(0);
+                    string? nameVal = reader.IsDBNull(1) ? null : reader.GetString(1);
+                    string coinPairsString = reader.GetString(2);
+                    DateTime start = reader.GetDateTime(3);
+                    DateTime? end = reader.IsDBNull(4) ? null : reader.GetDateTime(4);
+
+                    var coins = coinPairsString.Split(',')
+                        .Select(cp => cp.Trim('"', ' '))
+                        .Where(cp => !string.IsNullOrWhiteSpace(cp))
+                        .ToList();
+
+                    lists.Add((id, nameVal, start, end, coins));
+                }
+            });
+
+            return lists;
+        }
+
+        public List<string> GetCoinPairListById(int id)
+        {
+            var coins = new List<string>();
+
+            CreateConnection(connection =>
+            {
+                string query = @"SELECT CoinPairs FROM CoinPairLists WHERE Id = @Id;";
+                using var command = new SqliteCommand(query, connection);
+                command.Parameters.AddWithValue("@Id", id);
+                using var reader = command.ExecuteReader();
+                if (reader.Read())
+                {
+                    string coinPairsString = reader.GetString(0);
+                    coins = coinPairsString.Split(',')
+                        .Select(cp => cp.Trim('"', ' '))
+                        .Where(cp => !string.IsNullOrWhiteSpace(cp))
+                        .ToList();
+                }
+            });
+
+            return coins;
+        }
+
+        public void DeleteCoinPairList(int id)
+        {
+            CreateConnection(connection =>
+            {
+                string query = @"DELETE FROM CoinPairLists WHERE Id = @Id;";
+                using var command = new SqliteCommand(query, connection);
+                command.Parameters.AddWithValue("@Id", id);
+                command.ExecuteNonQuery();
+            });
         }
         
         public List<string> GetTopCoinPairsByVolume(int limit)
@@ -363,9 +477,9 @@ namespace BinanceTestnet.Database
             List<string> topCoinPairs = new List<string>();
             HashSet<string> uniqueSymbols = new HashSet<string>();
 
-            // Proportions for each category
-            int volumeLimit = 100; // Target 40 coins from VolumeInUSDT
-            int priceChangeLimit = 80; // Target 40 coins from PricePercentChange
+            // Calculate proportions based on totalLimit
+            int volumeLimit = (int)(totalLimit * 0.5);      // 50% from volume
+            int priceChangeLimit = (int)(totalLimit * 0.5); // 50% from price change
 
             using (var connection = new SqliteConnection(_connectionString))
             {
@@ -373,41 +487,40 @@ namespace BinanceTestnet.Database
 
                 // Exclude the lowest 150 volume coin pairs
                 string excludeLowestVolumeQuery = @"
-                    WITH ExcludedSymbols AS (
-                        SELECT Symbol
-                        FROM CoinPairData
-                        WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                        ORDER BY VolumeInUSDT ASC
-                        LIMIT 150
-                    )
-                ";
+            WITH ExcludedSymbols AS (
+                SELECT Symbol
+                FROM CoinPairData
+                WHERE Symbol LIKE '%USDT'
+                ORDER BY VolumeInUSDT ASC
+                LIMIT 150
+            )";
 
-                // Get top coin pairs by highest USDT volume (VolumeInUSDT)
+                // Get top coin pairs by highest USDT volume
                 string topVolumeQuery = excludeLowestVolumeQuery + @"
-                    SELECT Symbol
-                    FROM CoinPairData
-                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
-                    ORDER BY VolumeInUSDT DESC
-                    LIMIT @limit;";
+            SELECT Symbol
+            FROM CoinPairData
+            WHERE Symbol LIKE '%USDT'
+            AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+            ORDER BY VolumeInUSDT DESC
+            LIMIT @limit;";
 
-                // Get top coin pairs by biggest price change percentage (PricePercentChange)
+                // Get top coin pairs by biggest price change percentage
                 string topPriceChangeQuery = excludeLowestVolumeQuery + @"
-                    SELECT Symbol
-                    FROM CoinPairData
-                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
-                    ORDER BY ABS(PricePercentChange) DESC
-                    LIMIT @limit;";
+            SELECT Symbol
+            FROM CoinPairData
+            WHERE Symbol LIKE '%USDT'
+            AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+            ORDER BY ABS(PricePercentChange) DESC
+            LIMIT @limit;";
 
-                // Get top coin pairs by composite score (VolumeInUSDT * ABS(PricePercentChange))
+                // Get top coin pairs by composite score
                 string topCompositeScoreQuery = excludeLowestVolumeQuery + @"
-                    SELECT Symbol
-                    FROM CoinPairData
-                    WHERE Symbol LIKE '%USDT'  -- Only include USDT pairs
-                    AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
-                    ORDER BY (VolumeInUSDT * ABS(PricePercentChange)) DESC
-                    LIMIT @limit;";
+            SELECT Symbol
+            FROM CoinPairData
+            WHERE Symbol LIKE '%USDT'
+            AND Symbol NOT IN (SELECT Symbol FROM ExcludedSymbols)
+            ORDER BY (VolumeInUSDT * ABS(PricePercentChange)) DESC
+            LIMIT @limit;";
 
                 // Add symbols from VolumeInUSDT
                 int addedFromVolume = AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topVolumeQuery, volumeLimit);
@@ -415,13 +528,17 @@ namespace BinanceTestnet.Database
                 // Add symbols from PricePercentChange
                 int addedFromPriceChange = AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topPriceChangeQuery, priceChangeLimit);
 
-                // If the total is less than 80, fill the remaining slots with composite score
+                // If the total is less than totalLimit, fill the remaining slots with composite score
                 if (topCoinPairs.Count < totalLimit)
                 {
                     int remainingToAdd = totalLimit - topCoinPairs.Count;
-
-                    // Use composite score as filler
                     AddSymbolsToList(connection, topCoinPairs, uniqueSymbols, topCompositeScoreQuery, remainingToAdd);
+                }
+
+                // Final safety check - trim to exact limit if we somehow went over
+                if (topCoinPairs.Count > totalLimit)
+                {
+                    topCoinPairs = topCoinPairs.Take(totalLimit).ToList();
                 }
             }
 
@@ -491,7 +608,7 @@ namespace BinanceTestnet.Database
             return ExecuteScalar<int>("PRAGMA user_version;");
         }
 
-        private T ExecuteScalar<T>(string query)
+        private T ExecuteScalar<T>(string query) where T : struct
         {
             T result = default;
             CreateConnection(connection =>
