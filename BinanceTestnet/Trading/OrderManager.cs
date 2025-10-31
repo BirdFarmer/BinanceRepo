@@ -381,7 +381,11 @@ namespace BinanceTestnet.Trading
             );
         
             // NOTIFY VIA CALLBACK (pass individual values)
-            _onTradeEntered?.Invoke(symbol, isLong, signal, price, DateTime.UtcNow);
+            // For paper/backtest, show immediately; for live, defer until after successful order
+            if (_operationMode != OperationMode.LiveRealTrading)
+            {
+                _onTradeEntered?.Invoke(symbol, isLong, signal, price, DateTime.UtcNow);
+            }
         
 
             if (_operationMode == OperationMode.LiveRealTrading)
@@ -788,12 +792,28 @@ namespace BinanceTestnet.Trading
                 if (response.IsSuccessful)
                 {
                     // Deserialize the response to get order details
-                    var orderData = JsonConvert.DeserializeObject<OrderResponse>(response.Content);
-                    var orderId = orderData.orderId;
-                    var qtyInTrade = orderData.executedQty;
+                    OrderResponse orderData = null;
+                    try
+                    {
+                        orderData = JsonConvert.DeserializeObject<OrderResponse>(response.Content);
+                    }
+                    catch
+                    {
+                        // Swallow deserialization issues; we'll still proceed with our own price
+                    }
+
+                    var orderId = orderData?.orderId ?? 0;
+                    var qtyInTrade = orderData?.executedQty ?? 0;
                     Console.WriteLine($"{orderType} Order placed for {trade.Symbol} at {trade.EntryPrice} with strategy {trade.Signal}. \nQuantity: {qtyInTrade}, Order ID: {orderId}");
 
                     trade.IsInTrade = true;                    
+                    
+                    // For live trading, add to Recent Trades after a successful order response
+                    // Ignore any negative/failed paths entirely (no UI entry). Use our own entry price.
+                    if (_operationMode == OperationMode.LiveRealTrading)
+                    {
+                        _onTradeEntered?.Invoke(trade.Symbol, trade.IsLong, trade.Signal, trade.EntryPrice, DateTime.UtcNow);
+                    }
                     
                     // Regenerate timestamp for the next request
                     serverTime = await GetServerTimeAsync(5005);
