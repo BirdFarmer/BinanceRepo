@@ -57,12 +57,15 @@ namespace BinanceTestnet.Trading
         private readonly IExchangeInfoProvider _exchangeInfo;
         private readonly ILogger<OrderManager> _logger;
 
+        private readonly Action<string, bool, string, decimal, DateTime> _onTradeEntered;
+    
 
-      public OrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
+        public OrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
                         string interval, decimal takeProfit, decimal stopLoss,
                         SelectedTradeDirection tradeDirection, SelectedTradingStrategy tradingStrategy,
                         RestClient client, decimal tpIteration, decimal margin, string databasePath, 
-                        string sessionId, IExchangeInfoProvider exchangeInfoProvider, ILogger<OrderManager> logger)
+                        string sessionId, IExchangeInfoProvider exchangeInfoProvider, ILogger<OrderManager> logger,
+                        Action<string, bool, string, decimal, DateTime> onTradeEntered = null)
         {
             _wallet = wallet;
             _databaseManager = new DatabaseManager(databasePath); // Create a new instance here
@@ -81,9 +84,10 @@ namespace BinanceTestnet.Trading
             _client = client;
             _marginPerTrade = margin;
             //_lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();        
-            _lotSizeCache = new ConcurrentDictionary<string, (decimal, int, decimal)>();   
-            
+            _lotSizeCache = new ConcurrentDictionary<string, (decimal, int, decimal)>();
+
             _logger = logger;     
+            _onTradeEntered = onTradeEntered;
             _sessionId = sessionId; // Store the SessionId
             DatabaseManager.InitializeDatabase();
             
@@ -375,6 +379,10 @@ namespace BinanceTestnet.Trading
                 liquidationPrice: liquidationPrice,
                 maintenanceMarginRate: maintenanceMarginRate
             );
+        
+            // NOTIFY VIA CALLBACK (pass individual values)
+            _onTradeEntered?.Invoke(symbol, isLong, signal, price, DateTime.UtcNow);
+        
 
             if (_operationMode == OperationMode.LiveRealTrading)
             {

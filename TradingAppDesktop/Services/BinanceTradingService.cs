@@ -23,11 +23,15 @@ using Microsoft.Extensions.Configuration;
 using System.Net.Http;
 using System.Threading;
 using BinanceTestnet.MarketAnalysis;
+using TradingAppDesktop.Views;
+using TradingAppDesktop.Models;
 
 namespace TradingAppDesktop.Services
 {
     public class BinanceTradingService : IExchangeInfoProvider
     {
+        private RecentTradesViewModel _recentTradesVm;
+        
         private static TradeLogger _tradeLogger;
         private readonly ReportSettings _reportSettings;
         private static string _sessionId;
@@ -335,7 +339,27 @@ namespace TradingAppDesktop.Services
             return new OrderManager(_wallet, leverage, operationMode, interval,
                                     takeProfit, stopLoss, tradeDirection, selectedStrategy,
                                     _client, takeProfit, entrySize, databasePath, 
-                                    _sessionId, this, orderManagerLogger
+                                    _sessionId, this, orderManagerLogger, // assuming you have this
+                                    onTradeEntered: (symbol, isLong, strategy, price, timestamp) =>
+                                    {
+                                        // Create a simple trade object for display
+                                        // We use minimal required fields since this is just for display
+                                        var tradeEntry = new TradeEntry
+                                        {
+                                            Symbol = symbol,
+                                            IsLong = isLong,
+                                            Strategy = strategy,
+                                            EntryPrice = price,
+                                            Timestamp = timestamp
+                                        };
+
+                                        // Pass to the ViewModel
+                                        _recentTradesVm?.AddTradeEntry(tradeEntry);           
+                                        
+                                        // Log for debugging
+                                        _logger.LogDebug($"Recent Trade Added: {tradeEntry.DisplayText}");
+                                    }
+            
             );
         }
 
@@ -1157,7 +1181,12 @@ namespace TradingAppDesktop.Services
             public string Symbol { get; set; }
             public decimal Volume { get; set; }
             public decimal Price { get; set; }
-        }        
-
+        }
+        public void SetRecentTradesViewModel(RecentTradesViewModel recentTradesVm)
+        {
+            _recentTradesVm = recentTradesVm;    
+            Console.WriteLine($"✅ SetRecentTradesViewModel called - ViewModel is {(recentTradesVm != null ? "NOT NULL" : "NULL")}");
+        }
+    
     }
 }

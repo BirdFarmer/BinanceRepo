@@ -121,12 +121,12 @@
             <Setter Property="Margin" Value="0 5"/>
             <Setter Property="IsSnapToTickEnabled" Value="True"/>
         </Style>
-        
         <converters:EnumDescriptionConverter x:Key="EnumDescriptionConverter"/>
+        <converters:TradeColorConverter x:Key="TradeColorConverter"/>
 
-    </Window.Resources>
+    </Window.Resources>    
 
-    <!-- Main Grid with Dark Theme -->
+    <!-- Main Grid with Dark Theme -->  
     <Grid Background="{StaticResource DarkBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -136,10 +136,10 @@
         <!-- Header -->
         <Border Grid.Row="0" Background="{StaticResource AccentColor}" Padding="15">
             <TextBlock Text="CRYPTO TRADING SUITE" 
-                     Foreground="White" 
-                     FontSize="18" 
-                     FontWeight="Bold"
-                     HorizontalAlignment="Center"/>
+                    Foreground="White" 
+                    FontSize="18" 
+                    FontWeight="Bold"
+                    HorizontalAlignment="Center"/>
         </Border>
 
         <!-- Content Area -->
@@ -263,9 +263,56 @@
                             Foreground="{StaticResource AccentColor}"
                             FontWeight="Bold"
                             Margin="10,5"/>
-                    
+
+                    <!-- Recent Trade Entries Section (collapsible, header on top, scrollable) -->
+                    <Expander x:Name="RecentTradesExpander"
+                              Grid.Row="1"
+                              HorizontalAlignment="Right"
+                              VerticalAlignment="Top"
+                              ExpandDirection="Down"
+                              IsExpanded="True"
+                              Panel.ZIndex="10"
+                              Width="400"
+                              Margin="10,5,10,5"
+                              Background="{StaticResource CardBackground}"
+                              BorderBrush="#404040"
+                              BorderThickness="2">
+                        <Expander.Header>
+                            <Border Background="{StaticResource CardBackground}" Padding="4" CornerRadius="4,0,0,0">
+                                <TextBlock Text="RECENT TRADE ENTRIES"
+                                           Foreground="{StaticResource AccentColor}"
+                                           FontWeight="Bold"
+                                           FontSize="12"/>
+                            </Border>
+                        </Expander.Header>
+                        <Border Background="{StaticResource CardBackground}" CornerRadius="0,0,0,4">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          MaxHeight="400"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Padding="5"
+                                          Background="{StaticResource CardBackground}">
+                                <ItemsControl x:Name="RecentTradesList"
+                                              ItemsSource="{Binding RecentTrades}"
+                                              Background="{StaticResource CardBackground}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding DisplayText}"
+                                                       FontFamily="Consolas"
+                                                       FontSize="10"
+                                                       Margin="0,1"
+                                                       Background="{StaticResource CardBackground}">
+                                                <TextBlock.Foreground>
+                                                    <Binding Converter="{StaticResource TradeColorConverter}"/>
+                                                </TextBlock.Foreground>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+                    </Expander>
                     <!-- Scrollable Content Area -->
-                    <ScrollViewer Grid.Row="1"
+                    <ScrollViewer x:Name="LogScroll" Grid.Row="1"
                                 VerticalScrollBarVisibility="Visible"
                                 HorizontalScrollBarVisibility="Disabled">
                         <TextBox x:Name="LogText" 

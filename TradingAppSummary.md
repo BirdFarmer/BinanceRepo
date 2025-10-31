@@ -36,6 +36,24 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - Strategy rotation across pairs  
 - Configurable strategy parameters
 
+### 🖥️ Desktop UI Enhancements
+- Recent Trade Entries panel:
+	- Shows recent trade entries (scrolls as new entries arrive)
+	- Color-coded: green for long, red for short
+	- Displays symbol, strategy, entry price, and timestamp (UTC)
+	- Clears at the start of each new session
+	- Fed by the trading service via a lightweight view model
+
+### 🧩 Coin Selection Management
+- Manual and automated control over the trading universe (USDT pairs)
+- Auto-select methods: Top by Volume, Top by Price Change, Top by Volume Change, Composite Score, Biggest Coins
+- Adjustable coin limit (e.g., top 80)
+- Manual entry of coin pairs (e.g., BTCUSDT, ETHUSDT)
+- Named Saved Lists: save, view, load, delete, and refresh lists directly in the UI
+- Preview panel shows method, count, timestamp, and selected coins
+- Apply to Trading updates the next session’s universe
+- Selection persists across sessions and app restarts (no longer cleared after runs)
+
 ## Reporting & Analytics
 
 ### Automated Reporting
@@ -66,6 +84,7 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **Take Profit**: ATR multiplier for profit targets
 - **Stop Loss**: Risk ratio divider relative to take profit
 - **Backtest Range**: Start and end datetime (max 1000 candles)
+- **Symbol Universe**: Choose via auto-select method, manual list, or load a named Saved List; USDT pairs only; configurable coin count limit
 
 ### Data Constraints
 - **Maximum Backtest Range**: 1000 candles
@@ -81,6 +100,9 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **Real-time Processing** - Low-latency execution engine
 - **HTML Reporting** - Automated performance visualization and analytics
 - **Market Analysis** - BTC context and regime detection for timing optimization
+- **UI Data Flow** - Trading service publishes trade-entry events to a `RecentTradesViewModel` (WPF), which binds to the Recent Trades list in `MainWindow`
+- **App Data Store** - Single-file SQLite database `TradingData.db` in the application directory for selections, logs, and reports metadata
+- **Persistent Universe Store** - Named saved lists stored in the app database with UI load/delete and automatic refresh after save
 
 ## Use Cases
 
