@@ -34,6 +34,11 @@ namespace TradingAppDesktop.Services
         private PaperWalletViewModel? _paperWalletVm;
         private decimal _paperStartingBalance;
         
+        // Trailing config supplied by UI (applied when starting a session)
+        private bool _uiUseTrailing = false;
+        private decimal _uiTrailingActivationPercent = 1.0m;
+        private decimal _uiTrailingCallbackPercent = 1.0m;
+        
         private static TradeLogger _tradeLogger;
         private readonly ReportSettings _reportSettings;
         private static string _sessionId;
@@ -200,6 +205,12 @@ namespace TradingAppDesktop.Services
                                         takeProfit, stopLoss, tradeDirection, selectedStrategies.First(), 
                                         _client, takeProfit, entrySize, databasePath, _sessionId);
 
+            // Apply trailing configuration from UI (for all modes; live mode uses exchange-side trailing now)
+            if (_uiUseTrailing)
+            {
+                _orderManager.UpdateTrailingConfig(true, _uiTrailingActivationPercent, _uiTrailingCallbackPercent);
+            }
+
             _reportSettings.StrategyName = selectedStrategies.First().ToString();
             _reportSettings.Leverage = (int)leverage;
             _reportSettings.TakeProfitMultiplier = takeProfit;
@@ -299,6 +310,14 @@ namespace TradingAppDesktop.Services
         public void SetPaperWalletViewModel(PaperWalletViewModel vm)
         {
             _paperWalletVm = vm;
+        }
+
+        // Set by MainWindow before StartTrading
+        public void SetTrailingUiConfig(bool useTrailing, decimal activationPercent, decimal callbackPercent)
+        {
+            _uiUseTrailing = useTrailing;
+            _uiTrailingActivationPercent = activationPercent;
+            _uiTrailingCallbackPercent = callbackPercent;
         }
 
         private async Task<bool> CheckApiHealth()

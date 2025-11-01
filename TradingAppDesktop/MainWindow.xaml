@@ -204,9 +204,16 @@
                     <!-- Leverage -->
                     <Label Content="Leverage"/>
                     <TextBox x:Name="LeverageTextBox" Text="10" TextChanged="ValidateInputs"/>
+
+                    <!-- Exit Mode -->
+                    <Label Content="Exit Mode:"/>
+                    <ComboBox x:Name="ExitModeComboBox" SelectionChanged="ExitModeComboBox_SelectionChanged">
+                        <ComboBoxItem Content="Take Profit" IsSelected="True"/>
+                        <ComboBoxItem Content="Trailing Stop"/>
+                    </ComboBox>
                     
-                    <!-- ATR Multiplier -->
-                    <Label Content="ATR Multiplier:"/>
+                    <!-- Shared Slider: ATR Multiplier or Activation % -->
+                    <Label x:Name="ExitParamLabel" Content="ATR Multiplier:"/>
                     <StackPanel Orientation="Horizontal">
                     <Slider x:Name="AtrMultiplierSlider" 
                             Minimum="0.5" Maximum="10" 
@@ -214,9 +221,19 @@
                             Width="150" Margin="0 0 10 0"
                             ValueChanged="AtrMultiplier_ValueChanged"/>
                         <TextBlock x:Name="AtrMultiplierText" 
-                                Text="2.8 (TP: +2.8ATR)"
+                                Text="2.8 (TP: +2.8 ATR)"
                                 VerticalAlignment="Center"
                                 Foreground="{StaticResource TextColor}"/>
+                    </StackPanel>
+
+                    <!-- Callback % (visible only for Trailing Stop) -->
+                    <StackPanel x:Name="CallbackPanel" Orientation="Vertical" Visibility="Collapsed">
+                        <Label Content="Callback %:"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Slider x:Name="CallbackSlider" Minimum="0.1" Maximum="5.0" TickFrequency="0.1" IsSnapToTickEnabled="True"
+                                    Width="150" Margin="0 0 10 0" ValueChanged="CallbackSlider_ValueChanged"/>
+                            <TextBlock x:Name="CallbackText" Text="1.0%" VerticalAlignment="Center" Foreground="{StaticResource TextColor}"/>
+                        </StackPanel>
                     </StackPanel>
                     
                     <!-- Risk-Reward Ratio -->

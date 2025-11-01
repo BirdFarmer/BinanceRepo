@@ -40,9 +40,27 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - Recent Trade Entries panel:
 	- Shows recent trade entries (scrolls as new entries arrive)
 	- Color-coded: green for long, red for short
-	- Displays symbol, strategy, entry price, and timestamp (UTC)
+	- Displays symbol, strategy, entry price, and timestamp (UTC; weekday names forced to English)
 	- Clears at the start of each new session
 	- Fed by the trading service via a lightweight view model
+
+### 🧪 Paper Wallet (Paper Trading mode only)
+- Equity card at the top-right of the log pane, above the Recent Trades list
+- Updates once per cycle, not on every tick
+- Resets to a fresh baseline at the start of each Paper session
+- Header shows session start time, right-aligned (e.g., “started 01 Nov 14:35 UTC”)
+- Metrics shown:
+  - Equity (Free + Used + Unrealized)
+  - Realized PnL (session) = (Free + Used) − Starting
+  - Unrealized PnL (sum over active trades)
+  - Used (sum of initial margins)
+  - Free (wallet balance)
+  - Active (open trades)
+
+### 🧼 UX Polish
+- Disabled buttons are visually greyed out for clarity
+- Status tag in Recent Trades header shows REAL / PAPER / BACKTEST (IDLE by default)
+- Recent Trades entries in live mode are added only after a successful order response (no pre-execution noise). Failures/negative paths don’t produce entries; local entry price is used for display.
 
 ### 🧩 Coin Selection Management
 - Manual and automated control over the trading universe (USDT pairs)
@@ -101,6 +119,7 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **HTML Reporting** - Automated performance visualization and analytics
 - **Market Analysis** - BTC context and regime detection for timing optimization
 - **UI Data Flow** - Trading service publishes trade-entry events to a `RecentTradesViewModel` (WPF), which binds to the Recent Trades list in `MainWindow`
+- **Paper Wallet ViewModel** - `PaperWalletViewModel` backs the Equity card; resets at Paper session start and updates once per cycle using current prices and active trades
 - **App Data Store** - Single-file SQLite database `TradingData.db` in the application directory for selections, logs, and reports metadata
 - **Persistent Universe Store** - Named saved lists stored in the app database with UI load/delete and automatic refresh after save
 

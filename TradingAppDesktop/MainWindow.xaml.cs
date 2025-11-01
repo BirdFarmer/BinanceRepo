@@ -27,6 +27,11 @@ namespace TradingAppDesktop
     private RecentTradesViewModel _recentTradesVm;
     private PaperWalletViewModel _paperWalletVm;
     
+    // Trailing UI state
+    private bool _useTrailing = false;
+    private decimal _trailingActivationPercent = 2.8m; // reuse ATR slider default
+    private decimal _trailingCallbackPercent = 1.0m;
+    
 
 
         public MainWindow()
@@ -51,8 +56,9 @@ namespace TradingAppDesktop
             this.Loaded += (s, e) =>
             {
                 InitializeComboBoxes();
-                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1}ATR)";
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1} ATR)";
                 RiskRewardText.Text = $"1:{RiskRewardSlider.Value:F1}";
+                CallbackSlider.Value = (double)_trailingCallbackPercent;
             };
         }
 
@@ -115,7 +121,15 @@ namespace TradingAppDesktop
         private void AtrMultiplier_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (!IsLoaded || AtrMultiplierText == null) return;
-            AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1}ATR)";
+            if (_useTrailing)
+            {
+                _trailingActivationPercent = (decimal)AtrMultiplierSlider.Value;
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1}% (Activation)";
+            }
+            else
+            {
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1} ATR)";
+            }
         }
 
         private void RiskReward_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -231,6 +245,8 @@ namespace TradingAppDesktop
                 _tradingService.SetRecentTradesViewModel(_recentTradesVm);        
                 // Pass the Paper Wallet VM to the service (paper mode only used)
                 _tradingService.SetPaperWalletViewModel(_paperWalletVm);
+                // Pass trailing config from UI
+                _tradingService.SetTrailingUiConfig(_useTrailing, _trailingActivationPercent, _trailingCallbackPercent);
                 
                 // PASS THE CUSTOM COIN SELECTION
                 Log(_customCoinSelection != null 
@@ -276,6 +292,27 @@ namespace TradingAppDesktop
 
             Log($"Service state: Running={_tradingService.IsRunning}");
 
+        }
+
+        private void ExitModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            if (ExitModeComboBox.SelectedItem is ComboBoxItem item)
+            {
+                var mode = item.Content?.ToString();
+                _useTrailing = string.Equals(mode, "Trailing Stop", StringComparison.OrdinalIgnoreCase);
+                ExitParamLabel.Content = _useTrailing ? "Activation %:" : "ATR Multiplier:";
+                CallbackPanel.Visibility = _useTrailing ? Visibility.Visible : Visibility.Collapsed;
+                // Refresh label text to reflect current mode
+                AtrMultiplier_ValueChanged(AtrMultiplierSlider, new RoutedPropertyChangedEventArgs<double>(AtrMultiplierSlider.Value, AtrMultiplierSlider.Value));
+            }
+        }
+
+        private void CallbackSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (!IsLoaded || CallbackText == null) return;
+            _trailingCallbackPercent = (decimal)CallbackSlider.Value;
+            CallbackText.Text = $"{CallbackSlider.Value:F1}%";
         }
 
         private async void StopButton_Click(object sender, RoutedEventArgs e)
