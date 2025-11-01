@@ -57,12 +57,15 @@ namespace BinanceTestnet.Trading
         private readonly IExchangeInfoProvider _exchangeInfo;
         private readonly ILogger<OrderManager> _logger;
 
+        private readonly Action<string, bool, string, decimal, DateTime> _onTradeEntered;
+    
 
-      public OrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
+        public OrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
                         string interval, decimal takeProfit, decimal stopLoss,
                         SelectedTradeDirection tradeDirection, SelectedTradingStrategy tradingStrategy,
                         RestClient client, decimal tpIteration, decimal margin, string databasePath, 
-                        string sessionId, IExchangeInfoProvider exchangeInfoProvider, ILogger<OrderManager> logger)
+                        string sessionId, IExchangeInfoProvider exchangeInfoProvider, ILogger<OrderManager> logger,
+                        Action<string, bool, string, decimal, DateTime> onTradeEntered = null)
         {
             _wallet = wallet;
             _databaseManager = new DatabaseManager(databasePath); // Create a new instance here
@@ -81,9 +84,10 @@ namespace BinanceTestnet.Trading
             _client = client;
             _marginPerTrade = margin;
             //_lotSizeCache = new Dictionary<string, (decimal, int, decimal)>();        
-            _lotSizeCache = new ConcurrentDictionary<string, (decimal, int, decimal)>();   
-            
+            _lotSizeCache = new ConcurrentDictionary<string, (decimal, int, decimal)>();
+
             _logger = logger;     
+            _onTradeEntered = onTradeEntered;
             _sessionId = sessionId; // Store the SessionId
             DatabaseManager.InitializeDatabase();
             
@@ -375,6 +379,14 @@ namespace BinanceTestnet.Trading
                 liquidationPrice: liquidationPrice,
                 maintenanceMarginRate: maintenanceMarginRate
             );
+        
+            // NOTIFY VIA CALLBACK (pass individual values)
+            // For paper/backtest, show immediately; for live, defer until after successful order
+            if (_operationMode != OperationMode.LiveRealTrading)
+            {
+                _onTradeEntered?.Invoke(symbol, isLong, signal, price, DateTime.UtcNow);
+            }
+        
 
             if (_operationMode == OperationMode.LiveRealTrading)
             {
@@ -780,12 +792,28 @@ namespace BinanceTestnet.Trading
                 if (response.IsSuccessful)
                 {
                     // Deserialize the response to get order details
-                    var orderData = JsonConvert.DeserializeObject<OrderResponse>(response.Content);
-                    var orderId = orderData.orderId;
-                    var qtyInTrade = orderData.executedQty;
+                    OrderResponse orderData = null;
+                    try
+                    {
+                        orderData = JsonConvert.DeserializeObject<OrderResponse>(response.Content);
+                    }
+                    catch
+                    {
+                        // Swallow deserialization issues; we'll still proceed with our own price
+                    }
+
+                    var orderId = orderData?.orderId ?? 0;
+                    var qtyInTrade = orderData?.executedQty ?? 0;
                     Console.WriteLine($"{orderType} Order placed for {trade.Symbol} at {trade.EntryPrice} with strategy {trade.Signal}. \nQuantity: {qtyInTrade}, Order ID: {orderId}");
 
                     trade.IsInTrade = true;                    
+                    
+                    // For live trading, add to Recent Trades after a successful order response
+                    // Ignore any negative/failed paths entirely (no UI entry). Use our own entry price.
+                    if (_operationMode == OperationMode.LiveRealTrading)
+                    {
+                        _onTradeEntered?.Invoke(trade.Symbol, trade.IsLong, trade.Signal, trade.EntryPrice, DateTime.UtcNow);
+                    }
                     
                     // Regenerate timestamp for the next request
                     serverTime = await GetServerTimeAsync(5005);

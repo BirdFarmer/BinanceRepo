@@ -46,6 +46,13 @@
                         </Setter.Value>
                     </Setter>
                 </Trigger>
+                <!-- Disabled state: grey out button -->
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#3A3A4F"/>
+                    <Setter Property="Foreground" Value="#B0B0B0"/>
+                    <Setter Property="Opacity" Value="0.65"/>
+                    <Setter Property="Cursor" Value="Arrow"/>
+                </Trigger>
             </Style.Triggers>
         </Style>
 
@@ -121,12 +128,15 @@
             <Setter Property="Margin" Value="0 5"/>
             <Setter Property="IsSnapToTickEnabled" Value="True"/>
         </Style>
-        
-        <converters:EnumDescriptionConverter x:Key="EnumDescriptionConverter"/>
+    <converters:EnumDescriptionConverter x:Key="EnumDescriptionConverter"/>
+    <converters:TradeColorConverter x:Key="TradeColorConverter"/>
+    <converters:OperationModeStatusConverter x:Key="OperationModeStatusConverter"/>
+    <converters:OperationModeToVisibilityConverter x:Key="OperationModeToVisibilityConverter"/>
+    <converters:DecimalSignToBrushConverter x:Key="DecimalSignToBrushConverter"/>
 
-    </Window.Resources>
+    </Window.Resources>    
 
-    <!-- Main Grid with Dark Theme -->
+    <!-- Main Grid with Dark Theme -->  
     <Grid Background="{StaticResource DarkBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -136,10 +146,10 @@
         <!-- Header -->
         <Border Grid.Row="0" Background="{StaticResource AccentColor}" Padding="15">
             <TextBlock Text="CRYPTO TRADING SUITE" 
-                     Foreground="White" 
-                     FontSize="18" 
-                     FontWeight="Bold"
-                     HorizontalAlignment="Center"/>
+                    Foreground="White" 
+                    FontSize="18" 
+                    FontWeight="Bold"
+                    HorizontalAlignment="Center"/>
         </Border>
 
         <!-- Content Area -->
@@ -263,23 +273,135 @@
                             Foreground="{StaticResource AccentColor}"
                             FontWeight="Bold"
                             Margin="10,5"/>
-                    
-                    <!-- Scrollable Content Area -->
-                    <ScrollViewer Grid.Row="1"
-                                VerticalScrollBarVisibility="Visible"
-                                HorizontalScrollBarVisibility="Disabled">
-                        <TextBox x:Name="LogText" 
-                                IsReadOnly="True"
-                                Background="Transparent"
-                                Foreground="{StaticResource TextColor}"
-                                BorderThickness="0"
-                                TextWrapping="Wrap"
-                                FontFamily="Consolas"
-                                FontSize="14"
-                                AcceptsReturn="True"
-                                VerticalAlignment="Stretch"
-                                MinHeight="750"/>
-                    </ScrollViewer>
+
+                    <!-- Content split: Log on left, Sidebar (Wallet + Recent Trades) on right -->
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="420"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Scrollable Log Area -->
+                        <ScrollViewer x:Name="LogScroll" Grid.Column="0"
+                                      VerticalScrollBarVisibility="Visible"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <TextBox x:Name="LogText" 
+                                     IsReadOnly="True"
+                                     Background="Transparent"
+                                     Foreground="{StaticResource TextColor}"
+                                     BorderThickness="0"
+                                     TextWrapping="Wrap"
+                                     FontFamily="Consolas"
+                                     FontSize="14"
+                                     AcceptsReturn="True"
+                                     VerticalAlignment="Stretch"
+                                     MinHeight="750"/>
+                        </ScrollViewer>
+
+                        <!-- Sidebar: Paper Wallet on top, Recent Trades below -->
+                        <StackPanel Grid.Column="1" Margin="10" VerticalAlignment="Top">
+                            <!-- Paper Wallet Card -->
+                            <Border x:Name="PaperWalletPanel"
+                                    Width="400"
+                                    Padding="10"
+                                    Background="{StaticResource CardBackground}"
+                                    BorderBrush="#404040"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Visibility="{Binding SelectedItem, ElementName=OperationModeComboBox, Converter={StaticResource OperationModeToVisibilityConverter}}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Paper Wallet" Foreground="{StaticResource AccentColor}" FontWeight="Bold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding SessionStartText}" Foreground="{StaticResource TextColor}" FontSize="11" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <TextBlock Text="{Binding Equity, StringFormat=Equity {0:F2} USDT}" Foreground="White" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding RealizedPnl, StringFormat=Realized {0:+0.00;-0.00;0.00}}" Margin="0,0,10,0">
+                                            <TextBlock.Foreground>
+                                                <Binding Path="RealizedPnl" Converter="{StaticResource DecimalSignToBrushConverter}"/>
+                                            </TextBlock.Foreground>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding UnrealizedPnl, StringFormat=Unrealized {0:+0.00;-0.00;0.00}}">
+                                            <TextBlock.Foreground>
+                                                <Binding Path="UnrealizedPnl" Converter="{StaticResource DecimalSignToBrushConverter}"/>
+                                            </TextBlock.Foreground>
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding UsedMargin, StringFormat=Used {0:F0}}" Foreground="{StaticResource TextColor}"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Free, StringFormat=Free {0:F0}}" Foreground="{StaticResource TextColor}" Margin="0,0,10,0"/>
+                                        <TextBlock Text="{Binding ActiveTrades, StringFormat=Active {0}}" Foreground="{StaticResource TextColor}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Recent Trade Entries Section -->
+                            <Expander x:Name="RecentTradesExpander"
+                                      ExpandDirection="Down"
+                                      IsExpanded="True"
+                                      Width="400"
+                                      Margin="0,8,0,0"
+                                      Background="{StaticResource CardBackground}"
+                                      BorderBrush="#404040"
+                                      BorderThickness="2">
+                                <Expander.Header>
+                                    <Border Background="{StaticResource CardBackground}" Padding="4" CornerRadius="4,0,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="RECENT TRADE ENTRIES"
+                                                       Foreground="{StaticResource AccentColor}"
+                                                       FontWeight="Bold"
+                                                       FontSize="12"
+                                                       VerticalAlignment="Center"/>
+                                            <Border Grid.Column="1" 
+                                                    Margin="10,0,0,0"
+                                                    Background="{Binding SelectedItem, ElementName=OperationModeComboBox, Converter={StaticResource OperationModeStatusConverter}, ConverterParameter=brush}"
+                                                    CornerRadius="10"
+                                                    Padding="8,2">
+                                                <TextBlock Text="{Binding SelectedItem, ElementName=OperationModeComboBox, Converter={StaticResource OperationModeStatusConverter}, ConverterParameter=text}"
+                                                           Foreground="Black"
+                                                           FontWeight="Bold"
+                                                           FontSize="11"
+                                                           VerticalAlignment="Center"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </Expander.Header>
+                                <Border Background="{StaticResource CardBackground}" CornerRadius="0,0,0,4">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                  MaxHeight="400"
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  Padding="5"
+                                                  Background="{StaticResource CardBackground}">
+                                        <ItemsControl x:Name="RecentTradesList"
+                                                      ItemsSource="{Binding RecentTrades}"
+                                                      Background="{StaticResource CardBackground}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding DisplayText}"
+                                                               FontFamily="Consolas"
+                                                               FontSize="10"
+                                                               Margin="0,1"
+                                                               Background="{StaticResource CardBackground}">
+                                                        <TextBlock.Foreground>
+                                                            <Binding Converter="{StaticResource TradeColorConverter}"/>
+                                                        </TextBlock.Foreground>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Border>
+                            </Expander>
+                        </StackPanel>
+                    </Grid>
                 </Grid>
             </Border>
         </Grid>

@@ -24,11 +24,23 @@ namespace TradingAppDesktop
         private bool _isStarting = false; // Add this class field
         private readonly object _startLock = new(); // Add this for thread safety
         private List<string> _customCoinSelection = null;
+    private RecentTradesViewModel _recentTradesVm;
+    private PaperWalletViewModel _paperWalletVm;
+    
 
 
         public MainWindow()
         {
             InitializeComponent();
+        
+            // Initialize Recent Trades ViewModel
+            _recentTradesVm = new RecentTradesViewModel();
+            RecentTradesList.DataContext = _recentTradesVm;        
+
+            // Initialize Paper Wallet ViewModel (for paper mode)
+            _paperWalletVm = new PaperWalletViewModel();
+            if (PaperWalletPanel != null)
+                PaperWalletPanel.DataContext = _paperWalletVm;
 
             // One-time initialization that doesn't need loaded controls
             Console.SetOut(new TextBoxWriter(LogText));
@@ -191,6 +203,9 @@ namespace TradingAppDesktop
                 StartButton.IsEnabled = false;
                 StopButton.IsEnabled = true;
                 Log("Attempting to start trading...");
+                // Clear previous trades when starting new session
+                _recentTradesVm.Clear();
+        
 
                 var selectedStrategies = StrategySelector.SelectedStrategies.ToList();
 
@@ -212,6 +227,10 @@ namespace TradingAppDesktop
 
                     Log($"Backtest period: {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}");
                 }
+
+                _tradingService.SetRecentTradesViewModel(_recentTradesVm);        
+                // Pass the Paper Wallet VM to the service (paper mode only used)
+                _tradingService.SetPaperWalletViewModel(_paperWalletVm);
                 
                 // PASS THE CUSTOM COIN SELECTION
                 Log(_customCoinSelection != null 

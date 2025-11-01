@@ -23,11 +23,17 @@ using Microsoft.Extensions.Configuration;
 using System.Net.Http;
 using System.Threading;
 using BinanceTestnet.MarketAnalysis;
+using TradingAppDesktop.Views;
+using TradingAppDesktop.Models;
 
 namespace TradingAppDesktop.Services
 {
     public class BinanceTradingService : IExchangeInfoProvider
     {
+        private RecentTradesViewModel? _recentTradesVm;
+        private PaperWalletViewModel? _paperWalletVm;
+        private decimal _paperStartingBalance;
+        
         private static TradeLogger _tradeLogger;
         private readonly ReportSettings _reportSettings;
         private static string _sessionId;
@@ -36,7 +42,7 @@ namespace TradingAppDesktop.Services
         
         private readonly TimeSpan _defaultTimeout = TimeSpan.FromSeconds(10);
         private static Wallet _wallet;
-        private CancellationTokenSource _cancellationTokenSource;
+    private CancellationTokenSource? _cancellationTokenSource;
         private volatile bool _isStopping = false;
         private volatile bool _startInProgress = false;
         
@@ -44,12 +50,12 @@ namespace TradingAppDesktop.Services
         public bool StartInProgress => _startInProgress;
         private volatile bool _isRunning = false;
 
-        public bool IsRunning => _cancellationTokenSource != null && 
-                                !_cancellationTokenSource.IsCancellationRequested;
+    public bool IsRunning => _cancellationTokenSource != null && 
+                !_cancellationTokenSource.IsCancellationRequested;
 
         private readonly ILogger<BinanceTradingService> _logger;
         
-        private MarketContextAnalyzer _marketAnalyzer;
+    private MarketContextAnalyzer? _marketAnalyzer;
         private readonly ILoggerFactory _loggerFactory;
         private readonly object _startLock = new();
         
@@ -95,6 +101,7 @@ namespace TradingAppDesktop.Services
                 _startInProgress = true;
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = new CancellationTokenSource();                
+                _isRunning = true;
             }
 
             _logger.LogInformation("Starting trading session...");
@@ -176,6 +183,17 @@ namespace TradingAppDesktop.Services
                 _logger.LogInformation($"Auto-selected {symbols.Count} symbols: {string.Join(", ", symbols.Take(5))}...");
             }    
 
+            // Reset Paper Wallet balance and panel at the start of a Paper session
+            if (operationMode == OperationMode.LivePaperTrading)
+            {
+                _wallet = new Wallet(1000); // fresh session baseline
+                if (_paperWalletVm != null)
+                {
+                    _paperStartingBalance = _wallet.GetBalance();
+                    _paperWalletVm.Reset(_paperStartingBalance, DateTime.UtcNow);
+                }
+            }
+
             // Initialize OrderManager
             _logger.LogDebug("Initializing OrderManager...");
             _orderManager = CreateOrderManager(_wallet, leverage, operationMode, interval, 
@@ -194,6 +212,8 @@ namespace TradingAppDesktop.Services
                 // Initialize StrategyRunner
                 _logger.LogDebug("Initializing StrategyRunner...");
                 var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategies);
+
+                // Paper wallet already reset above when creating a fresh Wallet
 
                 // Add timeout to the trading operation
                 var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(1)); // 1 minute timeout
@@ -231,7 +251,12 @@ namespace TradingAppDesktop.Services
                 lock (_startLock)
                 {
                     _startInProgress = false;
+                    _isRunning = false;
                 }
+                // Ensure session cleanup so UI can start again without requiring Stop
+                try { _cancellationTokenSource?.Cancel(); } catch {}
+                try { _cancellationTokenSource?.Dispose(); } catch {}
+                _cancellationTokenSource = null;
             }
 
             _logger.LogInformation("Trading session completed");
@@ -270,6 +295,11 @@ namespace TradingAppDesktop.Services
         }
 
         public void Dispose() => _client?.Dispose();
+
+        public void SetPaperWalletViewModel(PaperWalletViewModel vm)
+        {
+            _paperWalletVm = vm;
+        }
 
         private async Task<bool> CheckApiHealth()
         {
@@ -335,7 +365,27 @@ namespace TradingAppDesktop.Services
             return new OrderManager(_wallet, leverage, operationMode, interval,
                                     takeProfit, stopLoss, tradeDirection, selectedStrategy,
                                     _client, takeProfit, entrySize, databasePath, 
-                                    _sessionId, this, orderManagerLogger
+                                    _sessionId, this, orderManagerLogger, // assuming you have this
+                                    onTradeEntered: (symbol, isLong, strategy, price, timestamp) =>
+                                    {
+                                        // Create a simple trade object for display
+                                        // We use minimal required fields since this is just for display
+                                        var tradeEntry = new TradeEntry
+                                        {
+                                            Symbol = symbol,
+                                            IsLong = isLong,
+                                            Strategy = strategy,
+                                            EntryPrice = price,
+                                            Timestamp = timestamp
+                                        };
+
+                                        // Pass to the ViewModel
+                                        _recentTradesVm?.AddTradeEntry(tradeEntry);           
+                                        
+                                        // Log for debugging
+                                        _logger.LogDebug($"Recent Trade Added: {tradeEntry.DisplayText}");
+                                    }
+            
             );
         }
 
@@ -372,6 +422,7 @@ namespace TradingAppDesktop.Services
                 {
                     _isStopping = false;
                     _startInProgress = false;
+                    _isRunning = false;
                 }
             }
         }
@@ -517,7 +568,7 @@ namespace TradingAppDesktop.Services
                 enhancedReporter.GenerateEnhancedReport(_sessionId, settings);
             }
 
-            var htmlReporter = new HtmlReportGenerator(_tradeLogger, _marketAnalyzer);
+            var htmlReporter = new HtmlReportGenerator(_tradeLogger, _marketAnalyzer!);
             string htmlContent = await htmlReporter.GenerateHtmlReport(_sessionId, settings);
             //string htmlContent = htmlReporter.GenerateHtmlReport(_sessionId, settings);
             File.WriteAllText(htmlReportPath, htmlContent);
@@ -887,6 +938,16 @@ namespace TradingAppDesktop.Services
                         
                         _logger.LogDebug("Logging wallet balance...");
                         orderManager.PrintWalletBalance();
+
+                        // Update Paper Wallet UI once per cycle
+                        try
+                        {
+                            UpdatePaperWalletSnapshot(currentPrices);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to update paper wallet snapshot");
+                        }
                     }
 
                     var elapsedTime = DateTime.Now - startTime;
@@ -915,6 +976,29 @@ namespace TradingAppDesktop.Services
             }
 
             _logger.LogInformation("Live paper trading terminated gracefully");
+        }
+
+        private void UpdatePaperWalletSnapshot(Dictionary<string, decimal> currentPrices)
+        {
+            if (_paperWalletVm == null || _orderManager == null || currentPrices == null)
+                return;
+
+            var activeTrades = _orderManager.GetActiveTrades();
+            decimal used = 0m;
+            decimal unrealized = 0m;
+
+            foreach (var t in activeTrades)
+            {
+                used += t.InitialMargin;
+                if (currentPrices.TryGetValue(t.Symbol, out var price))
+                {
+                    unrealized += t.IsLong ? (price - t.EntryPrice) * t.Quantity
+                                            : (t.EntryPrice - price) * t.Quantity;
+                }
+            }
+
+            var walletBalance = _wallet.GetBalance();
+            _paperWalletVm.UpdateSnapshot(walletBalance, used, unrealized, activeTrades.Count);
         }
 
         private static async Task RunLiveTrading(
@@ -1157,7 +1241,12 @@ namespace TradingAppDesktop.Services
             public string Symbol { get; set; }
             public decimal Volume { get; set; }
             public decimal Price { get; set; }
-        }        
-
+        }
+        public void SetRecentTradesViewModel(RecentTradesViewModel recentTradesVm)
+        {
+            _recentTradesVm = recentTradesVm;    
+            Console.WriteLine($"✅ SetRecentTradesViewModel called - ViewModel is {(recentTradesVm != null ? "NOT NULL" : "NULL")}");
+        }
+    
     }
 }
