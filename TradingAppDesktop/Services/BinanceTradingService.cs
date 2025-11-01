@@ -30,7 +30,9 @@ namespace TradingAppDesktop.Services
 {
     public class BinanceTradingService : IExchangeInfoProvider
     {
-        private RecentTradesViewModel _recentTradesVm;
+        private RecentTradesViewModel? _recentTradesVm;
+        private PaperWalletViewModel? _paperWalletVm;
+        private decimal _paperStartingBalance;
         
         private static TradeLogger _tradeLogger;
         private readonly ReportSettings _reportSettings;
@@ -53,7 +55,7 @@ namespace TradingAppDesktop.Services
 
         private readonly ILogger<BinanceTradingService> _logger;
         
-        private MarketContextAnalyzer _marketAnalyzer;
+    private MarketContextAnalyzer? _marketAnalyzer;
         private readonly ILoggerFactory _loggerFactory;
         private readonly object _startLock = new();
         
@@ -181,6 +183,17 @@ namespace TradingAppDesktop.Services
                 _logger.LogInformation($"Auto-selected {symbols.Count} symbols: {string.Join(", ", symbols.Take(5))}...");
             }    
 
+            // Reset Paper Wallet balance and panel at the start of a Paper session
+            if (operationMode == OperationMode.LivePaperTrading)
+            {
+                _wallet = new Wallet(1000); // fresh session baseline
+                if (_paperWalletVm != null)
+                {
+                    _paperStartingBalance = _wallet.GetBalance();
+                    _paperWalletVm.Reset(_paperStartingBalance, DateTime.UtcNow);
+                }
+            }
+
             // Initialize OrderManager
             _logger.LogDebug("Initializing OrderManager...");
             _orderManager = CreateOrderManager(_wallet, leverage, operationMode, interval, 
@@ -199,6 +212,8 @@ namespace TradingAppDesktop.Services
                 // Initialize StrategyRunner
                 _logger.LogDebug("Initializing StrategyRunner...");
                 var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategies);
+
+                // Paper wallet already reset above when creating a fresh Wallet
 
                 // Add timeout to the trading operation
                 var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(1)); // 1 minute timeout
@@ -280,6 +295,11 @@ namespace TradingAppDesktop.Services
         }
 
         public void Dispose() => _client?.Dispose();
+
+        public void SetPaperWalletViewModel(PaperWalletViewModel vm)
+        {
+            _paperWalletVm = vm;
+        }
 
         private async Task<bool> CheckApiHealth()
         {
@@ -548,7 +568,7 @@ namespace TradingAppDesktop.Services
                 enhancedReporter.GenerateEnhancedReport(_sessionId, settings);
             }
 
-            var htmlReporter = new HtmlReportGenerator(_tradeLogger, _marketAnalyzer);
+            var htmlReporter = new HtmlReportGenerator(_tradeLogger, _marketAnalyzer!);
             string htmlContent = await htmlReporter.GenerateHtmlReport(_sessionId, settings);
             //string htmlContent = htmlReporter.GenerateHtmlReport(_sessionId, settings);
             File.WriteAllText(htmlReportPath, htmlContent);
@@ -918,6 +938,16 @@ namespace TradingAppDesktop.Services
                         
                         _logger.LogDebug("Logging wallet balance...");
                         orderManager.PrintWalletBalance();
+
+                        // Update Paper Wallet UI once per cycle
+                        try
+                        {
+                            UpdatePaperWalletSnapshot(currentPrices);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to update paper wallet snapshot");
+                        }
                     }
 
                     var elapsedTime = DateTime.Now - startTime;
@@ -946,6 +976,29 @@ namespace TradingAppDesktop.Services
             }
 
             _logger.LogInformation("Live paper trading terminated gracefully");
+        }
+
+        private void UpdatePaperWalletSnapshot(Dictionary<string, decimal> currentPrices)
+        {
+            if (_paperWalletVm == null || _orderManager == null || currentPrices == null)
+                return;
+
+            var activeTrades = _orderManager.GetActiveTrades();
+            decimal used = 0m;
+            decimal unrealized = 0m;
+
+            foreach (var t in activeTrades)
+            {
+                used += t.InitialMargin;
+                if (currentPrices.TryGetValue(t.Symbol, out var price))
+                {
+                    unrealized += t.IsLong ? (price - t.EntryPrice) * t.Quantity
+                                            : (t.EntryPrice - price) * t.Quantity;
+                }
+            }
+
+            var walletBalance = _wallet.GetBalance();
+            _paperWalletVm.UpdateSnapshot(walletBalance, used, unrealized, activeTrades.Count);
         }
 
         private static async Task RunLiveTrading(
