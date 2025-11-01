@@ -25,6 +25,11 @@ namespace TradingAppDesktop.Views
             Application.Current?.Dispatcher?.Invoke(() =>
             {
                 _recentTrades.Insert(0, trade);
+                // Cap list to last 50 entries to avoid UI bloat
+                while (_recentTrades.Count > 50)
+                {
+                    _recentTrades.RemoveAt(_recentTrades.Count - 1);
+                }
             });
         }
 

@@ -46,6 +46,13 @@
                         </Setter.Value>
                     </Setter>
                 </Trigger>
+                <!-- Disabled state: grey out button -->
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#3A3A4F"/>
+                    <Setter Property="Foreground" Value="#B0B0B0"/>
+                    <Setter Property="Opacity" Value="0.65"/>
+                    <Setter Property="Cursor" Value="Arrow"/>
+                </Trigger>
             </Style.Triggers>
         </Style>
 
@@ -121,8 +128,9 @@
             <Setter Property="Margin" Value="0 5"/>
             <Setter Property="IsSnapToTickEnabled" Value="True"/>
         </Style>
-        <converters:EnumDescriptionConverter x:Key="EnumDescriptionConverter"/>
-        <converters:TradeColorConverter x:Key="TradeColorConverter"/>
+    <converters:EnumDescriptionConverter x:Key="EnumDescriptionConverter"/>
+    <converters:TradeColorConverter x:Key="TradeColorConverter"/>
+    <converters:OperationModeStatusConverter x:Key="OperationModeStatusConverter"/>
 
     </Window.Resources>    
 
@@ -279,10 +287,28 @@
                               BorderThickness="2">
                         <Expander.Header>
                             <Border Background="{StaticResource CardBackground}" Padding="4" CornerRadius="4,0,0,0">
-                                <TextBlock Text="RECENT TRADE ENTRIES"
-                                           Foreground="{StaticResource AccentColor}"
-                                           FontWeight="Bold"
-                                           FontSize="12"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="RECENT TRADE ENTRIES"
+                                               Foreground="{StaticResource AccentColor}"
+                                               FontWeight="Bold"
+                                               FontSize="12"
+                                               VerticalAlignment="Center"/>
+                                    <Border Grid.Column="1" 
+                                            Margin="10,0,0,0"
+                                            Background="{Binding SelectedItem, ElementName=OperationModeComboBox, Converter={StaticResource OperationModeStatusConverter}, ConverterParameter=brush}"
+                                            CornerRadius="10"
+                                            Padding="8,2">
+                                        <TextBlock Text="{Binding SelectedItem, ElementName=OperationModeComboBox, Converter={StaticResource OperationModeStatusConverter}, ConverterParameter=text}"
+                                                   Foreground="Black"
+                                                   FontWeight="Bold"
+                                                   FontSize="11"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
+                                </Grid>
                             </Border>
                         </Expander.Header>
                         <Border Background="{StaticResource CardBackground}" CornerRadius="0,0,0,4">

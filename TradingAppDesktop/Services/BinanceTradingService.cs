@@ -40,7 +40,7 @@ namespace TradingAppDesktop.Services
         
         private readonly TimeSpan _defaultTimeout = TimeSpan.FromSeconds(10);
         private static Wallet _wallet;
-        private CancellationTokenSource _cancellationTokenSource;
+    private CancellationTokenSource? _cancellationTokenSource;
         private volatile bool _isStopping = false;
         private volatile bool _startInProgress = false;
         
@@ -48,8 +48,8 @@ namespace TradingAppDesktop.Services
         public bool StartInProgress => _startInProgress;
         private volatile bool _isRunning = false;
 
-        public bool IsRunning => _cancellationTokenSource != null && 
-                                !_cancellationTokenSource.IsCancellationRequested;
+    public bool IsRunning => _cancellationTokenSource != null && 
+                !_cancellationTokenSource.IsCancellationRequested;
 
         private readonly ILogger<BinanceTradingService> _logger;
         
@@ -99,6 +99,7 @@ namespace TradingAppDesktop.Services
                 _startInProgress = true;
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = new CancellationTokenSource();                
+                _isRunning = true;
             }
 
             _logger.LogInformation("Starting trading session...");
@@ -235,7 +236,12 @@ namespace TradingAppDesktop.Services
                 lock (_startLock)
                 {
                     _startInProgress = false;
+                    _isRunning = false;
                 }
+                // Ensure session cleanup so UI can start again without requiring Stop
+                try { _cancellationTokenSource?.Cancel(); } catch {}
+                try { _cancellationTokenSource?.Dispose(); } catch {}
+                _cancellationTokenSource = null;
             }
 
             _logger.LogInformation("Trading session completed");
@@ -396,6 +402,7 @@ namespace TradingAppDesktop.Services
                 {
                     _isStopping = false;
                     _startInProgress = false;
+                    _isRunning = false;
                 }
             }
         }
