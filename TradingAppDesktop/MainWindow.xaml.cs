@@ -56,7 +56,7 @@ namespace TradingAppDesktop
             this.Loaded += (s, e) =>
             {
                 InitializeComboBoxes();
-                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1} ATR)";
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
                 RiskRewardText.Text = $"1:{RiskRewardSlider.Value:F1}";
                 CallbackSlider.Value = (double)_trailingCallbackPercent;
             };
@@ -124,11 +124,11 @@ namespace TradingAppDesktop
             if (_useTrailing)
             {
                 _trailingActivationPercent = (decimal)AtrMultiplierSlider.Value;
-                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1}% (Activation)";
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1}%";
             }
             else
             {
-                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1} ATR)";
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
             }
         }
 
@@ -301,8 +301,12 @@ namespace TradingAppDesktop
             {
                 var mode = item.Content?.ToString();
                 _useTrailing = string.Equals(mode, "Trailing Stop", StringComparison.OrdinalIgnoreCase);
+                // Restore full label text for clarity
                 ExitParamLabel.Content = _useTrailing ? "Activation %:" : "ATR Multiplier:";
-                CallbackPanel.Visibility = _useTrailing ? Visibility.Visible : Visibility.Collapsed;
+                var vis = _useTrailing ? Visibility.Visible : Visibility.Collapsed;
+                if (CallbackLabel != null) CallbackLabel.Visibility = vis;
+                if (CallbackSlider != null) CallbackSlider.Visibility = vis;
+                if (CallbackText != null) CallbackText.Visibility = vis;
                 // Refresh label text to reflect current mode
                 AtrMultiplier_ValueChanged(AtrMultiplierSlider, new RoutedPropertyChangedEventArgs<double>(AtrMultiplierSlider.Value, AtrMultiplierSlider.Value));
             }
@@ -413,7 +417,7 @@ namespace TradingAppDesktop
             if (AtrMultiplierText != null && AtrMultiplierSlider != null)
             {
                 AtrMultiplierSlider.Value = (double)takeProfit;
-                AtrMultiplierText.Text = $"{takeProfit:F1} (TP: +{takeProfit:F1}ATR)";
+                AtrMultiplierText.Text = $"{takeProfit:F1} * ATR";
             }
 
 

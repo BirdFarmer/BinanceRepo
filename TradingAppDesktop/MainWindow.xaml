@@ -163,115 +163,126 @@
             <Border Grid.Column="0" 
                     Background="{StaticResource CardBackground}" 
                     CornerRadius="8"
-                    Margin="5">               
-                    
-                <StackPanel>
-                    <TextBlock Text="TRADING PARAMETERS" 
-                            Foreground="{StaticResource AccentColor}"
-                            FontWeight="Bold"
-                            Margin="10 10 0 10"/>
-                    
+                    Margin="5">
+                <Grid x:Name="ParamsGrid" Margin="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header -->
+                    <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="TRADING PARAMETERS" 
+                               Foreground="{StaticResource AccentColor}"
+                               FontWeight="Bold"
+                               Margin="2 4 0 10"/>
+
                     <!-- Operation Mode -->
-                    <Label Content="Operation Mode:"/>
-                    <ComboBox x:Name="OperationModeComboBox" SelectionChanged="OperationMode_SelectionChanged"/>
-                    
+                    <Label Grid.Row="1" Grid.Column="0" Content="Operation Mode:"/>
+                    <ComboBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="OperationModeComboBox" SelectionChanged="OperationMode_SelectionChanged"/>
+
                     <!-- Strategy Selection (Multi-select) -->
-                    <controls:StrategySelectionControl x:Name="StrategySelector" Margin="0 5"/>
-                    
+                    <controls:StrategySelectionControl Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" x:Name="StrategySelector" Margin="0 5" HorizontalAlignment="Left"/>
+
                     <!-- Trade Direction -->
-                    <Label Content="Trade Direction:"/>
-                    <ComboBox x:Name="TradeDirectionComboBox">
+                    <Label Grid.Row="3" Grid.Column="0" Content="Trade Direction:"/>
+                    <ComboBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="TradeDirectionComboBox">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding Converter={StaticResource EnumDescriptionConverter}}"/>
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
+
                     <!-- TimeFrame -->
-                    <Label Content="Time Frame:"/>
-                    <ComboBox x:Name="TimeFrameComboBox">
+                    <Label Grid.Row="4" Grid.Column="0" Content="Time Frame:"/>
+                    <ComboBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" x:Name="TimeFrameComboBox">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding Display}"/>
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
-                    
+
                     <!-- Entry Size -->
-                    <Label Content="Entry Size (USDT): "/>
-                    <TextBox x:Name="EntrySizeTextBox" Text="10" TextChanged="ValidateInputs"/>
-                    
+                    <Label Grid.Row="5" Grid.Column="0" Content="Entry Size (USDT):"/>
+                    <TextBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="EntrySizeTextBox" Text="10" TextChanged="ValidateInputs"/>
+
                     <!-- Leverage -->
-                    <Label Content="Leverage"/>
-                    <TextBox x:Name="LeverageTextBox" Text="10" TextChanged="ValidateInputs"/>
+                    <Label Grid.Row="6" Grid.Column="0" Content="Leverage:"/>
+                    <TextBox Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" x:Name="LeverageTextBox" Text="10" TextChanged="ValidateInputs"/>
 
                     <!-- Exit Mode -->
-                    <Label Content="Exit Mode:"/>
-                    <ComboBox x:Name="ExitModeComboBox" SelectionChanged="ExitModeComboBox_SelectionChanged">
+                    <Label Grid.Row="7" Grid.Column="0" Content="Exit Mode:"/>
+                    <ComboBox Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ExitModeComboBox" SelectionChanged="ExitModeComboBox_SelectionChanged">
                         <ComboBoxItem Content="Take Profit" IsSelected="True"/>
                         <ComboBoxItem Content="Trailing Stop"/>
                     </ComboBox>
-                    
+
                     <!-- Shared Slider: ATR Multiplier or Activation % -->
-                    <Label x:Name="ExitParamLabel" Content="ATR Multiplier:"/>
-                    <StackPanel Orientation="Horizontal">
-                    <Slider x:Name="AtrMultiplierSlider" 
-                            Minimum="0.5" Maximum="10" 
-                            TickFrequency="0.1"
-                            Width="150" Margin="0 0 10 0"
-                            ValueChanged="AtrMultiplier_ValueChanged"/>
-                        <TextBlock x:Name="AtrMultiplierText" 
-                                Text="2.8 (TP: +2.8 ATR)"
-                                VerticalAlignment="Center"
-                                Foreground="{StaticResource TextColor}"/>
-                    </StackPanel>
+            <Label Grid.Row="8" Grid.Column="0" x:Name="ExitParamLabel" Content="ATR Multiplier:"/>
+            <Slider Grid.Row="8" Grid.Column="1" x:Name="AtrMultiplierSlider" 
+                Minimum="0.5" Maximum="10" 
+                TickFrequency="0.1"
+                Width="180" Margin="0 0 10 0"
+                ValueChanged="AtrMultiplier_ValueChanged"/>
+            <TextBlock Grid.Row="8" Grid.Column="2" x:Name="AtrMultiplierText" 
+                   Text="2.8 (TP: +2.8 ATR)"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource TextColor}"/>
 
                     <!-- Callback % (visible only for Trailing Stop) -->
-                    <StackPanel x:Name="CallbackPanel" Orientation="Vertical" Visibility="Collapsed">
-                        <Label Content="Callback %:"/>
-                        <StackPanel Orientation="Horizontal">
-                            <Slider x:Name="CallbackSlider" Minimum="0.1" Maximum="5.0" TickFrequency="0.1" IsSnapToTickEnabled="True"
-                                    Width="150" Margin="0 0 10 0" ValueChanged="CallbackSlider_ValueChanged"/>
-                            <TextBlock x:Name="CallbackText" Text="1.0%" VerticalAlignment="Center" Foreground="{StaticResource TextColor}"/>
-                        </StackPanel>
-                    </StackPanel>
-                    
+            <Label Grid.Row="9" Grid.Column="0" x:Name="CallbackLabel" Content="Callback %:" Visibility="Collapsed"/>
+            <Slider Grid.Row="9" Grid.Column="1" x:Name="CallbackSlider" Minimum="0.1" Maximum="5.0" TickFrequency="0.1" IsSnapToTickEnabled="True"
+                Width="180" Margin="0 0 10 0" ValueChanged="CallbackSlider_ValueChanged" Visibility="Collapsed"/>
+            <TextBlock Grid.Row="9" Grid.Column="2" x:Name="CallbackText" Text="1.0%" VerticalAlignment="Center" Foreground="{StaticResource TextColor}" Visibility="Collapsed"/>
+
                     <!-- Risk-Reward Ratio -->
-                    <Label Content="Risk-Reward Ratio:"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Slider x:Name="RiskRewardSlider" 
-                                Minimum="0.5" Maximum="10" 
-                                Value="3.0" TickFrequency="0.1"
-                                Width="150" Margin="0 0 10 0"
-                                ValueChanged="RiskReward_ValueChanged"/>
-                        <TextBlock x:Name="RiskRewardText" 
-                                Text="1:3.0"
-                                VerticalAlignment="Center"
-                                Foreground="{StaticResource TextColor}"/>
-                    </StackPanel>
-                    
+            <Label Grid.Row="10" Grid.Column="0" Content="Risk-Reward Ratio:"/>
+            <Slider Grid.Row="10" Grid.Column="1" x:Name="RiskRewardSlider" 
+                Minimum="0.5" Maximum="10" 
+                Value="3.0" TickFrequency="0.1"
+                Width="180" Margin="0 0 10 0"
+                ValueChanged="RiskReward_ValueChanged"/>
+            <TextBlock Grid.Row="10" Grid.Column="2" x:Name="RiskRewardText" 
+                   Text="1:3.0"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource TextColor}"/>
+
                     <!-- Backtest Dates Panel -->
-                    <StackPanel x:Name="BacktestPanel" Visibility="Collapsed" Margin="0 10">
+                    <StackPanel Grid.Row="11" Grid.ColumnSpan="2" x:Name="BacktestPanel" Visibility="Collapsed" Margin="0 10">
                         <TextBlock Text="Backtest Period" 
-                                Foreground="{StaticResource WarningColor}"
-                                FontStyle="Italic"
-                                Margin="0 0 0 5"/>
-                        
+                                   Foreground="{StaticResource WarningColor}"
+                                   FontStyle="Italic"
+                                   Margin="0 0 0 5"/>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="Start:" Width="60" VerticalAlignment="Center"
-                                    Foreground="{StaticResource TextColor}"/>
+                                       Foreground="{StaticResource TextColor}"/>
                             <TextBox x:Name="StartDateTextBox" Width="120" Margin="0 0 10 0"
-                                    ToolTip="Leave empty for automatic 1 week before current date"/>
+                                     ToolTip="Leave empty for automatic 1 week before current date"/>
                         </StackPanel>
-                        
                         <StackPanel Orientation="Horizontal" Margin="0 5 0 0">
                             <TextBlock Text="End:" Width="60" VerticalAlignment="Center"
-                                    Foreground="{StaticResource TextColor}"/>
+                                       Foreground="{StaticResource TextColor}"/>
                             <TextBox x:Name="EndDateTextBox" Width="120"
-                                    ToolTip="Leave empty for automatic 900 candles after start"/>
+                                     ToolTip="Leave empty for automatic 900 candles after start"/>
                         </StackPanel>
                     </StackPanel>
-                </StackPanel>
+                </Grid>
             </Border>
 
             <!-- Right Panel - Log -->
