@@ -5,6 +5,16 @@ The `CandleDistributionReversalStrategy` is a trading strategy designed to ident
 
 ---
 
+## Mode availability in this application
+
+This strategy is available in Real Live Trading only. In the desktop UI it is disabled in Live Paper and Backtest, with a tooltip explaining:
+
+"Real-only strategy (uses order book data). Switch to Live Real to enable."
+
+While the core idea can be evaluated on historical OHLCV data, the implementation here relies on real-time market microstructure that we don’t simulate in Paper/Backtest.
+
+---
+
 ## Strategy Logic
 
 ### Key Components

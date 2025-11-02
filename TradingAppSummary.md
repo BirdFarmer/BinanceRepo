@@ -44,6 +44,7 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **1-5 Active Strategies** - User-selectable maximum of 5 simultaneous strategies
 - Strategy rotation across pairs  
 - Configurable strategy parameters
+ - Availability note: Candle Distribution is Real-only in this app. It is disabled (greyed out) in Live Paper and Backtest with a tooltip: "Real-only strategy (uses order book data). Switch to Live Real to enable."
 
 ### 🖥️ Desktop UI Enhancements
 - Recent Trade Entries panel:
