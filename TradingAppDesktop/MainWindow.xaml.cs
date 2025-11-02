@@ -114,6 +114,24 @@ namespace TradingAppDesktop
                 BacktestPanel.Visibility = mode == OperationMode.Backtest
                     ? Visibility.Visible
                     : Visibility.Collapsed;
+
+                // If user switches to Backtest and no start date is set, default to one week ago at 00:00 UTC
+                if (mode == OperationMode.Backtest && string.IsNullOrWhiteSpace(StartDateTextBox.Text))
+                {
+                    var defaultStart = DateTime.UtcNow.Date.AddDays(-7);
+                    StartDateTextBox.Text = defaultStart.ToString("yyyy-MM-dd HH:mm");
+                }
+
+                // Grey out and disable Candle Distribution when not Live
+                bool isLive = mode == OperationMode.LiveRealTrading;
+                if (StrategySelector != null)
+                {
+                    StrategySelector.SetStrategyEnabled(
+                        SelectedTradingStrategy.CandleDistributionReversal,
+                        isLive,
+                        isLive ? null : "Live-only strategy (uses order book data). Switch to Live to enable."
+                    );
+                }
             }
             //ValidateInputs();
         }
@@ -549,16 +567,25 @@ namespace TradingAppDesktop
 
         private void StartDateTextBox_LostFocus(object sender, RoutedEventArgs e)
         {
-            if (DateTime.TryParse(StartDateTextBox.Text, out DateTime date))
+            var raw = StartDateTextBox.Text?.Trim();
+            if (string.IsNullOrEmpty(raw)) return;
+
+            if (DateTime.TryParse(raw, out DateTime date))
             {
+                // If user did not provide time (no ':'), normalize to 00:00
+                if (!raw.Contains(":")) date = date.Date;
                 StartDateTextBox.Text = date.ToString("yyyy-MM-dd HH:mm");
             }
         }
 
         private void EndDateTextBox_LostFocus(object sender, RoutedEventArgs e)
         {
-            if (DateTime.TryParse(EndDateTextBox.Text, out DateTime date))
+            var raw = EndDateTextBox.Text?.Trim();
+            if (string.IsNullOrEmpty(raw)) return;
+
+            if (DateTime.TryParse(raw, out DateTime date))
             {
+                if (!raw.Contains(":")) date = date.Date;
                 EndDateTextBox.Text = date.ToString("yyyy-MM-dd HH:mm");
             }
         }
@@ -571,6 +598,8 @@ namespace TradingAppDesktop
             // Additional logic if needed:
             StatusText.Text = $"{StrategySelector.SelectedCount} strategies selected";
         }
+
+        
 
         // Helper to find parent controls
         public static T FindVisualParent<T>(DependencyObject child) where T : DependencyObject

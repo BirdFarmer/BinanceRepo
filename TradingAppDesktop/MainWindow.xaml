@@ -155,7 +155,7 @@
         <!-- Content Area -->
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="275"/>
+                <ColumnDefinition Width="295"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -186,10 +186,15 @@
                     </Grid.RowDefinitions>
 
                     <!-- Header -->
-                    <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="TRADING PARAMETERS" 
-                               Foreground="{StaticResource AccentColor}"
-                               FontWeight="Bold"
-                               Margin="2 4 0 10"/>
+                    <Grid Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="TRADING PARAMETERS" 
+                                   Foreground="{StaticResource AccentColor}"
+                                   FontWeight="Bold"
+                                   Margin="2 4 0 10"/>
+                    </Grid>
 
                     <!-- Operation Mode -->
                     <Label Grid.Row="1" Grid.Column="0" Content="Operation Mode:"/>
@@ -272,14 +277,16 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="Start:" Width="60" VerticalAlignment="Center"
                                        Foreground="{StaticResource TextColor}"/>
-                            <TextBox x:Name="StartDateTextBox" Width="120" Margin="0 0 10 0"
-                                     ToolTip="Leave empty for automatic 1 week before current date"/>
+                <TextBox x:Name="StartDateTextBox" Width="120" Margin="0 0 10 0"
+                    ToolTip="Leave empty for automatic 1 week before current date"
+                    LostFocus="StartDateTextBox_LostFocus"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0 5 0 0">
                             <TextBlock Text="End:" Width="60" VerticalAlignment="Center"
                                        Foreground="{StaticResource TextColor}"/>
-                            <TextBox x:Name="EndDateTextBox" Width="120"
-                                     ToolTip="Leave empty for automatic 900 candles after start"/>
+                <TextBox x:Name="EndDateTextBox" Width="120"
+                    ToolTip="Leave empty for automatic 900 candles after start"
+                    LostFocus="EndDateTextBox_LostFocus"/>
                         </StackPanel>
                     </StackPanel>
                 </Grid>

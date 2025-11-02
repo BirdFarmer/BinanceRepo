@@ -23,6 +23,15 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **Stop Loss**: Risk ratio divider relative to take profit
 - **Max Data**: 1000 candles limit for backtesting
 
+#### Exit Management (TP, SL, Trailing)
+- Exit Modes: Take Profit or Trailing Stop (Trailing replaces TP)
+- Stop Loss is always present and honored first
+- Trailing Stop specifics:
+  - Live: server-side `TRAILING_STOP_MARKET` (reduceOnly), direction-aware activation price, callback clamped to [0.1%, 5.0%]
+  - Paper/Backtest: simulated activation, peak/trough tracking, and callback retrace exit
+  - In trailing mode, SL is derived from Activation % and Risk-Reward divider: `slDistance = (activation% × entry) ÷ RR`
+- Details and examples: see `ExitManagement.md`
+
 ### 🔄 Execution Engine
 
 #### Multi-Pair Processing
