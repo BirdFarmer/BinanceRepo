@@ -86,6 +86,17 @@ namespace TradingAppDesktop
                 new StrategyItem(SelectedTradingStrategy.SupportResistance, "Support Resistance Break", "Breaking out and retesting pivots")
             });
 
+            // Apply initial enable/disable state for Candle Distribution based on current operation mode
+            if (OperationModeComboBox.SelectedItem is OperationMode currentMode)
+            {
+                bool isLive = currentMode == OperationMode.LiveRealTrading;
+                StrategySelector.SetStrategyEnabled(
+                    SelectedTradingStrategy.CandleDistributionReversal,
+                    isLive,
+                    isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
+                );
+            }
+
             TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));
             TradeDirectionComboBox.SelectedIndex = 0; // Default to first option
 
@@ -129,7 +140,7 @@ namespace TradingAppDesktop
                     StrategySelector.SetStrategyEnabled(
                         SelectedTradingStrategy.CandleDistributionReversal,
                         isLive,
-                        isLive ? null : "Live-only strategy (uses order book data). Switch to Live to enable."
+                        isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
                     );
                 }
             }
