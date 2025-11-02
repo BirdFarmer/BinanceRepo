@@ -27,6 +27,11 @@ namespace TradingAppDesktop
     private RecentTradesViewModel _recentTradesVm;
     private PaperWalletViewModel _paperWalletVm;
     
+    // Trailing UI state
+    private bool _useTrailing = false;
+    private decimal _trailingActivationPercent = 2.8m; // reuse ATR slider default
+    private decimal _trailingCallbackPercent = 1.0m;
+    
 
 
         public MainWindow()
@@ -51,8 +56,9 @@ namespace TradingAppDesktop
             this.Loaded += (s, e) =>
             {
                 InitializeComboBoxes();
-                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1}ATR)";
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
                 RiskRewardText.Text = $"1:{RiskRewardSlider.Value:F1}";
+                CallbackSlider.Value = (double)_trailingCallbackPercent;
             };
         }
 
@@ -79,6 +85,17 @@ namespace TradingAppDesktop
                 new StrategyItem(SelectedTradingStrategy.BollingerSqueeze, "Bollinger Squeeze", "Breaking out of Bollinger Bands squeeze"),
                 new StrategyItem(SelectedTradingStrategy.SupportResistance, "Support Resistance Break", "Breaking out and retesting pivots")
             });
+
+            // Apply initial enable/disable state for Candle Distribution based on current operation mode
+            if (OperationModeComboBox.SelectedItem is OperationMode currentMode)
+            {
+                bool isLive = currentMode == OperationMode.LiveRealTrading;
+                StrategySelector.SetStrategyEnabled(
+                    SelectedTradingStrategy.CandleDistributionReversal,
+                    isLive,
+                    isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
+                );
+            }
 
             TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));
             TradeDirectionComboBox.SelectedIndex = 0; // Default to first option
@@ -108,6 +125,24 @@ namespace TradingAppDesktop
                 BacktestPanel.Visibility = mode == OperationMode.Backtest
                     ? Visibility.Visible
                     : Visibility.Collapsed;
+
+                // If user switches to Backtest and no start date is set, default to one week ago at 00:00 UTC
+                if (mode == OperationMode.Backtest && string.IsNullOrWhiteSpace(StartDateTextBox.Text))
+                {
+                    var defaultStart = DateTime.UtcNow.Date.AddDays(-7);
+                    StartDateTextBox.Text = defaultStart.ToString("yyyy-MM-dd HH:mm");
+                }
+
+                // Grey out and disable Candle Distribution when not Live
+                bool isLive = mode == OperationMode.LiveRealTrading;
+                if (StrategySelector != null)
+                {
+                    StrategySelector.SetStrategyEnabled(
+                        SelectedTradingStrategy.CandleDistributionReversal,
+                        isLive,
+                        isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
+                    );
+                }
             }
             //ValidateInputs();
         }
@@ -115,7 +150,15 @@ namespace TradingAppDesktop
         private void AtrMultiplier_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (!IsLoaded || AtrMultiplierText == null) return;
-            AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} (TP: +{AtrMultiplierSlider.Value:F1}ATR)";
+            if (_useTrailing)
+            {
+                _trailingActivationPercent = (decimal)AtrMultiplierSlider.Value;
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1}%";
+            }
+            else
+            {
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
+            }
         }
 
         private void RiskReward_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -231,6 +274,8 @@ namespace TradingAppDesktop
                 _tradingService.SetRecentTradesViewModel(_recentTradesVm);        
                 // Pass the Paper Wallet VM to the service (paper mode only used)
                 _tradingService.SetPaperWalletViewModel(_paperWalletVm);
+                // Pass trailing config from UI
+                _tradingService.SetTrailingUiConfig(_useTrailing, _trailingActivationPercent, _trailingCallbackPercent);
                 
                 // PASS THE CUSTOM COIN SELECTION
                 Log(_customCoinSelection != null 
@@ -276,6 +321,31 @@ namespace TradingAppDesktop
 
             Log($"Service state: Running={_tradingService.IsRunning}");
 
+        }
+
+        private void ExitModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            if (ExitModeComboBox.SelectedItem is ComboBoxItem item)
+            {
+                var mode = item.Content?.ToString();
+                _useTrailing = string.Equals(mode, "Trailing Stop", StringComparison.OrdinalIgnoreCase);
+                // Restore full label text for clarity
+                ExitParamLabel.Content = _useTrailing ? "Activation %:" : "ATR Multiplier:";
+                var vis = _useTrailing ? Visibility.Visible : Visibility.Collapsed;
+                if (CallbackLabel != null) CallbackLabel.Visibility = vis;
+                if (CallbackSlider != null) CallbackSlider.Visibility = vis;
+                if (CallbackText != null) CallbackText.Visibility = vis;
+                // Refresh label text to reflect current mode
+                AtrMultiplier_ValueChanged(AtrMultiplierSlider, new RoutedPropertyChangedEventArgs<double>(AtrMultiplierSlider.Value, AtrMultiplierSlider.Value));
+            }
+        }
+
+        private void CallbackSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (!IsLoaded || CallbackText == null) return;
+            _trailingCallbackPercent = (decimal)CallbackSlider.Value;
+            CallbackText.Text = $"{CallbackSlider.Value:F1}%";
         }
 
         private async void StopButton_Click(object sender, RoutedEventArgs e)
@@ -376,7 +446,7 @@ namespace TradingAppDesktop
             if (AtrMultiplierText != null && AtrMultiplierSlider != null)
             {
                 AtrMultiplierSlider.Value = (double)takeProfit;
-                AtrMultiplierText.Text = $"{takeProfit:F1} (TP: +{takeProfit:F1}ATR)";
+                AtrMultiplierText.Text = $"{takeProfit:F1} * ATR";
             }
 
 
@@ -508,16 +578,25 @@ namespace TradingAppDesktop
 
         private void StartDateTextBox_LostFocus(object sender, RoutedEventArgs e)
         {
-            if (DateTime.TryParse(StartDateTextBox.Text, out DateTime date))
+            var raw = StartDateTextBox.Text?.Trim();
+            if (string.IsNullOrEmpty(raw)) return;
+
+            if (DateTime.TryParse(raw, out DateTime date))
             {
+                // If user did not provide time (no ':'), normalize to 00:00
+                if (!raw.Contains(":")) date = date.Date;
                 StartDateTextBox.Text = date.ToString("yyyy-MM-dd HH:mm");
             }
         }
 
         private void EndDateTextBox_LostFocus(object sender, RoutedEventArgs e)
         {
-            if (DateTime.TryParse(EndDateTextBox.Text, out DateTime date))
+            var raw = EndDateTextBox.Text?.Trim();
+            if (string.IsNullOrEmpty(raw)) return;
+
+            if (DateTime.TryParse(raw, out DateTime date))
             {
+                if (!raw.Contains(":")) date = date.Date;
                 EndDateTextBox.Text = date.ToString("yyyy-MM-dd HH:mm");
             }
         }
@@ -530,6 +609,8 @@ namespace TradingAppDesktop
             // Additional logic if needed:
             StatusText.Text = $"{StrategySelector.SelectedCount} strategies selected";
         }
+
+        
 
         // Helper to find parent controls
         public static T FindVisualParent<T>(DependencyObject child) where T : DependencyObject

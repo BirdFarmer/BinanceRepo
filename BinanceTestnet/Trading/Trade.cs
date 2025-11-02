@@ -32,6 +32,13 @@ public class Trade
     public decimal LiquidationPrice { get; }
     
     
+    // Trailing stop simulation state (used in paper/backtest; live uses exchange-side trailing)
+    public bool TrailingEnabled { get; set; }
+    public bool TrailingActivated { get; set; }
+    public decimal? TrailingActivationPercent { get; set; }
+    public decimal? TrailingCallbackPercent { get; set; }
+    public decimal? TrailingActivationPrice { get; set; }
+    public decimal? TrailingExtreme { get; set; } // highest (long) or lowest (short) price since activation
 
     public Trade(
         int tradeId, string sessionId, string symbol, decimal entryPrice, decimal takeProfitPrice, 
@@ -58,6 +65,8 @@ public class Trade
         MarginPerTrade = marginPerTrade;
         LiquidationPrice = liquidationPrice;
         MaintenanceMarginRate = maintenanceMarginRate;
+        TrailingEnabled = false;
+        TrailingActivated = false;
     }
 
     /// <summary>

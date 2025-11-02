@@ -8,6 +8,12 @@
         </Style>
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="#888888"/>
+                    <Setter Property="Opacity" Value="0.6"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </UserControl.Resources>
 
@@ -16,10 +22,18 @@
         <ItemsControl x:Name="StrategiesContainer">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <CheckBox Content="{Binding Name}" 
-                             IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                             Margin="0,2"
-                             ToolTip="{Binding Description}"/>
+                    <CheckBox 
+                        IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                        IsEnabled="{Binding IsEnabled}"
+                        Margin="0,2"
+                        ToolTip="{Binding ToolTipText}"
+                        ToolTipService.ShowOnDisabled="True">
+                        <!-- Ensure tooltip also shows when hovering the text label -->
+                        <TextBlock 
+                            Text="{Binding Name}"
+                            ToolTip="{Binding ToolTipText}"
+                            ToolTipService.ShowOnDisabled="True"/>
+                    </CheckBox>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>

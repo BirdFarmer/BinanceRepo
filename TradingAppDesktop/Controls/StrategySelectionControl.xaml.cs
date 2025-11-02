@@ -4,12 +4,13 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using BinanceTestnet.Enums;
 
 namespace TradingAppDesktop.Controls
 {
     public partial class StrategySelectionControl : UserControl, INotifyPropertyChanged
     {
-        public event PropertyChangedEventHandler PropertyChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
         
         private ObservableCollection<StrategyItem> _strategies = new();
         private int _selectedCount;
@@ -63,6 +64,33 @@ namespace TradingAppDesktop.Controls
             UpdateSelection(); // Initialize count
         }
 
+        public void SetStrategyEnabled(SelectedTradingStrategy strategy, bool enabled, string? tooltipIfDisabled = null)
+        {
+            var item = _strategies.FirstOrDefault(x => x.Strategy.Equals(strategy));
+            if (item == null) return;
+
+            item.IsEnabled = enabled;
+            if (!enabled)
+            {
+                // Deselect if currently selected
+                if (item.IsSelected)
+                {
+                    item.IsSelected = false;
+                }
+                if (!string.IsNullOrWhiteSpace(tooltipIfDisabled))
+                {
+                    item.ToolTipText = tooltipIfDisabled;
+                }
+            }
+            else
+            {
+                // Restore default tooltip
+                item.ToolTipText = item.Description;
+            }
+
+            UpdateSelection();
+        }
+
         private void StrategyItemChanged(object sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(StrategyItem.IsSelected))
@@ -96,11 +124,37 @@ namespace TradingAppDesktop.Controls
 
     public class StrategyItem : INotifyPropertyChanged
     {
-        public event PropertyChangedEventHandler PropertyChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
 
         public SelectedTradingStrategy Strategy { get; }
         public string Name { get; }
         public string Description { get; }
+        private string _toolTipText;
+        public string ToolTipText
+        {
+            get => _toolTipText;
+            set
+            {
+                if (_toolTipText != value)
+                {
+                    _toolTipText = value;
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ToolTipText)));
+                }
+            }
+        }
+        private bool _isEnabled = true;
+        public bool IsEnabled
+        {
+            get => _isEnabled;
+            set
+            {
+                if (_isEnabled != value)
+                {
+                    _isEnabled = value;
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEnabled)));
+                }
+            }
+        }
         
         private bool _isSelected;
         public bool IsSelected
@@ -121,6 +175,7 @@ namespace TradingAppDesktop.Controls
             Strategy = strategy;
             Name = name;
             Description = description;
+            _toolTipText = description;
         }
     }
 }

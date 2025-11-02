@@ -34,6 +34,11 @@ namespace TradingAppDesktop.Services
         private PaperWalletViewModel? _paperWalletVm;
         private decimal _paperStartingBalance;
         
+        // Trailing config supplied by UI (applied when starting a session)
+        private bool _uiUseTrailing = false;
+        private decimal _uiTrailingActivationPercent = 1.0m;
+        private decimal _uiTrailingCallbackPercent = 1.0m;
+        
         private static TradeLogger _tradeLogger;
         private readonly ReportSettings _reportSettings;
         private static string _sessionId;
@@ -106,7 +111,14 @@ namespace TradingAppDesktop.Services
 
             _logger.LogInformation("Starting trading session...");
             _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategies}, Direction: {tradeDirection}");
-            _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, TP={takeProfit}%, SL={stopLoss}%");
+            if (_uiUseTrailing)
+            {
+                _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, Exit=Trailing (Act={_uiTrailingActivationPercent:F1}%, Cb={_uiTrailingCallbackPercent:F1}%, RR=1:{stopLoss:F1})");
+            }
+            else
+            {
+                _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, TP={takeProfit}%, SL={stopLoss}%");
+            }
 
             _sessionId = GenerateSessionId();
             _logger.LogInformation($"New trading session ID: {_sessionId}");
@@ -199,6 +211,12 @@ namespace TradingAppDesktop.Services
             _orderManager = CreateOrderManager(_wallet, leverage, operationMode, interval, 
                                         takeProfit, stopLoss, tradeDirection, selectedStrategies.First(), 
                                         _client, takeProfit, entrySize, databasePath, _sessionId);
+
+            // Apply trailing configuration from UI (for all modes; live mode uses exchange-side trailing now)
+            if (_uiUseTrailing)
+            {
+                _orderManager.UpdateTrailingConfig(true, _uiTrailingActivationPercent, _uiTrailingCallbackPercent);
+            }
 
             _reportSettings.StrategyName = selectedStrategies.First().ToString();
             _reportSettings.Leverage = (int)leverage;
@@ -299,6 +317,14 @@ namespace TradingAppDesktop.Services
         public void SetPaperWalletViewModel(PaperWalletViewModel vm)
         {
             _paperWalletVm = vm;
+        }
+
+        // Set by MainWindow before StartTrading
+        public void SetTrailingUiConfig(bool useTrailing, decimal activationPercent, decimal callbackPercent)
+        {
+            _uiUseTrailing = useTrailing;
+            _uiTrailingActivationPercent = activationPercent;
+            _uiTrailingCallbackPercent = callbackPercent;
         }
 
         private async Task<bool> CheckApiHealth()

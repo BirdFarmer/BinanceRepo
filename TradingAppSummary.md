@@ -23,6 +23,15 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **Stop Loss**: Risk ratio divider relative to take profit
 - **Max Data**: 1000 candles limit for backtesting
 
+#### Exit Management (TP, SL, Trailing)
+- Exit Modes: Take Profit or Trailing Stop (Trailing replaces TP)
+- Stop Loss is always present and honored first
+- Trailing Stop specifics:
+  - Live: server-side `TRAILING_STOP_MARKET` (reduceOnly), direction-aware activation price, callback clamped to [0.1%, 5.0%]
+  - Paper/Backtest: simulated activation, peak/trough tracking, and callback retrace exit
+  - In trailing mode, SL is derived from Activation % and Risk-Reward divider: `slDistance = (activation% × entry) ÷ RR`
+- Details and examples: see `ExitManagement.md`
+
 ### 🔄 Execution Engine
 
 #### Multi-Pair Processing
@@ -35,14 +44,33 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **1-5 Active Strategies** - User-selectable maximum of 5 simultaneous strategies
 - Strategy rotation across pairs  
 - Configurable strategy parameters
+ - Availability note: Candle Distribution is Real-only in this app. It is disabled (greyed out) in Live Paper and Backtest with a tooltip: "Real-only strategy (uses order book data). Switch to Live Real to enable."
 
 ### 🖥️ Desktop UI Enhancements
 - Recent Trade Entries panel:
 	- Shows recent trade entries (scrolls as new entries arrive)
 	- Color-coded: green for long, red for short
-	- Displays symbol, strategy, entry price, and timestamp (UTC)
+	- Displays symbol, strategy, entry price, and timestamp (UTC; weekday names forced to English)
 	- Clears at the start of each new session
 	- Fed by the trading service via a lightweight view model
+
+### 🧪 Paper Wallet (Paper Trading mode only)
+- Equity card at the top-right of the log pane, above the Recent Trades list
+- Updates once per cycle, not on every tick
+- Resets to a fresh baseline at the start of each Paper session
+- Header shows session start time, right-aligned (e.g., “started 01 Nov 14:35 UTC”)
+- Metrics shown:
+  - Equity (Free + Used + Unrealized)
+  - Realized PnL (session) = (Free + Used) − Starting
+  - Unrealized PnL (sum over active trades)
+  - Used (sum of initial margins)
+  - Free (wallet balance)
+  - Active (open trades)
+
+### 🧼 UX Polish
+- Disabled buttons are visually greyed out for clarity
+- Status tag in Recent Trades header shows REAL / PAPER / BACKTEST (IDLE by default)
+- Recent Trades entries in live mode are added only after a successful order response (no pre-execution noise). Failures/negative paths don’t produce entries; local entry price is used for display.
 
 ### 🧩 Coin Selection Management
 - Manual and automated control over the trading universe (USDT pairs)
@@ -101,6 +129,7 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **HTML Reporting** - Automated performance visualization and analytics
 - **Market Analysis** - BTC context and regime detection for timing optimization
 - **UI Data Flow** - Trading service publishes trade-entry events to a `RecentTradesViewModel` (WPF), which binds to the Recent Trades list in `MainWindow`
+- **Paper Wallet ViewModel** - `PaperWalletViewModel` backs the Equity card; resets at Paper session start and updates once per cycle using current prices and active trades
 - **App Data Store** - Single-file SQLite database `TradingData.db` in the application directory for selections, logs, and reports metadata
 - **Persistent Universe Store** - Named saved lists stored in the app database with UI load/delete and automatic refresh after save
 

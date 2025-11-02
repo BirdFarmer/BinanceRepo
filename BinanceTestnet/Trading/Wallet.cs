@@ -25,11 +25,19 @@ namespace BinanceTestnet.Trading
             {
                 Balance -= trade.Quantity * trade.EntryPrice / trade.Leverage;
                 var direction = trade.IsLong ? "Long" : "Short";
-                Console.WriteLine($"At {trade.EntryTime} Successfully placed {direction} trade for {trade.Symbol}. Entry: {trade.EntryPrice}  TP: {trade.TakeProfit}  SL: {trade.StopLoss}" );
-                if(trade.IsLong)
-                    Console.WriteLine($"TP -> {trade.TakeProfit - trade.EntryPrice} - Entry - {trade.EntryPrice - trade.StopLoss} -> SL" );
+                if (trade.TrailingEnabled)
+                {
+                    // Show trailing parameters instead of TP when trailing is enabled (paper/backtest)
+                    Console.WriteLine($"At {trade.EntryTime} Successfully placed {direction} trade for {trade.Symbol}. Entry: {trade.EntryPrice}  Trailing: Act={trade.TrailingActivationPercent:F1}% Cb={trade.TrailingCallbackPercent:F1}%  SL: {trade.StopLoss}");
+                }
                 else
-                    Console.WriteLine($"SL -> {trade.StopLoss - trade.EntryPrice} - Entry - {trade.EntryPrice - trade.TakeProfit} -> TP" );
+                {
+                    Console.WriteLine($"At {trade.EntryTime} Successfully placed {direction} trade for {trade.Symbol}. Entry: {trade.EntryPrice}  TP: {trade.TakeProfit}  SL: {trade.StopLoss}");
+                    if(trade.IsLong)
+                        Console.WriteLine($"TP -> {trade.TakeProfit - trade.EntryPrice} - Entry - {trade.EntryPrice - trade.StopLoss} -> SL" );
+                    else
+                        Console.WriteLine($"SL -> {trade.StopLoss - trade.EntryPrice} - Entry - {trade.EntryPrice - trade.TakeProfit} -> TP" );
+                }
                 return true;
             }
             else

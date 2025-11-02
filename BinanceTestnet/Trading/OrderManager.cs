@@ -58,6 +58,11 @@ namespace BinanceTestnet.Trading
         private readonly ILogger<OrderManager> _logger;
 
         private readonly Action<string, bool, string, decimal, DateTime> _onTradeEntered;
+        
+    // Trailing configuration (live-only initially, can be used for paper/backtest later)
+    private bool _replaceTakeProfitWithTrailing = false;
+    private decimal? _trailingActivationPercentOverride = null;
+    private decimal? _trailingCallbackPercentOverride = null;
     
 
         public OrderManager(Wallet wallet, decimal leverage, OperationMode operationMode,
@@ -98,6 +103,13 @@ namespace BinanceTestnet.Trading
             // _excelWriter.Initialize(fileName);
 
             //InitializeLotSizes().Wait(); // Awaiting the task for initialization
+        }
+
+        public void UpdateTrailingConfig(bool replaceTpWithTrailing, decimal? activationPercent = null, decimal? callbackPercent = null)
+        {
+            _replaceTakeProfitWithTrailing = replaceTpWithTrailing;
+            _trailingActivationPercentOverride = activationPercent;
+            _trailingCallbackPercentOverride = callbackPercent;
         }
 
         public async Task InitializeLotSizes()
@@ -321,8 +333,18 @@ namespace BinanceTestnet.Trading
                 }
 
                 riskDistance = isLong ? takeProfitPrice - price : price - takeProfitPrice;
-                trailingActivationPercent = isLong ? (riskDistance / 2) / price * 100 : (riskDistance / 2) / price * 100;
-                trailingCallbackPercent = isLong ? (riskDistance) / price * 100 : (riskDistance) / price * 100;
+                // Provide default heuristics; may be overridden by UI
+                trailingActivationPercent = (riskDistance / 2) / price * 100;
+                trailingCallbackPercent = (riskDistance) / price * 100;
+            }
+
+            // If trailing is replacing TP, derive SL from activation distance and Risk-Reward divider
+            if (_replaceTakeProfitWithTrailing)
+            {
+                var activationPct = Math.Abs(_trailingActivationPercentOverride ?? trailingActivationPercent ?? 1.0m);
+                var rrDivider = _stopLoss > 0 ? _stopLoss : 2.0m; // interpret _stopLoss as Risk-Reward divider in trailing mode
+                var slDistance = (activationPct / 100m) * price / rrDivider;
+                stopLossPrice = isLong ? price - slDistance : price + slDistance;
             }
 
             decimal quantity = CalculateQuantity(price, symbol, _marginPerTrade);
@@ -379,6 +401,21 @@ namespace BinanceTestnet.Trading
                 liquidationPrice: liquidationPrice,
                 maintenanceMarginRate: maintenanceMarginRate
             );
+            
+            // Set trailing simulation parameters on the trade (used in paper/backtest; harmless in live)
+            if (_replaceTakeProfitWithTrailing)
+            {
+                var activationPctLocal = Math.Abs(_trailingActivationPercentOverride ?? trailingActivationPercent ?? 1.0m);
+                var callbackPctLocal = Math.Abs(_trailingCallbackPercentOverride ?? trailingCallbackPercent ?? 1.0m);
+                // clamp callback to [0.1, 5.0]
+                callbackPctLocal = Math.Min(5.0m, Math.Max(0.1m, callbackPctLocal));
+                trade.TrailingEnabled = true;
+                trade.TrailingActivationPercent = activationPctLocal;
+                trade.TrailingCallbackPercent = callbackPctLocal;
+                trade.TrailingActivated = false;
+                trade.TrailingActivationPrice = null;
+                trade.TrailingExtreme = null;
+            }
         
             // NOTIFY VIA CALLBACK (pass individual values)
             // For paper/backtest, show immediately; for live, defer until after successful order
@@ -474,15 +511,50 @@ namespace BinanceTestnet.Trading
                 
                 if (trade.IsLong)
                 {
-                    // For long positions
+                    // For long positions: always honor SL
                     if (currentPrice <= trade.StopLoss)
                     {
                         shouldClose = true;
                         closingPrice = trade.StopLoss; // Use the exact SL price
                         _logger.LogInformation($"Closing {trade.Symbol} LONG at Stop Loss: {closingPrice}");
                     }
+                    else if (trade.TrailingEnabled)
+                    {
+                        // Trailing simulation
+                        var actPct = Math.Abs(trade.TrailingActivationPercent ?? 1.0m);
+                        var cbPct = Math.Min(5.0m, Math.Max(0.1m, Math.Abs(trade.TrailingCallbackPercent ?? 1.0m)));
+                        var activationPrice = trade.TrailingActivationPrice ?? (trade.EntryPrice * (1 + (actPct / 100m)));
+
+                        if (!trade.TrailingActivated)
+                        {
+                            // Activate when price moves up to activation price
+                            if (currentPrice >= activationPrice)
+                            {
+                                trade.TrailingActivated = true;
+                                trade.TrailingActivationPrice = activationPrice;
+                                trade.TrailingExtreme = currentPrice; // peak tracker
+                                _logger.LogInformation($"{trade.Symbol} LONG trailing activated at {activationPrice:F6} (cb {cbPct:F1}%)");
+                            }
+                        }
+                        else
+                        {
+                            // Update peak and check retrace
+                            if (!trade.TrailingExtreme.HasValue || currentPrice > trade.TrailingExtreme.Value)
+                            {
+                                trade.TrailingExtreme = currentPrice;
+                            }
+                            var retraceTrigger = trade.TrailingExtreme.Value * (1 - (cbPct / 100m));
+                            if (currentPrice <= retraceTrigger)
+                            {
+                                shouldClose = true;
+                                closingPrice = currentPrice;
+                                _logger.LogInformation($"Closing {trade.Symbol} LONG at trailing retrace: {closingPrice:F6} (peak {trade.TrailingExtreme.Value:F6}, cb {cbPct:F1}%)");
+                            }
+                        }
+                    }
                     else if (currentPrice >= trade.TakeProfit)
                     {
+                        // Standard TP when trailing not enabled
                         shouldClose = true;
                         closingPrice = trade.TakeProfit; // Use the exact TP price
                         _logger.LogInformation($"Closing {trade.Symbol} LONG at Take Profit: {closingPrice}");
@@ -490,15 +562,50 @@ namespace BinanceTestnet.Trading
                 }
                 else
                 {
-                    // For short positions
+                    // For short positions: always honor SL
                     if (currentPrice >= trade.StopLoss)
                     {
                         shouldClose = true;
                         closingPrice = trade.StopLoss; // Use the exact SL price
                         _logger.LogInformation($"Closing {trade.Symbol} SHORT at Stop Loss: {closingPrice}");
                     }
+                    else if (trade.TrailingEnabled)
+                    {
+                        // Trailing simulation
+                        var actPct = Math.Abs(trade.TrailingActivationPercent ?? 1.0m);
+                        var cbPct = Math.Min(5.0m, Math.Max(0.1m, Math.Abs(trade.TrailingCallbackPercent ?? 1.0m)));
+                        var activationPrice = trade.TrailingActivationPrice ?? (trade.EntryPrice * (1 - (actPct / 100m)));
+
+                        if (!trade.TrailingActivated)
+                        {
+                            // Activate when price moves down to activation price
+                            if (currentPrice <= activationPrice)
+                            {
+                                trade.TrailingActivated = true;
+                                trade.TrailingActivationPrice = activationPrice;
+                                trade.TrailingExtreme = currentPrice; // trough tracker
+                                _logger.LogInformation($"{trade.Symbol} SHORT trailing activated at {activationPrice:F6} (cb {cbPct:F1}%)");
+                            }
+                        }
+                        else
+                        {
+                            // Update trough and check retrace
+                            if (!trade.TrailingExtreme.HasValue || currentPrice < trade.TrailingExtreme.Value)
+                            {
+                                trade.TrailingExtreme = currentPrice;
+                            }
+                            var retraceTrigger = trade.TrailingExtreme.Value * (1 + (cbPct / 100m));
+                            if (currentPrice >= retraceTrigger)
+                            {
+                                shouldClose = true;
+                                closingPrice = currentPrice;
+                                _logger.LogInformation($"Closing {trade.Symbol} SHORT at trailing retrace: {closingPrice:F6} (trough {trade.TrailingExtreme.Value:F6}, cb {cbPct:F1}%)");
+                            }
+                        }
+                    }
                     else if (currentPrice <= trade.TakeProfit)
                     {
+                        // Standard TP when trailing not enabled
                         shouldClose = true;
                         closingPrice = trade.TakeProfit; // Use the exact TP price
                         _logger.LogInformation($"Closing {trade.Symbol} SHORT at Take Profit: {closingPrice}");
@@ -585,8 +692,16 @@ namespace BinanceTestnet.Trading
                         realizedReturn = ((initialValue - currentValue) / initialValue) * 100;
                     }
                     string entryTime = TimeTools.FormatTimestamp(trade.EntryTime); // Use the helper function
-                    Console.WriteLine($"{trade.Symbol}: {direction}, Entry Price: {trade.EntryPrice:F5}, @ {entryTime}, Take Profit: {trade.TakeProfit:F5}, Stop Loss: {trade.StopLoss:F5}, Leverage: {trade.Leverage:F1}, Current Price: {currentPrices[trade.Symbol]:F5}, Realized Return: {realizedReturn:F2}%");
-                    logOutput += $"{trade.Symbol}: Direction: {direction}, Entry Price: {trade.EntryPrice:F5}, Current Price: {currentPrices[trade.Symbol]:F5}, Take Profit: {trade.TakeProfit:F5}, Stop Loss: {trade.StopLoss:F5}, Leverage: {trade.Leverage:F1}, Realized Return: {realizedReturn:F2}%\n";
+                    if (trade.TrailingEnabled)
+                    {
+                        Console.WriteLine($"{trade.Symbol}: {direction}, Entry Price: {trade.EntryPrice:F5}, @ {entryTime}, Trailing: Act={trade.TrailingActivationPercent:F1}% Cb={trade.TrailingCallbackPercent:F1}%, Stop Loss: {trade.StopLoss:F5}, Leverage: {trade.Leverage:F1}, Current Price: {currentPrices[trade.Symbol]:F5}, Realized Return: {realizedReturn:F2}%");
+                        logOutput += $"{trade.Symbol}: Direction: {direction}, Entry Price: {trade.EntryPrice:F5}, Current Price: {currentPrices[trade.Symbol]:F5}, Trailing: Act={trade.TrailingActivationPercent:F1}% Cb={trade.TrailingCallbackPercent:F1}%, Stop Loss: {trade.StopLoss:F5}, Leverage: {trade.Leverage:F1}, Realized Return: {realizedReturn:F2}%\n";
+                    }
+                    else
+                    {
+                        Console.WriteLine($"{trade.Symbol}: {direction}, Entry Price: {trade.EntryPrice:F5}, @ {entryTime}, Take Profit: {trade.TakeProfit:F5}, Stop Loss: {trade.StopLoss:F5}, Leverage: {trade.Leverage:F1}, Current Price: {currentPrices[trade.Symbol]:F5}, Realized Return: {realizedReturn:F2}%");
+                        logOutput += $"{trade.Symbol}: Direction: {direction}, Entry Price: {trade.EntryPrice:F5}, Current Price: {currentPrices[trade.Symbol]:F5}, Take Profit: {trade.TakeProfit:F5}, Stop Loss: {trade.StopLoss:F5}, Leverage: {trade.Leverage:F1}, Realized Return: {realizedReturn:F2}%\n";
+                    }
                 }
             }
 
@@ -852,42 +967,54 @@ namespace BinanceTestnet.Trading
                         Console.WriteLine($"Failed to place Stop Loss for {trade.Symbol}. Error: {stopLossResponse.ErrorMessage}");
                     }
 
-                    // Step 3: Place Take Profit as a LIMIT order
+                    // Step 3: Either place Take Profit (default) or Trailing Stop (if enabled)
                     serverTime = await GetServerTimeAsync(5005);
                     await DelayAsync(200); // Small delay after timestamp refresh
 
                     decimal tickSize = GetTickSize(trade.Symbol);
                     decimal roundedTakeProfitPrice = Math.Floor(trade.TakeProfit / tickSize) * tickSize;
                     string takeProfitPriceString = roundedTakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
-
-                    var takeProfitRequest = new RestRequest("/fapi/v1/order", Method.Post);
-                    takeProfitRequest.AddParameter("symbol", trade.Symbol);
-                    takeProfitRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY");
-                    takeProfitRequest.AddParameter("type", "LIMIT");
-                    takeProfitRequest.AddParameter("price", takeProfitPriceString);
-                    takeProfitRequest.AddParameter("quantity", formattedQuantity);
-                    takeProfitRequest.AddParameter("timeInForce", "GTC");
-                    takeProfitRequest.AddParameter("timestamp", serverTime);
-
-                    var takeProfitQueryString = takeProfitRequest.Parameters
-                        .Where(p3 => p3.Type == ParameterType.GetOrPost)
-                        .Select(p3 => $"{p3.Name}={p3.Value}")
-                        .Aggregate((current, next) => $"{current}&{next}");
-
-                    var takeProfitSignature = GenerateSignature(takeProfitQueryString);
-                    takeProfitRequest.AddParameter("signature", takeProfitSignature);
-                    takeProfitRequest.AddHeader("X-MBX-APIKEY", apiKey);
-
-                    var takeProfitResponse = await _client.ExecuteAsync(takeProfitRequest);
-                    await DelayAsync(300); // Delay after take-profit order
-
-                    if (takeProfitResponse.IsSuccessful)
+                    if (_replaceTakeProfitWithTrailing)
                     {
-                        Console.WriteLine($"Take Profit set for {trade.Symbol} at {roundedTakeProfitPrice}");
+                        // Determine trailing params (override > computed > defaults)
+                        decimal activationPercent = (_trailingActivationPercentOverride ?? trailingActivationPercent ?? 1.0m);
+                        decimal callbackPercent = (_trailingCallbackPercentOverride ?? trailingCallbackPercent ?? 1.0m);
+                        // Clamp callback to Binance constraints 0.1 - 5.0
+                        callbackPercent = Math.Min(5.0m, Math.Max(0.1m, callbackPercent));
+
+                        await PlaceTrailingStopLossAsync(trade, activationPercent, callbackPercent, formattedQuantity, apiKey);
                     }
                     else
                     {
-                        Console.WriteLine($"Failed to place Take Profit for {trade.Symbol}. Error: {takeProfitResponse.ErrorMessage}");
+                        var takeProfitRequest = new RestRequest("/fapi/v1/order", Method.Post);
+                        takeProfitRequest.AddParameter("symbol", trade.Symbol);
+                        takeProfitRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY");
+                        takeProfitRequest.AddParameter("type", "LIMIT");
+                        takeProfitRequest.AddParameter("price", takeProfitPriceString);
+                        takeProfitRequest.AddParameter("quantity", formattedQuantity);
+                        takeProfitRequest.AddParameter("timeInForce", "GTC");
+                        takeProfitRequest.AddParameter("timestamp", serverTime);
+
+                        var takeProfitQueryString = takeProfitRequest.Parameters
+                            .Where(p3 => p3.Type == ParameterType.GetOrPost)
+                            .Select(p3 => $"{p3.Name}={p3.Value}")
+                            .Aggregate((current, next) => $"{current}&{next}");
+
+                        var takeProfitSignature = GenerateSignature(takeProfitQueryString);
+                        takeProfitRequest.AddParameter("signature", takeProfitSignature);
+                        takeProfitRequest.AddHeader("X-MBX-APIKEY", apiKey);
+
+                        var takeProfitResponse = await _client.ExecuteAsync(takeProfitRequest);
+                        await DelayAsync(300); // Delay after take-profit order
+
+                        if (takeProfitResponse.IsSuccessful)
+                        {
+                            Console.WriteLine($"Take Profit set for {trade.Symbol} at {roundedTakeProfitPrice}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Failed to place Take Profit for {trade.Symbol}. Error: {takeProfitResponse.ErrorMessage}");
+                        }
                     }
                 }
                 else
@@ -914,10 +1041,18 @@ namespace BinanceTestnet.Trading
             trailingStopLossRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY");
             trailingStopLossRequest.AddParameter("type", "TRAILING_STOP_MARKET");            
             trailingStopLossRequest.AddParameter("quantity", formattedQuantity);
+            trailingStopLossRequest.AddParameter("reduceOnly", "true");
 
-            decimal activationPrice = trade.EntryPrice * (1 + (trailingActivationPercent.Value / 100)); // Use .Value
+            // Compute direction-aware activation price
+            decimal actPct = Math.Abs(trailingActivationPercent ?? 1.0m);
+            decimal activationPrice = trade.IsLong
+                ? trade.EntryPrice * (1 + (actPct / 100))
+                : trade.EntryPrice * (1 - (actPct / 100));
             string activationPriceString = activationPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
-            string callbackRateString = trailingCallbackPercent.Value.ToString("F2", CultureInfo.InvariantCulture); // Use .Value
+
+            // Clamp callbackRate to [0.1, 5.0] and format with one decimal
+            decimal cbPct = Math.Min(5.0m, Math.Max(0.1m, Math.Abs(trailingCallbackPercent ?? 1.0m)));
+            string callbackRateString = cbPct.ToString("F1", CultureInfo.InvariantCulture);
             
             trailingStopLossRequest.AddParameter("activationPrice", activationPriceString);
             trailingStopLossRequest.AddParameter("callbackRate", callbackRateString);
@@ -938,11 +1073,11 @@ namespace BinanceTestnet.Trading
 
             if (stopLossResponse.IsSuccessful)
             {
-                Console.WriteLine($"Trailing SL activates for {trade.Symbol} at {activationPriceString}");                 
+                Console.WriteLine($"Trailing Stop placed for {trade.Symbol}: activation {activationPriceString}, callback {callbackRateString}% (reduceOnly)");                 
             }
             else
             {
-                Console.WriteLine($"Failed to place trail SL for {trade.Symbol}. Error: {stopLossResponse.ErrorMessage}");
+                Console.WriteLine($"Failed to place trailing stop for {trade.Symbol}. Error: {stopLossResponse.ErrorMessage}");
                 Console.WriteLine($"Response Content: {stopLossResponse.Content}");
             }
         }
