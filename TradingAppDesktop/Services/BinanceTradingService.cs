@@ -111,7 +111,14 @@ namespace TradingAppDesktop.Services
 
             _logger.LogInformation("Starting trading session...");
             _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategies}, Direction: {tradeDirection}");
-            _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, TP={takeProfit}%, SL={stopLoss}%");
+            if (_uiUseTrailing)
+            {
+                _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, Exit=Trailing (Act={_uiTrailingActivationPercent:F1}%, Cb={_uiTrailingCallbackPercent:F1}%, RR=1:{stopLoss:F1})");
+            }
+            else
+            {
+                _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, TP={takeProfit}%, SL={stopLoss}%");
+            }
 
             _sessionId = GenerateSessionId();
             _logger.LogInformation($"New trading session ID: {_sessionId}");
