@@ -63,6 +63,10 @@ namespace TradingAppDesktop.Services
     private MarketContextAnalyzer? _marketAnalyzer;
         private readonly ILoggerFactory _loggerFactory;
         private readonly object _startLock = new();
+        private int _symbolRefreshEveryNCycles = 20; // configurable via appsettings
+    private enum SymbolSelectionMode { Volume, Volatility, Custom }
+    private SymbolSelectionMode _symbolSelectionMode = SymbolSelectionMode.Volume;
+    private int _symbolSelectionCount = 50;
         
         public BinanceTradingService(ILogger<BinanceTradingService> logger, ILoggerFactory loggerFactory)
         {
@@ -77,6 +81,23 @@ namespace TradingAppDesktop.Services
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json")
                 .Build();
+            // Load optional config for symbol refresh cadence (fallback to 20 if missing/invalid)
+            if (int.TryParse(config["SymbolRefreshEveryNCycles"], out var n) && n > 0)
+            {
+                _symbolRefreshEveryNCycles = n;
+            }
+            // Load symbol selection mode and count
+            var mode = config["SymbolRefreshMode"];
+            if (!string.IsNullOrWhiteSpace(mode))
+            {
+                if (mode.Equals("Volatility", StringComparison.OrdinalIgnoreCase)) _symbolSelectionMode = SymbolSelectionMode.Volatility;
+                else if (mode.Equals("Custom", StringComparison.OrdinalIgnoreCase)) _symbolSelectionMode = SymbolSelectionMode.Custom;
+                else _symbolSelectionMode = SymbolSelectionMode.Volume;
+            }
+            if (int.TryParse(config["SymbolSelectionCount"], out var selCount) && selCount > 0)
+            {
+                _symbolSelectionCount = selCount;
+            }
             
 
             _client = new RestClient(new HttpClient()
@@ -183,6 +204,7 @@ namespace TradingAppDesktop.Services
                 // Use the custom coin selection from the coin selection window
                 symbols = customCoinSelection;
                 _logger.LogInformation($"Using custom coin selection: {symbols.Count} symbols");
+                _symbolSelectionMode = SymbolSelectionMode.Custom; // sticky custom for this session
 
                 // Save this selection to database for persistence
                 databaseManager.UpsertCoinPairList(symbols, DateTime.UtcNow);
@@ -202,7 +224,14 @@ namespace TradingAppDesktop.Services
             {
                 // Use the default auto-selection logic
                 _logger.LogInformation("Fetching symbols to trade using auto-selection...");
-                symbols = await GetBestListOfSymbols(_client, databaseManager);
+                if (_symbolSelectionMode == SymbolSelectionMode.Volatility)
+                {
+                    symbols = await GetMostVolatileSymbols(_client, databaseManager, _symbolSelectionCount);
+                }
+                else
+                {
+                    symbols = await GetBestListOfSymbols(_client, databaseManager);
+                }
                 _logger.LogInformation($"Auto-selected {symbols.Count} symbols: {string.Join(", ", symbols.Take(5))}...");
             }    
 
@@ -263,7 +292,7 @@ namespace TradingAppDesktop.Services
                     case OperationMode.LiveRealTrading:
                         await RunLiveTrading(_client, symbols, interval, _wallet, "", 
                                         takeProfit, _orderManager, 
-                                        runner, _cancellationTokenSource.Token, logger: _logger);
+                                        runner, _cancellationTokenSource.Token, _symbolRefreshEveryNCycles, _symbolSelectionMode, _symbolSelectionCount, logger: _logger);
                         break;
                     default: // LivePaperTrading
                         await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
@@ -764,6 +793,68 @@ namespace TradingAppDesktop.Services
             return topSymbols;
         }
 
+        private static async Task<List<string>> GetMostVolatileSymbols(RestClient client, DatabaseManager dbManager, int count = 50)
+        {
+            var request = new RestRequest("/fapi/v1/ticker/24hr", Method.Get);
+            var result = new List<string>();
+
+            try
+            {
+                var response = await client.ExecuteAsync(request);
+                if (!response.IsSuccessful || string.IsNullOrWhiteSpace(response.Content))
+                {
+                    Console.WriteLine($"Failed to fetch 24h tickers for volatility: {response.StatusCode} - {response.ErrorMessage}");
+                    return result;
+                }
+
+                var tickers = JsonConvert.DeserializeObject<List<Ticker24h>>(response.Content) ?? new List<Ticker24h>();
+
+                var candidates = new List<(string symbol, decimal absChange, decimal price, decimal baseVol)>();
+                foreach (var t in tickers)
+                {
+                    if (string.IsNullOrWhiteSpace(t.symbol) || !t.symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    decimal changePct = 0m;
+                    if (!string.IsNullOrWhiteSpace(t.priceChangePercent))
+                        decimal.TryParse(t.priceChangePercent, NumberStyles.Any, CultureInfo.InvariantCulture, out changePct);
+
+                    decimal price = 0m;
+                    if (!string.IsNullOrWhiteSpace(t.lastPrice))
+                        decimal.TryParse(t.lastPrice, NumberStyles.Any, CultureInfo.InvariantCulture, out price);
+
+                    decimal baseVolume = 0m;
+                    if (!string.IsNullOrWhiteSpace(t.volume))
+                        decimal.TryParse(t.volume, NumberStyles.Any, CultureInfo.InvariantCulture, out baseVolume);
+
+                    candidates.Add((t.symbol!, Math.Abs(changePct), price, baseVolume));
+                }
+
+                var top = candidates
+                    .OrderByDescending(x => x.absChange)
+                    .ThenByDescending(x => x.baseVol * x.price) // tie-break by dollar volume
+                    .Take(Math.Max(1, count))
+                    .ToList();
+
+                foreach (var c in top)
+                {
+                    dbManager.UpsertCoinPairData(c.symbol, c.price, c.baseVol);
+                    result.Add(c.symbol);
+                }
+
+                if (result.Count > 0)
+                {
+                    dbManager.UpsertCoinPairList(result, DateTime.UtcNow);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception computing volatility list: {ex.Message}");
+            }
+
+            return result;
+        }
+
         
         private static async Task<List<CoinPairInfo>> FetchCoinPairsFromFuturesAPI(RestClient client)
         {
@@ -1045,20 +1136,30 @@ namespace TradingAppDesktop.Services
                 }
 
                 cycles++;
-                if (cycles % 20 == 0)
+                if (_symbolRefreshEveryNCycles > 0 && cycles % _symbolRefreshEveryNCycles == 0)
                 {
-                    _logger.LogInformation("Updating symbol list...");
+                    _logger.LogInformation($"Updating symbols based on {_symbolSelectionMode} (every {_symbolRefreshEveryNCycles} cycles)...");
                     Stopwatch timer = Stopwatch.StartNew();
-                    
-                    symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
-                    
+                    switch (_symbolSelectionMode)
+                    {
+                        case SymbolSelectionMode.Custom:
+                            await RefreshCoinPairDataForSymbols(client, orderManager.DatabaseManager, symbols);
+                            break;
+                        case SymbolSelectionMode.Volatility:
+                            symbols = await GetMostVolatileSymbols(client, orderManager.DatabaseManager, _symbolSelectionCount);
+                            break;
+                        default:
+                            symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                            break;
+                    }
                     timer.Stop();
-                    _logger.LogInformation($"Updated {symbols.Count} symbols. Took {timer.ElapsedMilliseconds}ms");
+                    _logger.LogInformation($"Updated symbols in {timer.ElapsedMilliseconds}ms");
                 }
 
                 var delay = TimeTools.GetTimeSpanFromInterval(interval);
                 _logger.LogDebug($"Waiting {delay.TotalSeconds} seconds until next cycle");
-                await Task.Delay(delay);
+                // IMPORTANT: pass cancellationToken so Stop() cancels the wait immediately
+                await Task.Delay(delay, cancellationToken);
             }
 
             _logger.LogInformation("Live paper trading terminated gracefully");
@@ -1097,6 +1198,9 @@ namespace TradingAppDesktop.Services
             OrderManager orderManager, 
             StrategyRunner runner,
             CancellationToken cancellationToken,
+            int symbolRefreshEveryNCycles,
+            SymbolSelectionMode selectionMode,
+            int selectionCount,
             ILogger logger)
         {
             var startTime = DateTime.Now;
@@ -1129,9 +1233,20 @@ namespace TradingAppDesktop.Services
                     }
 
                     // 2. Update symbols periodically
-                    if (++cycles % 20 == 0)
+                    if (symbolRefreshEveryNCycles > 0 && ++cycles % symbolRefreshEveryNCycles == 0)
                     {
-                        symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                        switch (selectionMode)
+                        {
+                            case SymbolSelectionMode.Custom:
+                                await RefreshCoinPairDataForSymbols(client, orderManager.DatabaseManager, symbols);
+                                break;
+                            case SymbolSelectionMode.Volatility:
+                                symbols = await GetMostVolatileSymbols(client, orderManager.DatabaseManager, selectionCount);
+                                break;
+                            default:
+                                symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                                break;
+                        }
                     }
 
                     // 3. Delay AFTER work is done
@@ -1240,6 +1355,7 @@ namespace TradingAppDesktop.Services
             public string? lastPrice { get; set; }
             public string? volume { get; set; }
             public string? quoteVolume { get; set; }
+            public string? priceChangePercent { get; set; }
         }
 
         static async Task<List<Kline>> FetchHistoricalData(RestClient client, string symbol, string interval, DateTime startDate, DateTime endDate)
