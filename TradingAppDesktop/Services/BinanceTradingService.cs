@@ -39,14 +39,14 @@ namespace TradingAppDesktop.Services
         private decimal _uiTrailingActivationPercent = 1.0m;
         private decimal _uiTrailingCallbackPercent = 1.0m;
         
-        private static TradeLogger _tradeLogger;
+    private static TradeLogger _tradeLogger = null!;
         private readonly ReportSettings _reportSettings;
-        private static string _sessionId;
-        private static OrderManager _orderManager;
-        private static RestClient _client; // Lift client to class level
+    private static string _sessionId = string.Empty;
+    private static OrderManager _orderManager = null!;
+    private static RestClient _client = null!; // Lift client to class level
         
         private readonly TimeSpan _defaultTimeout = TimeSpan.FromSeconds(10);
-        private static Wallet _wallet;
+    private static Wallet _wallet = null!;
     private CancellationTokenSource? _cancellationTokenSource;
         private volatile bool _isStopping = false;
         private volatile bool _startInProgress = false;
@@ -63,20 +63,58 @@ namespace TradingAppDesktop.Services
     private MarketContextAnalyzer? _marketAnalyzer;
         private readonly ILoggerFactory _loggerFactory;
         private readonly object _startLock = new();
+        private int _symbolRefreshEveryNCycles = 20; // configurable via appsettings
+    private enum SymbolSelectionMode { Volume, Volatility, Custom }
+    private SymbolSelectionMode _symbolSelectionMode = SymbolSelectionMode.Volume;
+    private int _symbolSelectionCount = 50;
         
         public BinanceTradingService(ILogger<BinanceTradingService> logger, ILoggerFactory loggerFactory)
         {
             _logger = logger;
             _loggerFactory = loggerFactory;
             
-            // Initialize report settings with defaults
-            _reportSettings = new ReportSettings(); // Ensure the ReportSettings class is defined or imported
+            // Initialize report settings and bind from appsettings (if present)
+            _reportSettings = new ReportSettings();
 
             // Load configuration
             var config = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json")
                 .Build();
+            try
+            {
+                // Load optional report settings without relying on ConfigurationBinder (no NuGet dep)
+                var reportSection = config.GetSection("ReportSettings");
+                if (reportSection.Exists())
+                {
+                    var s = reportSection["OutputPath"]; if (!string.IsNullOrWhiteSpace(s)) _reportSettings.OutputPath = s;
+                    s = reportSection["AutoOpen"]; if (bool.TryParse(s, out var b)) _reportSettings.AutoOpen = b;
+                    s = reportSection["ShowTradeDetails"]; if (bool.TryParse(s, out b)) _reportSettings.ShowTradeDetails = b;
+                    s = reportSection["TopPerformersCount"]; if (int.TryParse(s, out var i)) _reportSettings.TopPerformersCount = i;
+                    s = reportSection["MaxCriticalTradesToShow"]; if (int.TryParse(s, out i)) _reportSettings.MaxCriticalTradesToShow = i;
+                    s = reportSection["DateFormat"]; if (!string.IsNullOrWhiteSpace(s)) _reportSettings.DateFormat = s;
+                    s = reportSection["NumberFormat"]; if (!string.IsNullOrWhiteSpace(s)) _reportSettings.NumberFormat = s;
+                    s = reportSection["LiquidationWarningThreshold"]; if (decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d)) _reportSettings.LiquidationWarningThreshold = d;
+                }
+            }
+            catch { /* fall back to defaults */ }
+            // Load optional config for symbol refresh cadence (fallback to 20 if missing/invalid)
+            if (int.TryParse(config["SymbolRefreshEveryNCycles"], out var n) && n > 0)
+            {
+                _symbolRefreshEveryNCycles = n;
+            }
+            // Load symbol selection mode and count
+            var mode = config["SymbolRefreshMode"];
+            if (!string.IsNullOrWhiteSpace(mode))
+            {
+                if (mode.Equals("Volatility", StringComparison.OrdinalIgnoreCase)) _symbolSelectionMode = SymbolSelectionMode.Volatility;
+                else if (mode.Equals("Custom", StringComparison.OrdinalIgnoreCase)) _symbolSelectionMode = SymbolSelectionMode.Custom;
+                else _symbolSelectionMode = SymbolSelectionMode.Volume;
+            }
+            if (int.TryParse(config["SymbolSelectionCount"], out var selCount) && selCount > 0)
+            {
+                _symbolSelectionCount = selCount;
+            }
             
 
             _client = new RestClient(new HttpClient()
@@ -89,11 +127,11 @@ namespace TradingAppDesktop.Services
         }
             
 
-        public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, 
-                                    List<SelectedTradingStrategy> selectedStrategies, string interval, 
-                                    decimal entrySize, decimal leverage, decimal takeProfit, decimal stopLoss, 
-                                    DateTime? startDate = null, DateTime? endDate = null,
-                                    List<string> customCoinSelection = null)
+    public async Task StartTrading(OperationMode operationMode, SelectedTradeDirection tradeDirection, 
+                    List<SelectedTradingStrategy> selectedStrategies, string interval, 
+                    decimal entrySize, decimal leverage, decimal takeProfit, decimal stopLoss, 
+                    DateTime? startDate = null, DateTime? endDate = null,
+                    List<string>? customCoinSelection = null)
         {
             _logger.LogDebug($"State update - IsRunning: {_isRunning}, StartInProgress: {_startInProgress}, IsStopping: {_isStopping}");
             lock (_startLock)
@@ -142,7 +180,7 @@ namespace TradingAppDesktop.Services
             );
             // 1. Ensure directory exists
             var dbDir = Path.GetDirectoryName(databasePath);
-            if (!Directory.Exists(dbDir))
+            if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
             {
                 Directory.CreateDirectory(dbDir);
                 _logger.LogDebug($"Created database directory: {dbDir}");
@@ -183,15 +221,34 @@ namespace TradingAppDesktop.Services
                 // Use the custom coin selection from the coin selection window
                 symbols = customCoinSelection;
                 _logger.LogInformation($"Using custom coin selection: {symbols.Count} symbols");
+                _symbolSelectionMode = SymbolSelectionMode.Custom; // sticky custom for this session
 
                 // Save this selection to database for persistence
                 databaseManager.UpsertCoinPairList(symbols, DateTime.UtcNow);
+
+                // Targeted refresh of CoinPairData for these selected symbols (fresh lastPrice + base volume)
+                try
+                {
+                    await RefreshCoinPairDataForSymbols(_client, databaseManager, symbols);
+                    _logger.LogInformation($"Refreshed CoinPairData for {symbols.Count} selected symbols");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to refresh CoinPairData for custom selection");
+                }
             }
             else
             {
                 // Use the default auto-selection logic
                 _logger.LogInformation("Fetching symbols to trade using auto-selection...");
-                symbols = await GetBestListOfSymbols(_client, databaseManager);
+                if (_symbolSelectionMode == SymbolSelectionMode.Volatility)
+                {
+                    symbols = await GetMostVolatileSymbols(_client, databaseManager, _symbolSelectionCount);
+                }
+                else
+                {
+                    symbols = await GetBestListOfSymbols(_client, databaseManager);
+                }
                 _logger.LogInformation($"Auto-selected {symbols.Count} symbols: {string.Join(", ", symbols.Take(5))}...");
             }    
 
@@ -242,15 +299,17 @@ namespace TradingAppDesktop.Services
                 switch (operationMode)
                 {
                     case OperationMode.Backtest:
+                        if (!startDate.HasValue || !endDate.HasValue)
+                            throw new ArgumentException("Backtest requires startDate and endDate");
                         await RunBacktest(_client, symbols, interval, _wallet, "", 
                                           _orderManager, runner, 
-                                         startDate.Value, endDate.Value, //new DateTime(2025, 1, 5), new DateTime(2025, 1, 6), //
-                                         _cancellationTokenSource.Token);
+                                          startDate.Value, endDate.Value,
+                                          _cancellationTokenSource.Token);
                         break;
                     case OperationMode.LiveRealTrading:
                         await RunLiveTrading(_client, symbols, interval, _wallet, "", 
                                         takeProfit, _orderManager, 
-                                        runner, _cancellationTokenSource.Token, logger: _logger);
+                                        runner, _cancellationTokenSource.Token, _symbolRefreshEveryNCycles, _symbolSelectionMode, _symbolSelectionCount, logger: _logger);
                         break;
                     default: // LivePaperTrading
                         await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
@@ -278,7 +337,19 @@ namespace TradingAppDesktop.Services
             }
 
             _logger.LogInformation("Trading session completed");
-            await GenerateReport();
+            // Generate report asynchronously so Stop returns fast; HTML first for quicker user access
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    _logger.LogInformation("Starting background report generation...");
+                    await GenerateReport();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Background report generation failed");
+                }
+            });
         }
 
         public async Task<ExchangeInfo> GetExchangeInfoAsync()
@@ -292,23 +363,24 @@ namespace TradingAppDesktop.Services
                 
                 var response = await _client.ExecuteAsync(request, cts.Token);
                 
-                if (!response.IsSuccessful)
+                if (!response.IsSuccessful || string.IsNullOrWhiteSpace(response.Content))
                 {
                     Console.WriteLine($"API Error: {response.StatusCode} - {response.ErrorMessage}");
-                    return null;
+                    return new ExchangeInfo();
                 }
 
-                return JsonConvert.DeserializeObject<ExchangeInfo>(response.Content);
+                var parsed = JsonConvert.DeserializeObject<ExchangeInfo>(response.Content);
+                return parsed ?? new ExchangeInfo();
             }
             catch (TaskCanceledException)
             {
                 Console.WriteLine("Request timed out (5s limit reached)");
-                return null;
+                return new ExchangeInfo();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Unexpected error: {ex.Message}");
-                return null;
+                return new ExchangeInfo();
             }
         }
 
@@ -479,7 +551,7 @@ namespace TradingAppDesktop.Services
             var symbols = openTrades.Select(t => t.Symbol).Distinct().ToList();
             _logger.LogInformation($"Symbols to fetch prices for: {string.Join(", ", symbols)}");
 
-            Dictionary<string, decimal> currentPrices = null;
+            Dictionary<string, decimal>? currentPrices = null;
             try
             {
                 currentPrices = FetchCurrentPrices(_client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret).Result;
@@ -556,6 +628,7 @@ namespace TradingAppDesktop.Services
 
         private async Task GenerateReport()
         {
+            // Compose run-specific settings using defaults from appsettings
             var settings = new ReportSettings
             {
                 StrategyName = _orderManager.GetStrategy().ToString(),
@@ -563,11 +636,21 @@ namespace TradingAppDesktop.Services
                 TakeProfitMultiplier = _orderManager.GetTakeProfit(),
                 StopLossRatio = _orderManager.GetStopLoss(),
                 MarginPerTrade = _orderManager.GetMarginPerTrade(),
-                Interval = _orderManager.GetInterval()
+                Interval = _orderManager.GetInterval(),
+                OutputPath = _reportSettings.OutputPath,
+                AutoOpen = _reportSettings.AutoOpen,
+                ShowTradeDetails = _reportSettings.ShowTradeDetails,
+                TopPerformersCount = _reportSettings.TopPerformersCount,
+                MaxCriticalTradesToShow = _reportSettings.MaxCriticalTradesToShow,
+                DateFormat = _reportSettings.DateFormat,
+                NumberFormat = _reportSettings.NumberFormat,
+                LiquidationWarningThreshold = _reportSettings.LiquidationWarningThreshold
             };
 
             // 2. Generate report paths
-            string reportDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Reports");
+            string reportDir = Path.IsPathRooted(settings.OutputPath)
+                ? settings.OutputPath
+                : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, settings.OutputPath);
             Directory.CreateDirectory(reportDir);
             
             // Traditional CSV report
@@ -579,38 +662,66 @@ namespace TradingAppDesktop.Services
                 // HTML report (new)
             string htmlReportPath = Path.Combine(reportDir, $"interactive_report_{_sessionId}.html");
 
-            // 3. Generate both reports
+            // 3. Generate reports (HTML first for faster availability)
             var activeCoinPairs = _orderManager.DatabaseManager.GetClosestCoinPairList(DateTime.UtcNow);
             string coinPairsFormatted = string.Join(",", activeCoinPairs.Select(cp => $"\"{cp}\""));
 
-            // Generate traditional CSV report
-            var reportGenerator = new ReportGenerator(_tradeLogger);
-            reportGenerator.GenerateSummaryReport(_sessionId, csvReportPath, coinPairsFormatted);
-
-            // Generate enhanced text report
-            using (var writer = new StreamWriter(enhancedReportPath))
-            {
-                var enhancedReporter = new EnhancedReportGenerator(_tradeLogger, writer);
-                enhancedReporter.GenerateEnhancedReport(_sessionId, settings);
-            }
-
+            var overallTimer = Stopwatch.StartNew();
+            // HTML report
+            var htmlTimer = Stopwatch.StartNew();
             var htmlReporter = new HtmlReportGenerator(_tradeLogger, _marketAnalyzer!);
             string htmlContent = await htmlReporter.GenerateHtmlReport(_sessionId, settings);
-            //string htmlContent = htmlReporter.GenerateHtmlReport(_sessionId, settings);
             File.WriteAllText(htmlReportPath, htmlContent);
+            htmlTimer.Stop();
+            _logger.LogInformation($"HTML report generated in {htmlTimer.ElapsedMilliseconds} ms");
+
+            // Kick off CSV and Enhanced text in parallel (they are backups)
+            var csvTask = Task.Run(() =>
+            {
+                var t = Stopwatch.StartNew();
+                try
+                {
+                    var reportGenerator = new ReportGenerator(_tradeLogger);
+                    reportGenerator.GenerateSummaryReport(_sessionId, csvReportPath, coinPairsFormatted);
+                    _logger.LogInformation($"CSV report generated in {t.ElapsedMilliseconds} ms");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "CSV report generation failed");
+                }
+            });
+
+            var txtTask = Task.Run(() =>
+            {
+                var t = Stopwatch.StartNew();
+                try
+                {
+                    using var writer = new StreamWriter(enhancedReportPath);
+                    var enhancedReporter = new EnhancedReportGenerator(_tradeLogger, writer);
+                    enhancedReporter.GenerateEnhancedReport(_sessionId, settings);
+                    _logger.LogInformation($"Enhanced text report generated in {t.ElapsedMilliseconds} ms");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Enhanced text report generation failed");
+                }
+            });
+
+            await Task.WhenAll(csvTask, txtTask);
+            overallTimer.Stop();
+            _logger.LogInformation($"All reports completed in {overallTimer.ElapsedMilliseconds} ms");
 
             // 4. Auto-open if enabled
-            try 
+            if (settings.AutoOpen)
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlReportPath) { 
-                    UseShellExecute = true 
-                });
-
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(enhancedReportPath) { 
-                    UseShellExecute = true 
-                });
+                try 
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlReportPath) { 
+                        UseShellExecute = true 
+                    });
+                }
+                catch { /* ignore open failures */ }
             }
-            catch { /* Silent fail if opening doesn't work */ }
         }
 
         private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit, string backtestSessionName)
@@ -633,7 +744,7 @@ namespace TradingAppDesktop.Services
             if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
             {
                 Console.Write("Enter Interval 1m, 5m, 15m, 30m, 1h, 4h (default 5m): ");
-                string intervalInput = Console.ReadLine();
+                string? intervalInput = Console.ReadLine();
                 return string.IsNullOrEmpty(intervalInput) ? "5m" : intervalInput;
             }
             return "5m"; // Default for backtesting
@@ -665,11 +776,11 @@ namespace TradingAppDesktop.Services
             if (operationMode == OperationMode.LivePaperTrading || operationMode == OperationMode.LiveRealTrading)
             {                
                 Console.Write("Enter Entry Size (default 10 USDT): ");
-                string entrySizeInput = Console.ReadLine();
+                string? entrySizeInput = Console.ReadLine();
                 entrySize = decimal.TryParse(entrySizeInput, out var parsedEntrySize) ? parsedEntrySize : 10;
 
                 Console.Write("Enter Leverage (1 to 25, default 10): ");
-                string leverageInput = Console.ReadLine();
+                string? leverageInput = Console.ReadLine();
                 leverage = decimal.TryParse(leverageInput, out var parsedLeverage) ? parsedLeverage : 10;
             }
 
@@ -683,7 +794,7 @@ namespace TradingAppDesktop.Services
             Console.WriteLine("2. Only Longs");
             Console.WriteLine("3. Only Shorts");
             Console.Write("Enter choice (1/2/3): ");
-            string dirInput = Console.ReadLine();
+            string? dirInput = Console.ReadLine();
             int directionChoice = int.TryParse(dirInput, out var parsedDirection) ? parsedDirection : 1;
 
             return directionChoice switch
@@ -700,7 +811,7 @@ namespace TradingAppDesktop.Services
             {
                 Console.Write("Enter Take Profit multiplier (default 5): ");
                 
-                string tpInput = Console.ReadLine();
+                string? tpInput = Console.ReadLine();
                 return decimal.TryParse(tpInput, out var parsedTP) ? parsedTP : (decimal)5.0M;
             }
             return 1.5M; // Default for backtesting
@@ -750,45 +861,153 @@ namespace TradingAppDesktop.Services
             return topSymbols;
         }
 
+        private static async Task<List<string>> GetMostVolatileSymbols(RestClient client, DatabaseManager dbManager, int count = 50)
+        {
+            var request = new RestRequest("/fapi/v1/ticker/24hr", Method.Get);
+            var result = new List<string>();
+
+            try
+            {
+                var response = await client.ExecuteAsync(request);
+                if (!response.IsSuccessful || string.IsNullOrWhiteSpace(response.Content))
+                {
+                    Console.WriteLine($"Failed to fetch 24h tickers for volatility: {response.StatusCode} - {response.ErrorMessage}");
+                    return result;
+                }
+
+                var tickers = JsonConvert.DeserializeObject<List<Ticker24h>>(response.Content) ?? new List<Ticker24h>();
+
+                var candidates = new List<(string symbol, decimal absChange, decimal price, decimal baseVol)>();
+                foreach (var t in tickers)
+                {
+                    if (string.IsNullOrWhiteSpace(t.symbol) || !t.symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    decimal changePct = 0m;
+                    if (!string.IsNullOrWhiteSpace(t.priceChangePercent))
+                        decimal.TryParse(t.priceChangePercent, NumberStyles.Any, CultureInfo.InvariantCulture, out changePct);
+
+                    decimal price = 0m;
+                    if (!string.IsNullOrWhiteSpace(t.lastPrice))
+                        decimal.TryParse(t.lastPrice, NumberStyles.Any, CultureInfo.InvariantCulture, out price);
+
+                    decimal baseVolume = 0m;
+                    if (!string.IsNullOrWhiteSpace(t.volume))
+                        decimal.TryParse(t.volume, NumberStyles.Any, CultureInfo.InvariantCulture, out baseVolume);
+
+                    candidates.Add((t.symbol!, Math.Abs(changePct), price, baseVolume));
+                }
+
+                var top = candidates
+                    .OrderByDescending(x => x.absChange)
+                    .ThenByDescending(x => x.baseVol * x.price) // tie-break by dollar volume
+                    .Take(Math.Max(1, count))
+                    .ToList();
+
+                foreach (var c in top)
+                {
+                    dbManager.UpsertCoinPairData(c.symbol, c.price, c.baseVol);
+                    result.Add(c.symbol);
+                }
+
+                if (result.Count > 0)
+                {
+                    dbManager.UpsertCoinPairList(result, DateTime.UtcNow);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception computing volatility list: {ex.Message}");
+            }
+
+            return result;
+        }
+
         
         private static async Task<List<CoinPairInfo>> FetchCoinPairsFromFuturesAPI(RestClient client)
         {
-            var coinPairList = new List<CoinPairInfo>();
+            // Use bulk 24h ticker to avoid per-symbol requests
+            // Endpoint returns an array with fields including symbol, lastPrice, volume, quoteVolume
+            var request = new RestRequest("/fapi/v1/ticker/24hr", Method.Get);
 
-            // Prepare request to fetch all coin pairs
-            var request = new RestRequest("/fapi/v1/exchangeInfo", Method.Get);
+            var result = new List<CoinPairInfo>();
 
-            // Send the request
-            var response = await client.ExecuteAsync(request);
-
-            if (response.IsSuccessful && response.Content != null)
+            try
             {
-                var exchangeInfo = JsonConvert.DeserializeObject<ExchangeInfoResponse>(response.Content);
-
-                // Filter the symbols based on active trading pairs
-                foreach (var symbol in exchangeInfo.Symbols)
+                var response = await client.ExecuteAsync(request);
+                if (!response.IsSuccessful || string.IsNullOrWhiteSpace(response.Content))
                 {
-                    if (symbol.Status == "TRADING")
-                    {
-                        // Optionally fetch more data such as volume and price (e.g., via another API call)
-                        var volume = await FetchSymbolVolume(client, symbol.Symbol);
-                        var price = await FetchSymbolPrice(client, symbol.Symbol);
+                    Console.WriteLine($"Failed to fetch 24h tickers: {response.StatusCode} - {response.ErrorMessage}");
+                    return result;
+                }
 
-                        coinPairList.Add(new CoinPairInfo
-                        {
-                            Symbol = symbol.Symbol,
-                            Volume = volume,
-                            Price = price
-                        });
-                    }
+                var tickers = JsonConvert.DeserializeObject<List<Ticker24h>>(response.Content);
+                if (tickers == null || tickers.Count == 0)
+                    return result;
+
+                foreach (var t in tickers)
+                {
+                    // Focus on USDT pairs; skip non-standard symbols
+                    if (string.IsNullOrWhiteSpace(t.symbol) || !t.symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // Use BASE ASSET volume for DB (DB computes VolumeInUSDT as price * volume)
+                    decimal baseVolume = 0m;
+                    if (!string.IsNullOrWhiteSpace(t.volume))
+                        decimal.TryParse(t.volume, NumberStyles.Any, CultureInfo.InvariantCulture, out baseVolume);
+
+                    decimal price = 0m;
+                    if (!string.IsNullOrWhiteSpace(t.lastPrice))
+                        decimal.TryParse(t.lastPrice, NumberStyles.Any, CultureInfo.InvariantCulture, out price);
+
+                    result.Add(new CoinPairInfo
+                    {
+                        Symbol = t.symbol,
+                        Volume = baseVolume,
+                        Price = price
+                    });
                 }
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine($"Failed to fetch coin pairs: {response.ErrorMessage}");
+                Console.WriteLine($"Exception reading 24h tickers: {ex.Message}");
             }
 
-            return coinPairList;
+            return result;
+        }
+
+        private static async Task RefreshCoinPairDataForSymbols(RestClient client, DatabaseManager dbManager, IEnumerable<string> symbols)
+        {
+            if (symbols == null) return;
+            var desired = new HashSet<string>(symbols, StringComparer.OrdinalIgnoreCase);
+            if (desired.Count == 0) return;
+
+            // Bulk 24h ticker (all symbols), then filter to selected
+            var request = new RestRequest("/fapi/v1/ticker/24hr", Method.Get);
+            var response = await client.ExecuteAsync(request);
+            if (!response.IsSuccessful || string.IsNullOrWhiteSpace(response.Content))
+            {
+                Console.WriteLine($"RefreshCoinPairDataForSymbols: failed to fetch 24h tickers: {response.StatusCode} - {response.ErrorMessage}");
+                return;
+            }
+
+            var tickers = JsonConvert.DeserializeObject<List<Ticker24h>>(response.Content) ?? new List<Ticker24h>();
+            foreach (var t in tickers)
+            {
+                var sym = t?.symbol;
+                if (string.IsNullOrWhiteSpace(sym)) continue;
+                if (!desired.Contains(sym)) continue;
+
+                decimal price = 0m;
+                if (!string.IsNullOrWhiteSpace(t!.lastPrice))
+                    decimal.TryParse(t.lastPrice, NumberStyles.Any, CultureInfo.InvariantCulture, out price);
+
+                decimal baseVolume = 0m;
+                if (!string.IsNullOrWhiteSpace(t!.volume))
+                    decimal.TryParse(t.volume, NumberStyles.Any, CultureInfo.InvariantCulture, out baseVolume);
+
+                dbManager.UpsertCoinPairData(sym, price, baseVolume);
+            }
         }
 
         private static async Task<decimal> FetchSymbolVolume(RestClient client, string symbol)
@@ -798,13 +1017,13 @@ namespace TradingAppDesktop.Services
             request.AddParameter("symbol", symbol);
 
             var response = await client.ExecuteAsync(request);
-            if (response.IsSuccessful && response.Content != null)
+            if (response.IsSuccessful && !string.IsNullOrWhiteSpace(response.Content))
             {
                 var symbolData = JsonConvert.DeserializeObject<SymbolDataResponse>(response.Content);
-                return symbolData.Volume;
+                return symbolData?.Volume ?? 0m;
             }
 
-            return 0;
+            return 0m;
         }
 
         public class SymbolDataResponse
@@ -820,13 +1039,13 @@ namespace TradingAppDesktop.Services
             request.AddParameter("symbol", symbol);
 
             var response = await client.ExecuteAsync(request);
-            if (response.IsSuccessful && response.Content != null)
+            if (response.IsSuccessful && !string.IsNullOrWhiteSpace(response.Content))
             {
                 var priceData = JsonConvert.DeserializeObject<PriceResponse>(response.Content);
-                return priceData.Price;
+                return priceData?.Price ?? 0m;
             }
 
-            return 0;
+            return 0m;
         }
 
         private static async Task RunBacktest(RestClient client, List<string> symbols, string interval, 
@@ -985,20 +1204,30 @@ namespace TradingAppDesktop.Services
                 }
 
                 cycles++;
-                if (cycles % 20 == 0)
+                if (_symbolRefreshEveryNCycles > 0 && cycles % _symbolRefreshEveryNCycles == 0)
                 {
-                    _logger.LogInformation("Updating symbol list...");
+                    _logger.LogInformation($"Updating symbols based on {_symbolSelectionMode} (every {_symbolRefreshEveryNCycles} cycles)...");
                     Stopwatch timer = Stopwatch.StartNew();
-                    
-                    symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
-                    
+                    switch (_symbolSelectionMode)
+                    {
+                        case SymbolSelectionMode.Custom:
+                            await RefreshCoinPairDataForSymbols(client, orderManager.DatabaseManager, symbols);
+                            break;
+                        case SymbolSelectionMode.Volatility:
+                            symbols = await GetMostVolatileSymbols(client, orderManager.DatabaseManager, _symbolSelectionCount);
+                            break;
+                        default:
+                            symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                            break;
+                    }
                     timer.Stop();
-                    _logger.LogInformation($"Updated {symbols.Count} symbols. Took {timer.ElapsedMilliseconds}ms");
+                    _logger.LogInformation($"Updated symbols in {timer.ElapsedMilliseconds}ms");
                 }
 
                 var delay = TimeTools.GetTimeSpanFromInterval(interval);
                 _logger.LogDebug($"Waiting {delay.TotalSeconds} seconds until next cycle");
-                await Task.Delay(delay);
+                // IMPORTANT: pass cancellationToken so Stop() cancels the wait immediately
+                await Task.Delay(delay, cancellationToken);
             }
 
             _logger.LogInformation("Live paper trading terminated gracefully");
@@ -1037,6 +1266,9 @@ namespace TradingAppDesktop.Services
             OrderManager orderManager, 
             StrategyRunner runner,
             CancellationToken cancellationToken,
+            int symbolRefreshEveryNCycles,
+            SymbolSelectionMode selectionMode,
+            int selectionCount,
             ILogger logger)
         {
             var startTime = DateTime.Now;
@@ -1069,9 +1301,20 @@ namespace TradingAppDesktop.Services
                     }
 
                     // 2. Update symbols periodically
-                    if (++cycles % 20 == 0)
+                    if (symbolRefreshEveryNCycles > 0 && ++cycles % symbolRefreshEveryNCycles == 0)
                     {
-                        symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                        switch (selectionMode)
+                        {
+                            case SymbolSelectionMode.Custom:
+                                await RefreshCoinPairDataForSymbols(client, orderManager.DatabaseManager, symbols);
+                                break;
+                            case SymbolSelectionMode.Volatility:
+                                symbols = await GetMostVolatileSymbols(client, orderManager.DatabaseManager, selectionCount);
+                                break;
+                            default:
+                                symbols = await GetBestListOfSymbols(client, orderManager.DatabaseManager);
+                                break;
+                        }
                     }
 
                     // 3. Delay AFTER work is done
@@ -1111,64 +1354,31 @@ namespace TradingAppDesktop.Services
 
         static async Task<Dictionary<string, decimal>> FetchCurrentPrices(RestClient client, List<string> symbols, string apiKey, string apiSecret)
         {
-            var prices = new Dictionary<string, decimal>();
-
-            Console.WriteLine($"Fetching prices for symbols: {string.Join(", ", symbols)}");
-
-            foreach (var symbol in symbols)
+            // Use bulk ticker to reduce N requests to 1; no auth required on this endpoint
+            var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            try
             {
-                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
                 var request = new RestRequest("/fapi/v1/ticker/price", Method.Get);
-                request.AddParameter("symbol", symbol);
-                request.AddHeader("X-MBX-APIKEY", apiKey);
-
-                // Create a query string using the generated timestamp
-                string queryString = $"symbol={symbol}&timestamp={timestamp}";
-
-                // Generate the signature based on the query string and secret
-                string signature = GenerateSignature(queryString, apiSecret);
-
-                // Add the timestamp and signature to the request
-                request.AddParameter("timestamp", timestamp.ToString());
-                request.AddParameter("signature", signature);
-
-                // Log the request URL and parameters
-                var requestUrl = client.BuildUri(request).ToString();
-                //Console.WriteLine($"Request URL for {symbol}: {requestUrl}");
-
-                try
+                var response = await client.ExecuteAsync(request);
+                if (!response.IsSuccessful || string.IsNullOrWhiteSpace(response.Content))
                 {
-                    // Send the request
-                    var response = await client.ExecuteAsync(request);
-
-                    // Log the response details
-                    //Console.WriteLine($"Response for {symbol}: {response.StatusCode} - {response.Content}");
-
-                    if (response.IsSuccessful && response.Content != null)
-                    {
-                        var priceData = JsonConvert.DeserializeObject<PriceResponse>(response.Content);
-                        if (priceData != null)
-                        {
-                            prices[symbol] = priceData.Price;
-                            //Console.WriteLine($"Fetched price for {symbol}: {priceData.Price}");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Failed to deserialize price data for {symbol}.");
-                        }
-                    }
-                    else
-                    {
-                        // Log the response details for debugging
-                        Console.WriteLine($"Error fetching price for {symbol}: {response.StatusCode} - {response.Content}");
-                    }
+                    Console.WriteLine($"Failed to fetch prices: {response.StatusCode} - {response.ErrorMessage}");
+                    return prices;
                 }
-                catch (Exception ex)
+
+                var all = JsonConvert.DeserializeObject<List<PriceResponse>>(response.Content) ?? new List<PriceResponse>();
+                var set = new HashSet<string>(symbols, StringComparer.OrdinalIgnoreCase);
+                foreach (var item in all)
                 {
-                    // Log the exception details for debugging
-                    Console.WriteLine($"Exception fetching price for {symbol}: {ex.Message}");
+                    if (item == null || string.IsNullOrWhiteSpace(item.Symbol)) continue;
+                    if (!set.Contains(item.Symbol)) continue;
+
+                    prices[item.Symbol] = item.Price;
                 }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fetching bulk prices: {ex.Message}");
             }
 
             return prices;
@@ -1190,7 +1400,7 @@ namespace TradingAppDesktop.Services
         public class ExchangeInfoResponse
         {
             [JsonProperty("symbols")]
-            public List<SymbolInfo> Symbols { get; set; }
+            public List<SymbolInfo>? Symbols { get; set; }
         }      
 
         public class ServerTimeResponse
@@ -1202,8 +1412,18 @@ namespace TradingAppDesktop.Services
         // Create a class for the expected response structure
         public class PriceResponse
         {
-            public string Symbol { get; set; }
+            public string Symbol { get; set; } = string.Empty;
             public decimal Price { get; set; }
+        }
+
+        private class Ticker24h
+        {
+            // Binance returns strings for numeric fields in many endpoints
+            public string? symbol { get; set; }
+            public string? lastPrice { get; set; }
+            public string? volume { get; set; }
+            public string? quoteVolume { get; set; }
+            public string? priceChangePercent { get; set; }
         }
 
         static async Task<List<Kline>> FetchHistoricalData(RestClient client, string symbol, string interval, DateTime startDate, DateTime endDate)
@@ -1223,7 +1443,7 @@ namespace TradingAppDesktop.Services
                 var klineData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content);
 
                 // Check if the first candle's OpenTime is after the startDate
-                if (klineData.Any())
+                if (klineData != null && klineData.Any())
                 {
                     var firstCandleOpenTime = DateTimeOffset.FromUnixTimeMilliseconds((long)klineData[0][0]).UtcDateTime;
                     if (firstCandleOpenTime > startDate)
@@ -1235,18 +1455,35 @@ namespace TradingAppDesktop.Services
                 }
 
                 // Process the candles
-                foreach (var kline in klineData)
+                foreach (var kline in klineData ?? Enumerable.Empty<List<object>>())
                 {
+                    // Defensive parsing with null checks
+                    long openTime = kline.Count > 0 && kline[0] != null ? Convert.ToInt64(kline[0], CultureInfo.InvariantCulture) : 0L;
+                    string s1 = kline.Count > 1 ? kline[1]?.ToString() ?? "0" : "0";
+                    string s2 = kline.Count > 2 ? kline[2]?.ToString() ?? "0" : "0";
+                    string s3 = kline.Count > 3 ? kline[3]?.ToString() ?? "0" : "0";
+                    string s4 = kline.Count > 4 ? kline[4]?.ToString() ?? "0" : "0";
+                    string s5 = kline.Count > 5 ? kline[5]?.ToString() ?? "0" : "0";
+                    long closeTime = kline.Count > 6 && kline[6] != null ? Convert.ToInt64(kline[6], CultureInfo.InvariantCulture) : 0L;
+                    string tradesStr = kline.Count > 8 ? kline[8]?.ToString() ?? "0" : "0";
+
+                    decimal open = decimal.TryParse(s1, NumberStyles.Any, CultureInfo.InvariantCulture, out var _open) ? _open : 0m;
+                    decimal high = decimal.TryParse(s2, NumberStyles.Any, CultureInfo.InvariantCulture, out var _high) ? _high : 0m;
+                    decimal low = decimal.TryParse(s3, NumberStyles.Any, CultureInfo.InvariantCulture, out var _low) ? _low : 0m;
+                    decimal close = decimal.TryParse(s4, NumberStyles.Any, CultureInfo.InvariantCulture, out var _close) ? _close : 0m;
+                    decimal vol = decimal.TryParse(s5, NumberStyles.Any, CultureInfo.InvariantCulture, out var _vol) ? _vol : 0m;
+                    int trades = int.TryParse(tradesStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var _trades) ? _trades : 0;
+
                     historicalData.Add(new Kline
                     {
-                        OpenTime = (long)kline[0],
-                        Open = decimal.Parse(kline[1].ToString(), CultureInfo.InvariantCulture),
-                        High = decimal.Parse(kline[2].ToString(), CultureInfo.InvariantCulture),
-                        Low = decimal.Parse(kline[3].ToString(), CultureInfo.InvariantCulture),
-                        Close = decimal.Parse(kline[4].ToString(), CultureInfo.InvariantCulture),
-                        Volume = decimal.Parse(kline[5].ToString(), CultureInfo.InvariantCulture),
-                        CloseTime = (long)kline[6],
-                        NumberOfTrades = int.Parse(kline[8].ToString(), CultureInfo.InvariantCulture)
+                        OpenTime = openTime,
+                        Open = open,
+                        High = high,
+                        Low = low,
+                        Close = close,
+                        Volume = vol,
+                        CloseTime = closeTime,
+                        NumberOfTrades = trades
                     });
                 }
             }
@@ -1264,7 +1501,7 @@ namespace TradingAppDesktop.Services
         
         public class CoinPairInfo
         {
-            public string Symbol { get; set; }
+            public string Symbol { get; set; } = string.Empty;
             public decimal Volume { get; set; }
             public decimal Price { get; set; }
         }
