@@ -73,14 +73,31 @@ namespace TradingAppDesktop.Services
             _logger = logger;
             _loggerFactory = loggerFactory;
             
-            // Initialize report settings with defaults
-            _reportSettings = new ReportSettings(); // Ensure the ReportSettings class is defined or imported
+            // Initialize report settings and bind from appsettings (if present)
+            _reportSettings = new ReportSettings();
 
             // Load configuration
             var config = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json")
                 .Build();
+            try
+            {
+                // Load optional report settings without relying on ConfigurationBinder (no NuGet dep)
+                var reportSection = config.GetSection("ReportSettings");
+                if (reportSection.Exists())
+                {
+                    var s = reportSection["OutputPath"]; if (!string.IsNullOrWhiteSpace(s)) _reportSettings.OutputPath = s;
+                    s = reportSection["AutoOpen"]; if (bool.TryParse(s, out var b)) _reportSettings.AutoOpen = b;
+                    s = reportSection["ShowTradeDetails"]; if (bool.TryParse(s, out b)) _reportSettings.ShowTradeDetails = b;
+                    s = reportSection["TopPerformersCount"]; if (int.TryParse(s, out var i)) _reportSettings.TopPerformersCount = i;
+                    s = reportSection["MaxCriticalTradesToShow"]; if (int.TryParse(s, out i)) _reportSettings.MaxCriticalTradesToShow = i;
+                    s = reportSection["DateFormat"]; if (!string.IsNullOrWhiteSpace(s)) _reportSettings.DateFormat = s;
+                    s = reportSection["NumberFormat"]; if (!string.IsNullOrWhiteSpace(s)) _reportSettings.NumberFormat = s;
+                    s = reportSection["LiquidationWarningThreshold"]; if (decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d)) _reportSettings.LiquidationWarningThreshold = d;
+                }
+            }
+            catch { /* fall back to defaults */ }
             // Load optional config for symbol refresh cadence (fallback to 20 if missing/invalid)
             if (int.TryParse(config["SymbolRefreshEveryNCycles"], out var n) && n > 0)
             {
@@ -320,7 +337,19 @@ namespace TradingAppDesktop.Services
             }
 
             _logger.LogInformation("Trading session completed");
-            await GenerateReport();
+            // Generate report asynchronously so Stop returns fast; HTML first for quicker user access
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    _logger.LogInformation("Starting background report generation...");
+                    await GenerateReport();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Background report generation failed");
+                }
+            });
         }
 
         public async Task<ExchangeInfo> GetExchangeInfoAsync()
@@ -599,6 +628,7 @@ namespace TradingAppDesktop.Services
 
         private async Task GenerateReport()
         {
+            // Compose run-specific settings using defaults from appsettings
             var settings = new ReportSettings
             {
                 StrategyName = _orderManager.GetStrategy().ToString(),
@@ -606,11 +636,21 @@ namespace TradingAppDesktop.Services
                 TakeProfitMultiplier = _orderManager.GetTakeProfit(),
                 StopLossRatio = _orderManager.GetStopLoss(),
                 MarginPerTrade = _orderManager.GetMarginPerTrade(),
-                Interval = _orderManager.GetInterval()
+                Interval = _orderManager.GetInterval(),
+                OutputPath = _reportSettings.OutputPath,
+                AutoOpen = _reportSettings.AutoOpen,
+                ShowTradeDetails = _reportSettings.ShowTradeDetails,
+                TopPerformersCount = _reportSettings.TopPerformersCount,
+                MaxCriticalTradesToShow = _reportSettings.MaxCriticalTradesToShow,
+                DateFormat = _reportSettings.DateFormat,
+                NumberFormat = _reportSettings.NumberFormat,
+                LiquidationWarningThreshold = _reportSettings.LiquidationWarningThreshold
             };
 
             // 2. Generate report paths
-            string reportDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Reports");
+            string reportDir = Path.IsPathRooted(settings.OutputPath)
+                ? settings.OutputPath
+                : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, settings.OutputPath);
             Directory.CreateDirectory(reportDir);
             
             // Traditional CSV report
@@ -622,38 +662,66 @@ namespace TradingAppDesktop.Services
                 // HTML report (new)
             string htmlReportPath = Path.Combine(reportDir, $"interactive_report_{_sessionId}.html");
 
-            // 3. Generate both reports
+            // 3. Generate reports (HTML first for faster availability)
             var activeCoinPairs = _orderManager.DatabaseManager.GetClosestCoinPairList(DateTime.UtcNow);
             string coinPairsFormatted = string.Join(",", activeCoinPairs.Select(cp => $"\"{cp}\""));
 
-            // Generate traditional CSV report
-            var reportGenerator = new ReportGenerator(_tradeLogger);
-            reportGenerator.GenerateSummaryReport(_sessionId, csvReportPath, coinPairsFormatted);
-
-            // Generate enhanced text report
-            using (var writer = new StreamWriter(enhancedReportPath))
-            {
-                var enhancedReporter = new EnhancedReportGenerator(_tradeLogger, writer);
-                enhancedReporter.GenerateEnhancedReport(_sessionId, settings);
-            }
-
+            var overallTimer = Stopwatch.StartNew();
+            // HTML report
+            var htmlTimer = Stopwatch.StartNew();
             var htmlReporter = new HtmlReportGenerator(_tradeLogger, _marketAnalyzer!);
             string htmlContent = await htmlReporter.GenerateHtmlReport(_sessionId, settings);
-            //string htmlContent = htmlReporter.GenerateHtmlReport(_sessionId, settings);
             File.WriteAllText(htmlReportPath, htmlContent);
+            htmlTimer.Stop();
+            _logger.LogInformation($"HTML report generated in {htmlTimer.ElapsedMilliseconds} ms");
+
+            // Kick off CSV and Enhanced text in parallel (they are backups)
+            var csvTask = Task.Run(() =>
+            {
+                var t = Stopwatch.StartNew();
+                try
+                {
+                    var reportGenerator = new ReportGenerator(_tradeLogger);
+                    reportGenerator.GenerateSummaryReport(_sessionId, csvReportPath, coinPairsFormatted);
+                    _logger.LogInformation($"CSV report generated in {t.ElapsedMilliseconds} ms");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "CSV report generation failed");
+                }
+            });
+
+            var txtTask = Task.Run(() =>
+            {
+                var t = Stopwatch.StartNew();
+                try
+                {
+                    using var writer = new StreamWriter(enhancedReportPath);
+                    var enhancedReporter = new EnhancedReportGenerator(_tradeLogger, writer);
+                    enhancedReporter.GenerateEnhancedReport(_sessionId, settings);
+                    _logger.LogInformation($"Enhanced text report generated in {t.ElapsedMilliseconds} ms");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Enhanced text report generation failed");
+                }
+            });
+
+            await Task.WhenAll(csvTask, txtTask);
+            overallTimer.Stop();
+            _logger.LogInformation($"All reports completed in {overallTimer.ElapsedMilliseconds} ms");
 
             // 4. Auto-open if enabled
-            try 
+            if (settings.AutoOpen)
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlReportPath) { 
-                    UseShellExecute = true 
-                });
-
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(enhancedReportPath) { 
-                    UseShellExecute = true 
-                });
+                try 
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlReportPath) { 
+                        UseShellExecute = true 
+                    });
+                }
+                catch { /* ignore open failures */ }
             }
-            catch { /* Silent fail if opening doesn't work */ }
         }
 
         private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit, string backtestSessionName)

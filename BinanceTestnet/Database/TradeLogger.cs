@@ -83,13 +83,33 @@ namespace BinanceTestnet.Database
         {
             try
             {
-                
-                // Calculate raw profit
-                decimal rawProfit = (trade.ExitPrice.Value - trade.EntryPrice) / trade.EntryPrice * 
+                // Ensure exit fields exist (be defensive during shutdown)
+                if (!trade.ExitTime.HasValue)
+                {
+                    trade.ExitTime = DateTime.UtcNow;
+                }
+                if (!trade.ExitPrice.HasValue)
+                {
+                    // If we don't have an exit price, assume a flat close at entry (0 PnL)
+                    trade.ExitPrice = trade.EntryPrice;
+                }
+
+                // Calculate raw profit in currency (USDT)
+                decimal rawProfit = 0m;
+                if (trade.ExitPrice.HasValue)
+                {
+                    rawProfit = (trade.ExitPrice.Value - trade.EntryPrice) / trade.EntryPrice *
                                 (trade.IsLong ? 1 : -1) * trade.Leverage * trade.MarginPerTrade;
-                
-                // Cap the profit/loss
+                }
+
+                // Cap the profit/loss to avoid excess loss due to slippage during shutdown
                 trade.Profit = Math.Max(rawProfit, -trade.MarginPerTrade);
+
+                // Derive duration if not set
+                if (trade.Duration <= 0 && trade.ExitTime.HasValue)
+                {
+                    trade.Duration = (int)(trade.ExitTime.Value - trade.EntryTime).TotalMinutes;
+                }
                 using (var connection = new SqliteConnection(_connectionString))
                 {
                     connection.Open();
@@ -119,7 +139,9 @@ namespace BinanceTestnet.Database
                         command.Parameters.AddWithValue("@ExitPrice", trade.ExitPrice ?? (object)DBNull.Value);
                         command.Parameters.AddWithValue("@Profit", trade.Profit ?? (object)DBNull.Value);
                         command.Parameters.AddWithValue("@Duration", trade.Duration);
-                        command.Parameters.AddWithValue("@FundsAdded", trade.FundsAdded);
+                        // FundsAdded: total funds returned to wallet (initial margin + PnL)
+                        var fundsAdded = (trade.Profit ?? 0m) + trade.InitialMargin;
+                        command.Parameters.AddWithValue("@FundsAdded", fundsAdded);
                         command.Parameters.AddWithValue("@TradeId", trade.TradeId);
                         command.Parameters.AddWithValue("@IsNearLiquidation", isNearLiquidation);
 
