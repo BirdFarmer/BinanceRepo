@@ -32,6 +32,9 @@ namespace TradingAppDesktop
     private decimal _trailingActivationPercent = 2.8m; // reuse ATR slider default
     private decimal _trailingCallbackPercent = 1.0m;
     
+    // Persisted settings
+    private UserSettings _userSettings = null;
+    
 
 
         public MainWindow()
@@ -59,6 +62,10 @@ namespace TradingAppDesktop
                 AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
                 RiskRewardText.Text = $"1:{RiskRewardSlider.Value:F1}";
                 CallbackSlider.Value = (double)_trailingCallbackPercent;
+
+                // Load persisted settings once controls are ready
+                _userSettings = UserSettings.Load();
+                ApplyUserSettingsToUi();
             };
         }
 
@@ -150,14 +157,25 @@ namespace TradingAppDesktop
         private void AtrMultiplier_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (!IsLoaded || AtrMultiplierText == null) return;
+            // Always display as ATR multiplier; in trailing mode this is Activation ATR Multiplier
+            AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
+
             if (_useTrailing)
             {
-                _trailingActivationPercent = (decimal)AtrMultiplierSlider.Value;
-                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1}%";
+                _trailingActivationPercent = (decimal)AtrMultiplierSlider.Value; // semantics: ATR multiplier
+                if (_userSettings != null)
+                {
+                    _userSettings.TrailingActivationAtrMultiplier = _trailingActivationPercent;
+                    _userSettings.Save();
+                }
             }
             else
             {
-                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
+                if (_userSettings != null)
+                {
+                    _userSettings.TpAtrMultiplier = (decimal)AtrMultiplierSlider.Value;
+                    _userSettings.Save();
+                }
             }
         }
 
@@ -331,13 +349,20 @@ namespace TradingAppDesktop
                 var mode = item.Content?.ToString();
                 _useTrailing = string.Equals(mode, "Trailing Stop", StringComparison.OrdinalIgnoreCase);
                 // Restore full label text for clarity
-                ExitParamLabel.Content = _useTrailing ? "Activation %:" : "ATR Multiplier:";
+                ExitParamLabel.Content = _useTrailing ? "Activation ATR Multiplier:" : "ATR Multiplier:";
                 var vis = _useTrailing ? Visibility.Visible : Visibility.Collapsed;
                 if (CallbackLabel != null) CallbackLabel.Visibility = vis;
                 if (CallbackSlider != null) CallbackSlider.Visibility = vis;
                 if (CallbackText != null) CallbackText.Visibility = vis;
                 // Refresh label text to reflect current mode
                 AtrMultiplier_ValueChanged(AtrMultiplierSlider, new RoutedPropertyChangedEventArgs<double>(AtrMultiplierSlider.Value, AtrMultiplierSlider.Value));
+
+                // Persist exit mode selection
+                if (_userSettings != null)
+                {
+                    _userSettings.ExitMode = _useTrailing ? "TrailingStop" : "TakeProfit";
+                    _userSettings.Save();
+                }
             }
         }
 
@@ -346,6 +371,11 @@ namespace TradingAppDesktop
             if (!IsLoaded || CallbackText == null) return;
             _trailingCallbackPercent = (decimal)CallbackSlider.Value;
             CallbackText.Text = $"{CallbackSlider.Value:F1}%";
+            if (_userSettings != null)
+            {
+                _userSettings.TrailingCallbackPercent = _trailingCallbackPercent;
+                _userSettings.Save();
+            }
         }
 
         private async void StopButton_Click(object sender, RoutedEventArgs e)
@@ -451,6 +481,35 @@ namespace TradingAppDesktop
 
 
             Log("Application initialized with default parameters");
+        }
+
+        private void ApplyUserSettingsToUi()
+        {
+            if (_userSettings == null) return;
+
+            // Exit mode
+            if (ExitModeComboBox != null && ExitModeComboBox.Items.Count >= 2)
+            {
+                int index = string.Equals(_userSettings.ExitMode, "TrailingStop", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+                ExitModeComboBox.SelectedIndex = index;
+                _useTrailing = index == 1;
+            }
+
+            // Sliders
+            if (_useTrailing)
+            {
+                _trailingActivationPercent = _userSettings.TrailingActivationAtrMultiplier;
+                if (AtrMultiplierSlider != null)
+                    AtrMultiplierSlider.Value = (double)_trailingActivationPercent;
+            }
+            else
+            {
+                if (AtrMultiplierSlider != null)
+                    AtrMultiplierSlider.Value = (double)_userSettings.TpAtrMultiplier;
+            }
+
+            if (CallbackSlider != null)
+                CallbackSlider.Value = (double)_userSettings.TrailingCallbackPercent;
         }
 
         // private List<StrategyItem> GetDefaultStrategies()

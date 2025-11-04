@@ -151,7 +151,17 @@ namespace TradingAppDesktop.Services
             _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategies}, Direction: {tradeDirection}");
             if (_uiUseTrailing)
             {
-                _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, Exit=Trailing (Act={_uiTrailingActivationPercent:F1}%, Cb={_uiTrailingCallbackPercent:F1}%, RR=1:{stopLoss:F1})");
+                // Interpret activation as ATR multiplier and show an example derived percent using BTCUSDT (best-effort)
+                string samplePctText = "~N/A";
+                try
+                {
+                    var samplePct = await TryComputeSampleDerivedPercent("BTCUSDT", interval, _uiTrailingActivationPercent);
+                    if (samplePct.HasValue)
+                        samplePctText = $"~{samplePct.Value:F2}% on BTCUSDT";
+                }
+                catch { /* ignore sample failure */ }
+
+                _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, Exit=Trailing (Act={_uiTrailingActivationPercent:F1}× ATR, {samplePctText}, Cb={_uiTrailingCallbackPercent:F1}%, RR=1:{stopLoss:F1})");
             }
             else
             {
@@ -391,7 +401,68 @@ namespace TradingAppDesktop.Services
             _paperWalletVm = vm;
         }
 
+        // Compute a sample derived activation percent using ATR(14) on the given symbol and interval
+        private async Task<decimal?> TryComputeSampleDerivedPercent(string symbol, string interval, decimal atrMultiplier)
+        {
+            try
+            {
+                // Fetch klines (limit ~60 for a safe ATR window)
+                var req = new RestRequest($"/fapi/v1/klines", Method.Get)
+                    .AddParameter("symbol", symbol)
+                    .AddParameter("interval", interval)
+                    .AddParameter("limit", 60);
+                var resp = await _client.ExecuteAsync(req);
+                if (!resp.IsSuccessful || string.IsNullOrWhiteSpace(resp.Content)) return null;
+
+                // Parse klines: [ openTime, open, high, low, close, volume, ... ]
+                var arr = Newtonsoft.Json.Linq.JArray.Parse(resp.Content);
+                if (arr.Count < 20) return null;
+
+                var highs = new List<decimal>();
+                var lows = new List<decimal>();
+                var closes = new List<decimal>();
+                foreach (var k in arr)
+                {
+                    highs.Add(Convert.ToDecimal((string)k[2], CultureInfo.InvariantCulture));
+                    lows.Add(Convert.ToDecimal((string)k[3], CultureInfo.InvariantCulture));
+                    closes.Add(Convert.ToDecimal((string)k[4], CultureInfo.InvariantCulture));
+                }
+
+                // Compute TR and ATR(14) approximated with Wilder's smoothing
+                int period = 14;
+                var trs = new List<decimal>();
+                for (int i = 1; i < highs.Count; i++)
+                {
+                    var h = highs[i];
+                    var l = lows[i];
+                    var pc = closes[i - 1];
+                    var tr = Math.Max((double)(h - l), Math.Max(Math.Abs((double)(h - pc)), Math.Abs((double)(l - pc))));
+                    trs.Add((decimal)tr);
+                }
+                if (trs.Count < period) return null;
+
+                // Initial ATR = average of first 'period' TRs
+                decimal atr = trs.Take(period).Average();
+                // Wilder smoothing for the rest
+                for (int i = period; i < trs.Count; i++)
+                {
+                    atr = (atr * (period - 1) + trs[i]) / period;
+                }
+
+                var lastClose = closes.Last();
+                if (lastClose <= 0) return null;
+                var atrPercent = (atr / lastClose) * 100m;
+                var derived = atrPercent * Math.Abs(atrMultiplier);
+                return Math.Max(0.01m, derived);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         // Set by MainWindow before StartTrading
+        // Note: activationPercent parameter here represents an ATR multiplier when trailing is enabled.
         public void SetTrailingUiConfig(bool useTrailing, decimal activationPercent, decimal callbackPercent)
         {
             _uiUseTrailing = useTrailing;
