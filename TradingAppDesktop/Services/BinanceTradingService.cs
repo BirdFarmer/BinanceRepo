@@ -53,7 +53,10 @@ namespace TradingAppDesktop.Services
         
         public bool IsStopping => _isStopping;
         public bool StartInProgress => _startInProgress;
-        private volatile bool _isRunning = false;
+    private volatile bool _isRunning = false;
+    private volatile bool _reportGenerated = false;
+    private OperationMode _currentMode;
+    private readonly object _reportLock = new();
 
     public bool IsRunning => _cancellationTokenSource != null && 
                 !_cancellationTokenSource.IsCancellationRequested;
@@ -133,6 +136,8 @@ namespace TradingAppDesktop.Services
                     DateTime? startDate = null, DateTime? endDate = null,
                     List<string>? customCoinSelection = null)
         {
+            _currentMode = operationMode;
+            _reportGenerated = false;
             _logger.LogDebug($"State update - IsRunning: {_isRunning}, StartInProgress: {_startInProgress}, IsStopping: {_isStopping}");
             lock (_startLock)
             {
@@ -151,7 +156,17 @@ namespace TradingAppDesktop.Services
             _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategies}, Direction: {tradeDirection}");
             if (_uiUseTrailing)
             {
-                _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, Exit=Trailing (Act={_uiTrailingActivationPercent:F1}%, Cb={_uiTrailingCallbackPercent:F1}%, RR=1:{stopLoss:F1})");
+                // Interpret activation as ATR multiplier and show an example derived percent using BTCUSDT (best-effort)
+                string samplePctText = "~N/A";
+                try
+                {
+                    var samplePct = await TryComputeSampleDerivedPercent("BTCUSDT", interval, _uiTrailingActivationPercent);
+                    if (samplePct.HasValue)
+                        samplePctText = $"~{samplePct.Value:F2}% on BTCUSDT";
+                }
+                catch { /* ignore sample failure */ }
+
+                _logger.LogDebug($"Params: Interval={interval}, Entry={entrySize}USDT, Leverage={leverage}x, Exit=Trailing (Act={_uiTrailingActivationPercent:F1}× ATR, {samplePctText}, Cb={_uiTrailingCallbackPercent:F1}%, RR=1:{stopLoss:F1})");
             }
             else
             {
@@ -337,19 +352,22 @@ namespace TradingAppDesktop.Services
             }
 
             _logger.LogInformation("Trading session completed");
-            // Generate report asynchronously so Stop returns fast; HTML first for quicker user access
-            _ = Task.Run(async () =>
+            // Generate report asynchronously for Backtest or Paper only (skip Live Real)
+            if (_currentMode != OperationMode.LiveRealTrading)
             {
-                try
+                _ = Task.Run(async () =>
                 {
-                    _logger.LogInformation("Starting background report generation...");
-                    await GenerateReport();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Background report generation failed");
-                }
-            });
+                    try
+                    {
+                        _logger.LogInformation("Attempting background report generation...");
+                        await TryGenerateReportAsync(forceOpen: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Background report generation failed");
+                    }
+                });
+            }
         }
 
         public async Task<ExchangeInfo> GetExchangeInfoAsync()
@@ -391,7 +409,68 @@ namespace TradingAppDesktop.Services
             _paperWalletVm = vm;
         }
 
+        // Compute a sample derived activation percent using ATR(14) on the given symbol and interval
+        private async Task<decimal?> TryComputeSampleDerivedPercent(string symbol, string interval, decimal atrMultiplier)
+        {
+            try
+            {
+                // Fetch klines (limit ~60 for a safe ATR window)
+                var req = new RestRequest($"/fapi/v1/klines", Method.Get)
+                    .AddParameter("symbol", symbol)
+                    .AddParameter("interval", interval)
+                    .AddParameter("limit", 60);
+                var resp = await _client.ExecuteAsync(req);
+                if (!resp.IsSuccessful || string.IsNullOrWhiteSpace(resp.Content)) return null;
+
+                // Parse klines: [ openTime, open, high, low, close, volume, ... ]
+                var arr = Newtonsoft.Json.Linq.JArray.Parse(resp.Content);
+                if (arr.Count < 20) return null;
+
+                var highs = new List<decimal>();
+                var lows = new List<decimal>();
+                var closes = new List<decimal>();
+                foreach (var k in arr)
+                {
+                    highs.Add(Convert.ToDecimal((string)k[2], CultureInfo.InvariantCulture));
+                    lows.Add(Convert.ToDecimal((string)k[3], CultureInfo.InvariantCulture));
+                    closes.Add(Convert.ToDecimal((string)k[4], CultureInfo.InvariantCulture));
+                }
+
+                // Compute TR and ATR(14) approximated with Wilder's smoothing
+                int period = 14;
+                var trs = new List<decimal>();
+                for (int i = 1; i < highs.Count; i++)
+                {
+                    var h = highs[i];
+                    var l = lows[i];
+                    var pc = closes[i - 1];
+                    var tr = Math.Max((double)(h - l), Math.Max(Math.Abs((double)(h - pc)), Math.Abs((double)(l - pc))));
+                    trs.Add((decimal)tr);
+                }
+                if (trs.Count < period) return null;
+
+                // Initial ATR = average of first 'period' TRs
+                decimal atr = trs.Take(period).Average();
+                // Wilder smoothing for the rest
+                for (int i = period; i < trs.Count; i++)
+                {
+                    atr = (atr * (period - 1) + trs[i]) / period;
+                }
+
+                var lastClose = closes.Last();
+                if (lastClose <= 0) return null;
+                var atrPercent = (atr / lastClose) * 100m;
+                var derived = atrPercent * Math.Abs(atrMultiplier);
+                return Math.Max(0.01m, derived);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         // Set by MainWindow before StartTrading
+        // Note: activationPercent parameter here represents an ATR multiplier when trailing is enabled.
         public void SetTrailingUiConfig(bool useTrailing, decimal activationPercent, decimal callbackPercent)
         {
             _uiUseTrailing = useTrailing;
@@ -487,7 +566,8 @@ namespace TradingAppDesktop.Services
             );
         }
 
-        public void StopTrading(bool closeAllTrades)
+        // New async stop to avoid blocking threads and the UI
+        public async Task StopTradingAsync(bool closeAllTrades)
         {
             lock (_startLock)
             {
@@ -507,14 +587,22 @@ namespace TradingAppDesktop.Services
                 if (closeAllTrades)
                 {
                     _logger.LogInformation("Closing all open trades...");
-                    CloseAllTrades().Wait(); // Run synchronously
+                    try
+                    {
+                        await CloseAllTrades().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Do not block report generation on close failures
+                        _logger.LogWarning(ex, "CloseAllTrades failed during stop; continuing to report generation");
+                    }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during stop trading");
             }
-            finally
+            finally 
             {
                 lock (_startLock)
                 {
@@ -522,7 +610,49 @@ namespace TradingAppDesktop.Services
                     _startInProgress = false;
                     _isRunning = false;
                 }
+                // For paper trading or backtest, generate the report immediately on stop and auto-open it
+                if ((_currentMode == OperationMode.LivePaperTrading || _currentMode == OperationMode.Backtest))
+                {
+                    try
+                    {
+                        _logger.LogInformation($"Attempting report generation on stop ({_currentMode})...");
+                        await TryGenerateReportAsync(forceOpen: true).ConfigureAwait(false);
+                        _logger.LogInformation("Report generation on stop completed (or was already done)");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Report generation on stop failed");
+                    }
+                }
             }
+        }
+
+        private async Task TryGenerateReportAsync(bool forceOpen)
+        {
+            bool shouldRun = false;
+            lock (_reportLock)
+            {
+                if (!_reportGenerated)
+                {
+                    _reportGenerated = true; // claim generation to prevent duplicates
+                    shouldRun = true;
+                }
+            }
+
+            if (!shouldRun)
+            {
+                _logger.LogDebug("Report already generated or in-progress; skipping generation");
+                return;
+            }
+
+            await GenerateReport(forceOpen);
+        }
+
+        // Backwards-compatible synchronous wrapper for callers that expect a blocking StopTrading
+        public void StopTrading(bool closeAllTrades)
+        {
+            // Call the async version and block the current thread. Prefer StopTradingAsync where possible.
+            StopTradingAsync(closeAllTrades).GetAwaiter().GetResult();
         }
         private async Task OnTermination(object sender, ConsoleCancelEventArgs e)
         {
@@ -626,7 +756,7 @@ namespace TradingAppDesktop.Services
             }
         }
 
-        private async Task GenerateReport()
+        private async Task GenerateReport(bool forceOpen = false)
         {
             // Compose run-specific settings using defaults from appsettings
             var settings = new ReportSettings
@@ -711,8 +841,8 @@ namespace TradingAppDesktop.Services
             overallTimer.Stop();
             _logger.LogInformation($"All reports completed in {overallTimer.ElapsedMilliseconds} ms");
 
-            // 4. Auto-open if enabled
-            if (settings.AutoOpen)
+            // 4. Auto-open if enabled or forced
+            if (forceOpen || settings.AutoOpen)
             {
                 try 
                 {
@@ -722,6 +852,7 @@ namespace TradingAppDesktop.Services
                 }
                 catch { /* ignore open failures */ }
             }
+            _reportGenerated = true;
         }
 
         private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit, string backtestSessionName)

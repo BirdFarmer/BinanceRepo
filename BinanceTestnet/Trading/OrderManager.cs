@@ -59,9 +59,11 @@ namespace BinanceTestnet.Trading
 
         private readonly Action<string, bool, string, decimal, DateTime> _onTradeEntered;
         
-    // Trailing configuration (live-only initially, can be used for paper/backtest later)
+    // Trailing configuration
+    // When enabled, TP is replaced by trailing. Activation value is treated as an ATR multiplier and
+    // converted per-symbol to a percent using ATR/Price at order time.
     private bool _replaceTakeProfitWithTrailing = false;
-    private decimal? _trailingActivationPercentOverride = null;
+    private decimal? _trailingActivationPercentOverride = null; // semantics: ATR multiplier
     private decimal? _trailingCallbackPercentOverride = null;
     
 
@@ -108,7 +110,7 @@ namespace BinanceTestnet.Trading
         public void UpdateTrailingConfig(bool replaceTpWithTrailing, decimal? activationPercent = null, decimal? callbackPercent = null)
         {
             _replaceTakeProfitWithTrailing = replaceTpWithTrailing;
-            _trailingActivationPercentOverride = activationPercent;
+            _trailingActivationPercentOverride = activationPercent; // store ATR multiplier
             _trailingCallbackPercentOverride = callbackPercent;
         }
 
@@ -276,9 +278,9 @@ namespace BinanceTestnet.Trading
             await PlaceOrderAsync(symbol, price, false, signal, timestamp, takeProfit);
         }
 
-        private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, 
-                                        decimal? takeProfit = null, decimal? trailingActivationPercent = null, 
-                                        decimal? trailingCallbackPercent = null)
+    private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, 
+                    decimal? takeProfit = null, decimal? trailingActivationPercent = null, 
+                    decimal? trailingCallbackPercent = null)
         {
             lock (_activeTrades)
             {
@@ -338,13 +340,75 @@ namespace BinanceTestnet.Trading
                 trailingCallbackPercent = (riskDistance) / price * 100;
             }
 
-            // If trailing is replacing TP, derive SL from activation distance and Risk-Reward divider
+            // If trailing is replacing TP, derive activation percent using ATR/Price and SL using RR divider
             if (_replaceTakeProfitWithTrailing)
             {
-                var activationPct = Math.Abs(_trailingActivationPercentOverride ?? trailingActivationPercent ?? 1.0m);
+                // Compute activation percent from ATR/Price if possible
+                decimal? derivedActivationPct = null;
+                decimal? atrToPriceLogged = null;
+                decimal atrMultLogged = 0m;
+                try
+                {
+                    var atrToPrice = await GetAtrToPriceAsync(symbol);
+                    if (atrToPrice.HasValue && atrToPrice.Value > 0)
+                    {
+                        var atrMult = Math.Abs(_trailingActivationPercentOverride ?? 1.0m);
+                        atrToPriceLogged = atrToPrice.Value;
+                        atrMultLogged = atrMult;
+                        derivedActivationPct = Math.Max(0.05m, atrToPrice.Value * atrMult * 100m); // clamp to min 0.05%
+                    }
+                }
+                catch { /* fallback below */ }
+
+                var activationPct = Math.Abs(derivedActivationPct ?? trailingActivationPercent ?? 1.0m);
+                trailingActivationPercent = activationPct; // propagate for live order placement
                 var rrDivider = _stopLoss > 0 ? _stopLoss : 2.0m; // interpret _stopLoss as Risk-Reward divider in trailing mode
                 var slDistance = (activationPct / 100m) * price / rrDivider;
                 stopLossPrice = isLong ? price - slDistance : price + slDistance;
+
+                // DEBUG: Print trailing math details
+                try
+                {
+                    if (atrToPriceLogged.HasValue)
+                    {
+                        var atrAbs = atrToPriceLogged.Value * price; // ATR in price units
+                        var dAbs = atrAbs * (atrMultLogged == 0m ? 1m : atrMultLogged); // absolute activation distance
+                        var actPrice = isLong ? price + dAbs : price - dAbs; // activation trigger price
+                        _logger.LogInformation(
+                            "[TrailingMath] {Symbol} {Side} entry={Entry:F6} atr%={AtrPct:F4}% atrAbs={AtrAbs:F6} atrMult={AtrMult:F2} derivedAct%={ActPct:F4}% dAbs={DAbs:F6} actPrice={ActPrice:F6} rr={RR:F2} slDist={SLDist:F6} stopLoss={SL:F6}",
+                            symbol,
+                            isLong ? "LONG" : "SHORT",
+                            price,
+                            atrToPriceLogged.Value * 100m,
+                            atrAbs,
+                            atrMultLogged,
+                            activationPct,
+                            dAbs,
+                            actPrice,
+                            rrDivider,
+                            slDistance,
+                            stopLossPrice
+                        );
+                    }
+                    else
+                    {
+                        var dAbs = (activationPct / 100m) * price; // absolute activation distance (no ATR path)
+                        var actPrice = isLong ? price + dAbs : price - dAbs; // activation trigger price
+                        _logger.LogInformation(
+                            "[TrailingMath] {Symbol} {Side} entry={Entry:F6} (no ATR) usedAct%={ActPct:F4}% dAbs={DAbs:F6} actPrice={ActPrice:F6} rr={RR:F2} slDist={SLDist:F6} stopLoss={SL:F6}",
+                            symbol,
+                            isLong ? "LONG" : "SHORT",
+                            price,
+                            activationPct,
+                            dAbs,
+                            actPrice,
+                            rrDivider,
+                            slDistance,
+                            stopLossPrice
+                        );
+                    }
+                }
+                catch { }
             }
 
             decimal quantity = CalculateQuantity(price, symbol, _marginPerTrade);
@@ -405,7 +469,7 @@ namespace BinanceTestnet.Trading
             // Set trailing simulation parameters on the trade (used in paper/backtest; harmless in live)
             if (_replaceTakeProfitWithTrailing)
             {
-                var activationPctLocal = Math.Abs(_trailingActivationPercentOverride ?? trailingActivationPercent ?? 1.0m);
+                var activationPctLocal = Math.Abs(trailingActivationPercent ?? _trailingActivationPercentOverride ?? 1.0m);
                 var callbackPctLocal = Math.Abs(_trailingCallbackPercentOverride ?? trailingCallbackPercent ?? 1.0m);
                 // clamp callback to [0.1, 5.0]
                 callbackPctLocal = Math.Min(5.0m, Math.Max(0.1m, callbackPctLocal));
@@ -484,6 +548,37 @@ namespace BinanceTestnet.Trading
 
             //return VolatilityBasedTPandSL.CalculateTpAndSl(symbol, symbolQuotes, btcQuotes, _takeProfit);
             return VolatilityBasedTPandSL.CalculateTpAndSlBasedOnAtrMultiplier(symbol, symbolQuotes, _takeProfit, _stopLoss);
+        }
+
+        // Helper to compute ATR/Price ratio for a symbol on the current interval
+        private async Task<decimal?> GetAtrToPriceAsync(string symbol)
+        {
+            try
+            {
+                var history = await DataFetchingUtility.FetchHistoricalData(_client, symbol, _interval);
+                var quotes = history.Select(k => new Skender.Stock.Indicators.Quote
+                {
+                    Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).DateTime,
+                    Open = k.Open,
+                    High = k.High,
+                    Low = k.Low,
+                    Close = k.Close,
+                    Volume = k.Volume
+                }).ToList();
+
+                const int AtrPeriod = 14;
+                if (quotes.Count < AtrPeriod) return null;
+                var atrSeries = quotes.GetAtr(AtrPeriod).Where(a => a.Atr.HasValue).Select(a => a.Atr!.Value).ToList();
+                if (atrSeries.Count == 0) return null;
+                decimal currentAtr = (decimal)atrSeries.Last();
+                decimal currentPrice = quotes.Last().Close;
+                if (currentPrice <= 0) return null;
+                return currentAtr / currentPrice;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public List<Trade> GetActiveTrades()
@@ -976,8 +1071,10 @@ namespace BinanceTestnet.Trading
                     string takeProfitPriceString = roundedTakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
                     if (_replaceTakeProfitWithTrailing)
                     {
-                        // Determine trailing params (override > computed > defaults)
-                        decimal activationPercent = (_trailingActivationPercentOverride ?? trailingActivationPercent ?? 1.0m);
+                        // IMPORTANT: activation override is an ATR multiplier, not a percent.
+                        // We already derived activationPercent earlier in PlaceOrderAsync based on ATR/Price.
+                        // So here we must use the provided derived percent and NOT overwrite with the ATR multiplier.
+                        decimal activationPercent = (trailingActivationPercent ?? 1.0m);
                         decimal callbackPercent = (_trailingCallbackPercentOverride ?? trailingCallbackPercent ?? 1.0m);
                         // Clamp callback to Binance constraints 0.1 - 5.0
                         callbackPercent = Math.Min(5.0m, Math.Max(0.1m, callbackPercent));
@@ -1074,11 +1171,37 @@ namespace BinanceTestnet.Trading
             if (stopLossResponse.IsSuccessful)
             {
                 Console.WriteLine($"Trailing Stop placed for {trade.Symbol}: activation {activationPriceString}, callback {callbackRateString}% (reduceOnly)");                 
+                try
+                {
+                    _logger.LogInformation(
+                        "[TrailingOrder] {Symbol} {Side} entry={Entry:F6} act%={ActPct:F4}% actPrice={ActPrice} cb%={CbPct:F2}",
+                        trade.Symbol,
+                        trade.IsLong ? "LONG" : "SHORT",
+                        trade.EntryPrice,
+                        actPct,
+                        activationPriceString,
+                        cbPct
+                    );
+                }
+                catch { }
             }
             else
             {
                 Console.WriteLine($"Failed to place trailing stop for {trade.Symbol}. Error: {stopLossResponse.ErrorMessage}");
                 Console.WriteLine($"Response Content: {stopLossResponse.Content}");
+                try
+                {
+                    _logger.LogWarning(
+                        "[TrailingOrderFail] {Symbol} {Side} act%={ActPct:F4}% cb%={CbPct:F2} status={Status} error={Error}",
+                        trade.Symbol,
+                        trade.IsLong ? "LONG" : "SHORT",
+                        actPct,
+                        cbPct,
+                        stopLossResponse.StatusCode,
+                        stopLossResponse.ErrorMessage
+                    );
+                }
+                catch { }
             }
         }
 

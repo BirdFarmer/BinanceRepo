@@ -85,7 +85,7 @@ public class RSIMomentumStrategy : StrategyBase
                 // Long Entry Condition
                 if (rsiStateMap[symbol] == "coming_from_oversold" && lastRsi.Rsi >= 71)
                 {
-                    await OrderManager.PlaceLongOrderAsync(symbol, kline.Close, "RSI Momentum Backtest", kline.CloseTime);
+                    await OrderManager.PlaceLongOrderAsync(symbol, kline.Close, "RSI Momentum", kline.CloseTime);
                     LogTradeSignal("LONG", symbol, kline.Close);
                     rsiStateMap[symbol] = "neutral";
                 }
@@ -93,7 +93,7 @@ public class RSIMomentumStrategy : StrategyBase
                 // Short Entry Condition
                 else if (rsiStateMap[symbol] == "coming_from_overbought" && lastRsi.Rsi <= 29)
                 {
-                    await OrderManager.PlaceShortOrderAsync(symbol, kline.Close, "RSI Momentum Backtest", kline.CloseTime);
+                    await OrderManager.PlaceShortOrderAsync(symbol, kline.Close, "RSI Momentum", kline.CloseTime);
                     LogTradeSignal("SHORT", symbol, kline.Close);
                     rsiStateMap[symbol] = "neutral";
                 }

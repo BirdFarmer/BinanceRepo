@@ -14,9 +14,9 @@ This document explains how exits are configured and executed across all modes (L
 - Exit Mode (ComboBox): Take Profit | Trailing Stop
 - Shared parameter slider:
   - TP mode: ATR Multiplier for volatility-based TP/SL.
-  - Trailing mode: Activation % (distance from entry to “arm” the trailing stop).
+  - Trailing mode: Activation ATR Multiplier. The app derives an activation percent per symbol using ATR/Price on the selected interval, then applies it to the entry price.
 - Callback % slider (visible only in Trailing mode): the retrace percentage used once trailing is activated.
-- Risk-Reward Ratio slider: used in trailing mode to derive SL distance from Activation %, matching your expected RR behavior.
+- Risk-Reward Ratio slider: used in trailing mode to derive SL distance from the activation distance (D_abs = ATR_abs × Mult), matching your expected RR behavior.
 
 Where to see them:
 - File: `TradingAppDesktop/MainWindow.xaml`
@@ -77,13 +77,20 @@ Files:
 
 ## Stop Loss and Risk-Reward in Trailing mode
 
-When Trailing is ON, the SL is derived from Activation % and the Risk-Reward divider (RR) to mirror your expected behavior:
+When Trailing is ON, activation and SL are driven by ATR in price units:
 
-- `slDistance = (activation% × entryPrice) / RR`
-- Long SL: `entry - slDistance`
-- Short SL: `entry + slDistance`
+- ATR_abs = ATR(14) in price units on the session interval.
+- Activation distance: `D_abs = ATR_abs × ActivationMultiplier`
+- Derived activation percent (per symbol): `derivedAct% = 100 × (ATR_abs / Entry) × ActivationMultiplier`
+- Activation price:
+  - Long: `Entry + D_abs`
+  - Short: `Entry - D_abs`
+- SL distance from entry via RR divider: `SL_dist = D_abs / RR`
+- Stop Loss:
+  - Long: `Entry − SL_dist`
+  - Short: `Entry + SL_dist`
 
-In TP mode (non-trailing), TP/SL are derived from an ATR-based model using the chosen ATR multiplier.
+In TP mode (non-trailing), TP/SL are derived from an ATR-based model using the chosen ATR multiplier (percent form), not from trailing.
 
 ## Exchange constraints and rounding
 
@@ -105,7 +112,8 @@ Before placing SL, a liquidation estimate is computed and the SL is adjusted awa
   - `TradingAppDesktop/MainWindow.xaml` (controls)
   - `TradingAppDesktop/MainWindow.xaml.cs` (visibility toggling, passing UI config)
   - `TradingAppDesktop/Services/BinanceTradingService.cs`:
-    - `StartTrading(...)` applies `_orderManager.UpdateTrailingConfig(...)`
+  - `StartTrading(...)` applies `_orderManager.UpdateTrailingConfig(...)`
+  - Trailing params log now shows: `Act = X× ATR (~Y% on BTCUSDT)` instead of a raw percent.
     - Implements `IExchangeInfoProvider` to feed OrderManager symbol metadata
 - Engine:
   - `BinanceTestnet/Trading/OrderManager.cs`:
@@ -120,8 +128,8 @@ Before placing SL, a liquidation estimate is computed and the SL is adjusted awa
 
 - Exit Mode:
   - Take Profit: ATR Multiplier applies for TP/SL.
-  - Trailing Stop: uses Activation % and Callback %, and replaces TP with trailing.
-- Activation % (Trailing): distance from entry to arm trailing; also used with RR to set SL distance in trailing mode.
+  - Trailing Stop: uses Activation ATR Multiplier and Callback %, and replaces TP with trailing.
+- Activation (Trailing): set as an ATR multiplier in the UI. The app derives an activation percent per symbol from ATR/Price and applies it to the entry. With RR, the absolute activation distance determines SL distance.
 - Callback % (Trailing): retrace from the post-activation extreme that triggers exit; clamped to [0.1, 5.0].
 - Risk-Reward (Trailing): divider used to convert Activation % distance to SL distance.
 - ATR Multiplier (TP): determines TP/SL percentages in non-trailing mode.
@@ -163,6 +171,8 @@ Short (live or simulated):
 ## Testing notes
 
 - Paper mode provides a fast way to validate trailing activation and exits by watching log lines:
+  - Params line: `Act = X× ATR (~Y% on BTCUSDT)`
+  - [TrailingMath]: includes `atr%`, `atrAbs`, `atrMult`, `derivedAct%`, `dAbs`, `rr`, `slDist`, `stopLoss`
   - “trailing activated” shows activation price and callback
   - “closing at trailing retrace” shows the extreme and retrace exit
 - Backtest mode executes the same simulation over historical data.

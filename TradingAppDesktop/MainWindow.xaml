@@ -3,9 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:TradingAppDesktop.Controls"
         xmlns:converters="clr-namespace:TradingAppDesktop.Converters"
-        Title="Crypto Trading Suite" Width="1400" Height="1000"
-        MinWidth="1200" MinHeight="900"
-        FontFamily="Segoe UI" WindowStartupLocation="CenterScreen">
+    Title="Crypto Trading Suite" Width="1200" Height="800"
+    MinWidth="900" MinHeight="600"
+    FontFamily="Segoe UI" WindowStartupLocation="CenterScreen"
+    ResizeMode="CanResize">
     
     <Window.Resources>
         <!-- Modern Color Palette -->
@@ -99,26 +100,7 @@
             <Setter Property="Margin" Value="0 5 0 0"/>
         </Style>
         
-        <!-- ScrollBar Style -->
-        <Style TargetType="ScrollBar">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
-            <Setter Property="Width" Value="30"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ScrollBar">
-                        <Grid>
-                            <Track x:Name="PART_Track">
-                                <Track.Thumb>
-                                    <Thumb Background="{StaticResource AccentColor}" 
-                                        Margin="1"/>
-                                </Track.Thumb>
-                            </Track>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+        <!-- Note: Removed custom ScrollBar template to preserve native scroll behavior/direction -->
 
         <Style x:Key="ParameterSlider" TargetType="Slider">
             <Setter Property="Background" Value="{StaticResource CardBackground}"/>
@@ -140,6 +122,7 @@
     <Grid Background="{StaticResource DarkBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -152,7 +135,11 @@
                     HorizontalAlignment="Center"/>
         </Border>
 
-        <!-- Content Area -->
+    <!-- Content Area -->
+    <ScrollViewer Grid.Row="1"
+              VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Disabled"
+              PanningMode="VerticalFirst">
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="295"/>
@@ -318,8 +305,9 @@
 
                         <!-- Scrollable Log Area -->
                         <ScrollViewer x:Name="LogScroll" Grid.Column="0"
-                                      VerticalScrollBarVisibility="Visible"
-                                      HorizontalScrollBarVisibility="Disabled">
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      PanningMode="VerticalOnly">
                             <TextBox x:Name="LogText" 
                                      IsReadOnly="True"
                                      Background="Transparent"
@@ -330,7 +318,9 @@
                                      FontSize="14"
                                      AcceptsReturn="True"
                                      VerticalAlignment="Stretch"
-                                     MinHeight="750"/>
+                                     MinHeight="750"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
                         </ScrollViewer>
 
                         <!-- Sidebar: Paper Wallet on top, Recent Trades below -->
@@ -413,6 +403,7 @@
                                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                                   MaxHeight="400"
                                                   HorizontalScrollBarVisibility="Disabled"
+                                                  PanningMode="VerticalOnly"
                                                   Padding="5"
                                                   Background="{StaticResource CardBackground}">
                                         <ItemsControl x:Name="RecentTradesList"
@@ -440,6 +431,7 @@
                 </Grid>
             </Border>
         </Grid>
+        </ScrollViewer>
         <!-- Footer -->
         <Border Grid.Row="2" Background="#252538" >
             <Grid>
