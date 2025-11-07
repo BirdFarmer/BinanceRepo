@@ -53,7 +53,10 @@ namespace TradingAppDesktop.Services
         
         public bool IsStopping => _isStopping;
         public bool StartInProgress => _startInProgress;
-        private volatile bool _isRunning = false;
+    private volatile bool _isRunning = false;
+    private volatile bool _reportGenerated = false;
+    private OperationMode _currentMode;
+    private readonly object _reportLock = new();
 
     public bool IsRunning => _cancellationTokenSource != null && 
                 !_cancellationTokenSource.IsCancellationRequested;
@@ -133,6 +136,8 @@ namespace TradingAppDesktop.Services
                     DateTime? startDate = null, DateTime? endDate = null,
                     List<string>? customCoinSelection = null)
         {
+            _currentMode = operationMode;
+            _reportGenerated = false;
             _logger.LogDebug($"State update - IsRunning: {_isRunning}, StartInProgress: {_startInProgress}, IsStopping: {_isStopping}");
             lock (_startLock)
             {
@@ -347,19 +352,22 @@ namespace TradingAppDesktop.Services
             }
 
             _logger.LogInformation("Trading session completed");
-            // Generate report asynchronously so Stop returns fast; HTML first for quicker user access
-            _ = Task.Run(async () =>
+            // Generate report asynchronously for Backtest or Paper only (skip Live Real)
+            if (_currentMode != OperationMode.LiveRealTrading)
             {
-                try
+                _ = Task.Run(async () =>
                 {
-                    _logger.LogInformation("Starting background report generation...");
-                    await GenerateReport();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Background report generation failed");
-                }
-            });
+                    try
+                    {
+                        _logger.LogInformation("Attempting background report generation...");
+                        await TryGenerateReportAsync(forceOpen: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Background report generation failed");
+                    }
+                });
+            }
         }
 
         public async Task<ExchangeInfo> GetExchangeInfoAsync()
@@ -558,7 +566,8 @@ namespace TradingAppDesktop.Services
             );
         }
 
-        public void StopTrading(bool closeAllTrades)
+        // New async stop to avoid blocking threads and the UI
+        public async Task StopTradingAsync(bool closeAllTrades)
         {
             lock (_startLock)
             {
@@ -578,14 +587,22 @@ namespace TradingAppDesktop.Services
                 if (closeAllTrades)
                 {
                     _logger.LogInformation("Closing all open trades...");
-                    CloseAllTrades().Wait(); // Run synchronously
+                    try
+                    {
+                        await CloseAllTrades().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Do not block report generation on close failures
+                        _logger.LogWarning(ex, "CloseAllTrades failed during stop; continuing to report generation");
+                    }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during stop trading");
             }
-            finally
+            finally 
             {
                 lock (_startLock)
                 {
@@ -593,7 +610,49 @@ namespace TradingAppDesktop.Services
                     _startInProgress = false;
                     _isRunning = false;
                 }
+                // For paper trading or backtest, generate the report immediately on stop and auto-open it
+                if ((_currentMode == OperationMode.LivePaperTrading || _currentMode == OperationMode.Backtest))
+                {
+                    try
+                    {
+                        _logger.LogInformation($"Attempting report generation on stop ({_currentMode})...");
+                        await TryGenerateReportAsync(forceOpen: true).ConfigureAwait(false);
+                        _logger.LogInformation("Report generation on stop completed (or was already done)");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Report generation on stop failed");
+                    }
+                }
             }
+        }
+
+        private async Task TryGenerateReportAsync(bool forceOpen)
+        {
+            bool shouldRun = false;
+            lock (_reportLock)
+            {
+                if (!_reportGenerated)
+                {
+                    _reportGenerated = true; // claim generation to prevent duplicates
+                    shouldRun = true;
+                }
+            }
+
+            if (!shouldRun)
+            {
+                _logger.LogDebug("Report already generated or in-progress; skipping generation");
+                return;
+            }
+
+            await GenerateReport(forceOpen);
+        }
+
+        // Backwards-compatible synchronous wrapper for callers that expect a blocking StopTrading
+        public void StopTrading(bool closeAllTrades)
+        {
+            // Call the async version and block the current thread. Prefer StopTradingAsync where possible.
+            StopTradingAsync(closeAllTrades).GetAwaiter().GetResult();
         }
         private async Task OnTermination(object sender, ConsoleCancelEventArgs e)
         {
@@ -697,7 +756,7 @@ namespace TradingAppDesktop.Services
             }
         }
 
-        private async Task GenerateReport()
+        private async Task GenerateReport(bool forceOpen = false)
         {
             // Compose run-specific settings using defaults from appsettings
             var settings = new ReportSettings
@@ -782,8 +841,8 @@ namespace TradingAppDesktop.Services
             overallTimer.Stop();
             _logger.LogInformation($"All reports completed in {overallTimer.ElapsedMilliseconds} ms");
 
-            // 4. Auto-open if enabled
-            if (settings.AutoOpen)
+            // 4. Auto-open if enabled or forced
+            if (forceOpen || settings.AutoOpen)
             {
                 try 
                 {
@@ -793,6 +852,7 @@ namespace TradingAppDesktop.Services
                 }
                 catch { /* ignore open failures */ }
             }
+            _reportGenerated = true;
         }
 
         private static string GenerateFileName(OperationMode operationMode, decimal entrySize, decimal leverage, SelectedTradeDirection tradeDirection, SelectedTradingStrategy selectedStrategy, decimal takeProfit, string backtestSessionName)

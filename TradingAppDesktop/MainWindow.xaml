@@ -138,7 +138,7 @@
     <!-- Content Area -->
     <ScrollViewer Grid.Row="1"
               VerticalScrollBarVisibility="Auto"
-              HorizontalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Disabled"
               PanningMode="VerticalFirst">
         <Grid>
             <Grid.ColumnDefinitions>
@@ -305,7 +305,7 @@
 
                         <!-- Scrollable Log Area -->
                         <ScrollViewer x:Name="LogScroll" Grid.Column="0"
-                                      VerticalScrollBarVisibility="Visible"
+                                      VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
                                       PanningMode="VerticalOnly">
                             <TextBox x:Name="LogText" 
@@ -318,7 +318,9 @@
                                      FontSize="14"
                                      AcceptsReturn="True"
                                      VerticalAlignment="Stretch"
-                                     MinHeight="750"/>
+                                     MinHeight="750"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
                         </ScrollViewer>
 
                         <!-- Sidebar: Paper Wallet on top, Recent Trades below -->

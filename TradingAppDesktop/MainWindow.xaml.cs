@@ -386,7 +386,8 @@ namespace TradingAppDesktop
                 bool closeAll = OperationModeComboBox.SelectedItem is not OperationMode.LiveRealTrading;
                 StopButton.IsEnabled = false;
 
-                await Task.Run(() => _tradingService.StopTrading(closeAll));
+                // Use the async stop to avoid blocking the UI thread
+                await _tradingService.StopTradingAsync(closeAll);
 
                 Log(closeAll ? "Closed all trades" : "Stopped new trades (positions remain open)");
             }
