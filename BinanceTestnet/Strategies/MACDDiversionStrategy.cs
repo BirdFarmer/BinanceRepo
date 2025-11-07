@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using BinanceTestnet.Trading;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public class MACDDivergenceStrategy : StrategyBase
     {

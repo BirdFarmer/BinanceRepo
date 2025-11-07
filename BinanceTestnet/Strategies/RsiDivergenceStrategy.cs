@@ -9,7 +9,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public class RsiDivergenceStrategy : StrategyBase
     {

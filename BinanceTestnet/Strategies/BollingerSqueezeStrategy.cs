@@ -9,7 +9,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Skender.Stock.Indicators;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public static class DateTimeExtensions
     {

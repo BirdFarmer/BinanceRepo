@@ -5,6 +5,8 @@ using RestSharp;
 using Skender.Stock.Indicators;
 using System.Globalization;
 
+namespace BinanceTestnet.Strategies
+{
 public class RSIMomentumStrategy : StrategyBase
 {
     private readonly int _rsiPeriod = 14;
@@ -250,4 +252,5 @@ public class RSIMomentumStrategy : StrategyBase
     {
         Console.WriteLine($"[RSI Momentum] {direction} signal for {symbol} at {price} ({DateTime.UtcNow})");
     }
+}
 }

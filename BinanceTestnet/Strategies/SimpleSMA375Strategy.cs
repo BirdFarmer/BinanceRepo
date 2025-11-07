@@ -10,6 +10,8 @@ using RestSharp;
 using Skender.Stock.Indicators;
 using BinanceTestnet.Trading;
 
+namespace BinanceTestnet.Strategies
+{
 public class SimpleSMA375Strategy : StrategyBase
 {
     private const int SmaPeriod = 375;  // Period for the SMA
@@ -219,4 +221,5 @@ public class SimpleSMA375Strategy : StrategyBase
         Console.WriteLine($"Status Code: {response.StatusCode}");
         Console.WriteLine($"Content: {response.Content}");
     }
+}
 }

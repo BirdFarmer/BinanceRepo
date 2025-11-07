@@ -5,7 +5,7 @@ using Skender.Stock.Indicators;
 using System.Globalization;
 using BinanceTestnet.Trading;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public class HullSMAStrategy : StrategyBase
     {

@@ -9,7 +9,7 @@ using BinanceTestnet.Models;
 using BinanceTestnet.Trading;
 using System.Globalization;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public class SupportResistanceStrategy : StrategyBase
     {

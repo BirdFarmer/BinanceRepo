@@ -4,7 +4,7 @@ using BinanceTestnet.Enums;
 using BinanceTestnet.Models;
 using BinanceTestnet.Trading;
 using RestSharp;
-using BinanceLive.Strategies;
+using BinanceTestnet.Strategies;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using System.Globalization;

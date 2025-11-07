@@ -9,7 +9,7 @@ using Newtonsoft.Json;
 using BinanceTestnet.Enums; 
 using BinanceTestnet.Database;
 using BinanceTestnet.Trading;
-using BinanceLive.Strategies;
+using BinanceTestnet.Strategies;
 using BinanceTestnet.Models;
 using BinanceLive.Tools;
 using BinanceTestnet.Services;

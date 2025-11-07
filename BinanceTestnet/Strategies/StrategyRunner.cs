@@ -8,7 +8,7 @@ using BinanceTestnet.Trading;
 using System.Diagnostics;
 using BinanceTestnet.Strategies;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public class StrategyRunner
     {

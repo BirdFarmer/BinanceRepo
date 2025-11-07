@@ -8,6 +8,8 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
+namespace BinanceTestnet.Strategies
+{
 public class FVGStrategy : StrategyBase
 {
     private readonly int _fvgLookbackPeriod = 36; // Number of periods to look back for FVGs
@@ -446,4 +448,5 @@ public class OrderBookEntry
 {
     public decimal Price { get; set; }
     public decimal Quantity { get; set; }
+}
 }

@@ -10,6 +10,8 @@ using RestSharp;
 using Skender.Stock.Indicators;
 using BinanceTestnet.Trading;
 
+namespace BinanceTestnet.Strategies
+{
 public class SMAExpansionStrategy : StrategyBase
 {
     private const int ExpansionWindowSize = 1;  // Adjusted for more robust detection
@@ -395,5 +397,6 @@ public class SMAExpansionStrategy : StrategyBase
         Console.WriteLine($"Status Code: {response.StatusCode}");
         Console.WriteLine($"Content: {response.Content}");
     }
+}
 }
 
