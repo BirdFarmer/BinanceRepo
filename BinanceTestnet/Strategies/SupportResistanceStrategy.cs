@@ -52,15 +52,17 @@ namespace BinanceTestnet.Strategies
             {
                 //Console.WriteLine($"\n=== Processing {symbol} ({interval}) ===");
                 
-                var request = CreateRequest("/fapi/v1/klines");
-                request.AddParameter("symbol", symbol, ParameterType.QueryString);
-                request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "500", ParameterType.QueryString);
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", "500"}
+                });
 
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful && response.Content != null)
                 {
-                    var klines = ParseKlines(response.Content);
+                    var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
 
                     if (klines != null && klines.Count > 1)
                     {
@@ -517,8 +519,11 @@ namespace BinanceTestnet.Strategies
                     _entryTakenFromSupportBreakout = false;
                 }
 
-                var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
+                if (!string.IsNullOrEmpty(currentKline.Symbol))
+                {
+                    var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
+                    await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
+                }
             }
         }
 
@@ -606,13 +611,7 @@ namespace BinanceTestnet.Strategies
             //Console.WriteLine($"************************************************");
         }
 
-        private RestRequest CreateRequest(string resource)
-        {
-            var request = new RestRequest(resource, Method.Get);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("Accept", "application/json");
-            return request;
-        }
+        // Request creation centralized in StrategyUtils
 
         private void HandleErrorResponse(string symbol, RestResponse response)
         {
@@ -621,57 +620,6 @@ namespace BinanceTestnet.Strategies
             //Console.WriteLine($"Content: {response.Content}");
         }
 
-        private List<Kline>? ParseKlines(string content)
-        {
-            try
-            {
-                var klinesList = JsonConvert.DeserializeObject<List<List<object>>>(content);
-                if (klinesList == null) return null;
-                
-                var klines = new List<Kline>();
-                
-                foreach (var klineData in klinesList)
-                {
-                    if (klineData.Count < 9) continue;
-                    
-                    var kline = new Kline
-                    {
-                        OpenTime = Convert.ToInt64(klineData[0]),
-                        Open = ParseDecimal(klineData[1]),
-                        High = ParseDecimal(klineData[2]),
-                        Low = ParseDecimal(klineData[3]),
-                        Close = ParseDecimal(klineData[4]),
-                        Volume = ParseDecimal(klineData[5]),
-                        CloseTime = Convert.ToInt64(klineData[6]),
-                        NumberOfTrades = Convert.ToInt32(klineData[8])
-                    };
-                    
-                    klines.Add(kline);
-                }
-                
-                return klines;
-            }
-            catch (Exception ex)
-            {
-                //Console.WriteLine($"Error parsing klines: {ex.Message}");
-                return null;
-            }
-        }
-
-        private decimal ParseDecimal(object value)
-        {
-            if (value == null) return 0;
-            
-            // Handle both string and numeric types
-            string stringValue = value.ToString();
-            
-            if (decimal.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal result))
-            {
-                return result;
-            }
-            
-            //Console.WriteLine($"Failed to parse decimal: {stringValue}");
-            return 0;
-        }
+        // Parsing helpers centralized in StrategyUtils
     }
 }

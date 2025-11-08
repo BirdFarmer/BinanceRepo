@@ -31,7 +31,16 @@ public class SimpleSMA375Strategy : StrategyBase
 
         // Fetch more data points to ensure enough for SMA calculation
         const int dataPointsRequired = 800;
-        var klines = await FetchKlines(symbol, interval, dataPointsRequired);
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+        {
+            {"symbol", symbol},
+            {"interval", interval},
+            {"limit", dataPointsRequired.ToString()}
+        });
+        var response = await Client.ExecuteGetAsync(request);
+        var klines = response.IsSuccessful && response.Content != null
+            ? Helpers.StrategyUtils.ParseKlines(response.Content)
+            : null;
         if (klines == null || klines.Count < SmaPeriod)
         {
             Console.WriteLine($"Error: Not enough kline data fetched for {symbol}. Required: {SmaPeriod}, Available: {klines?.Count}");
@@ -44,7 +53,7 @@ public class SimpleSMA375Strategy : StrategyBase
         // Calculate SMA 375
         var sma375 = Indicator.GetSma(history, SmaPeriod)
             .Where(q => q.Sma.HasValue)
-            .Select(q => q.Sma.Value)
+            .Select(q => (decimal)q.Sma!.Value)
             .ToList();
 
         if (sma375.Count < SmaPeriod)
@@ -88,7 +97,7 @@ public class SimpleSMA375Strategy : StrategyBase
 
     public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
     {
-        var klines = historicalData.ToList();
+    var klines = historicalData.ToList();
         if (klines.Count < SmaPeriod)
         {
             Console.WriteLine($"Error: Not enough historical kline data. Required: {SmaPeriod}, Available: {klines.Count}");
@@ -101,7 +110,7 @@ public class SimpleSMA375Strategy : StrategyBase
         // Calculate SMA 375
         var sma375 = Indicator.GetSma(history, SmaPeriod)
             .Where(q => q.Sma.HasValue)
-            .Select(q => q.Sma.Value)
+            .Select(q => (decimal)q.Sma!.Value)
             .ToList();
 
         // Ensure that we have enough SMA values to work with
@@ -134,63 +143,32 @@ public class SimpleSMA375Strategy : StrategyBase
             bool crossedAbove = previousPriceLow < previousSMA375 && currentPriceLow > currentSMA375;
             bool crossedBelow = previousPriceHigh > previousSMA375 && currentPriceHigh < currentSMA375;
 
-            if (crossedAbove && isUpwards)
+            if (!string.IsNullOrEmpty(klines[i].Symbol) && crossedAbove && isUpwards)
             {
                 Console.WriteLine($"Long Signal (Historical) for {klines[i].Symbol} at {currentPriceClose}");
                 await OrderManager.PlaceLongOrderAsync(klines[i].Symbol, currentPriceClose, "SMA375", historicalData.Last().CloseTime);
             }
-            else if (crossedBelow && isDownwards)
+            else if (!string.IsNullOrEmpty(klines[i].Symbol) && crossedBelow && isDownwards)
             {
 
                 Console.WriteLine($"Short Signal (Historical) for {klines[i].Symbol} at {currentPriceClose}");
                 
                 await OrderManager.PlaceShortOrderAsync(klines[i].Symbol, currentPriceClose, "SMA375", historicalData.Last().CloseTime);
             }
-                    // Check and close existing trades
-            var currentPrices = new Dictionary<string, decimal> { { klines[i].Symbol, currentPriceClose } };
-            await OrderManager.CheckAndCloseTrades(currentPrices, historicalData.Last().CloseTime);
+            // Check and close existing trades
+            if (!string.IsNullOrEmpty(klines[i].Symbol))
+            {
+                string sym = klines[i].Symbol!;
+                var currentPrices = new Dictionary<string, decimal> { { sym, currentPriceClose } };
+                await OrderManager.CheckAndCloseTrades(currentPrices, historicalData.Last().CloseTime);
+            }
         }
     }
 
 
 
 
-    private async Task<List<Kline>> FetchKlines(string symbol, string interval, int dataPoints)
-    {
-        var request = CreateRequest("/fapi/v1/klines");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
-        request.AddParameter("interval", interval, ParameterType.QueryString);
-        request.AddParameter("limit", dataPoints.ToString(), ParameterType.QueryString);
-
-        var response = await Client.ExecuteGetAsync(request);
-
-        if (response.IsSuccessful)
-        {
-            return JsonConvert.DeserializeObject<List<List<object>>>(response.Content)
-                ?.Select(k =>
-                {
-                    var kline = new Kline();
-                    if (k.Count >= 9)
-                    {
-                        kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                        kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                        kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                        kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                        kline.OpenTime = Convert.ToInt64(k[0]);
-                        kline.CloseTime = Convert.ToInt64(k[6]);
-                        kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        kline.Symbol = symbol;
-                    }
-                    return kline;
-                })
-                .ToList();
-        }
-        else
-        {
-            HandleErrorResponse(symbol, response);
-            return null;
-        }
-    }
+    // Request creation and parsing centralized in StrategyUtils
 
     private List<BinanceTestnet.Models.Quote> ConvertToQuoteList(IEnumerable<Kline> klines, decimal[] closes)
     {
@@ -208,12 +186,7 @@ public class SimpleSMA375Strategy : StrategyBase
         return quotes;
     }
 
-    private RestRequest CreateRequest(string resource)
-    {
-        var request = new RestRequest(resource, Method.Get);
-        request.AddHeader("X-MBX-APIKEY", ApiKey);
-        return request;
-    }
+    // Request creation centralized in StrategyUtils
 
     private void HandleErrorResponse(string symbol, RestResponse response)
     {

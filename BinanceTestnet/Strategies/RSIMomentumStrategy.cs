@@ -26,7 +26,16 @@ public class RSIMomentumStrategy : StrategyBase
     {
         try
         {
-            var klines = await FetchKlinesAsync(symbol, interval);
+            var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+            {
+                {"symbol", symbol},
+                {"interval", interval},
+                {"limit", (_lookbackPeriod + 1).ToString()}
+            });
+            var response = await Client.ExecuteGetAsync(request);
+            var klines = response.IsSuccessful && response.Content != null
+                ? Helpers.StrategyUtils.ParseKlines(response.Content)
+                : null;
             if (klines == null || klines.Count <= _rsiPeriod)
             {
                 Console.WriteLine($"[WARNING] Insufficient data for {symbol}.");
@@ -207,46 +216,7 @@ public class RSIMomentumStrategy : StrategyBase
         return rsiResults.Where(r => r.Rsi.HasValue).Select(r => (decimal)r.Rsi.Value).ToList();
     }
 
-    private async Task<List<Kline>> FetchKlinesAsync(string symbol, string interval)
-    {
-        var request = CreateRequest("/fapi/v1/klines");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
-        request.AddParameter("interval", interval, ParameterType.QueryString);
-        request.AddParameter("limit", (_lookbackPeriod + 1).ToString(), ParameterType.QueryString);
-
-        var response = await Client.ExecuteGetAsync(request);
-        return response.IsSuccessful ? ParseKlines(response.Content) : null;
-    }
-
-    private RestRequest CreateRequest(string resource)
-    {
-        var request = new RestRequest(resource, Method.Get);
-        request.AddHeader("Content-Type", "application/json");
-        return request;
-    }
-
-    private List<Kline> ParseKlines(string content)
-    {
-        try
-        {
-            return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                ?.Select(k => new Kline
-                {
-                    Open = Convert.ToDecimal(k[1], CultureInfo.InvariantCulture),
-                    High = Convert.ToDecimal(k[2], CultureInfo.InvariantCulture),
-                    Low = Convert.ToDecimal(k[3], CultureInfo.InvariantCulture),
-                    Close = Convert.ToDecimal(k[4], CultureInfo.InvariantCulture),
-                    OpenTime = Convert.ToInt64(k[0]),
-                    CloseTime = Convert.ToInt64(k[6])
-                })
-                .ToList();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[ERROR] Parsing klines: {ex.Message}");
-            return null;
-        }
-    }
+    // Request creation and parsing centralized in StrategyUtils
 
     private void LogTradeSignal(string direction, string symbol, decimal price)
     {

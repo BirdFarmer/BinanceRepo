@@ -40,7 +40,16 @@ namespace BinanceTestnet.Strategies
             {
                 //Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Starting Bollinger Squeeze for {symbol} {interval}");
 
-                var klines = await FetchKlinesAsync(symbol, interval, _bbPeriod + _atrPeriod + 10);
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", (_bbPeriod + _atrPeriod + 10).ToString()}
+                });
+                var response = await Client.ExecuteGetAsync(request);
+                var klines = response.IsSuccessful && response.Content != null
+                    ? Helpers.StrategyUtils.ParseKlines(response.Content)
+                    : null;
 
                 if (klines == null)
                 {
@@ -79,15 +88,15 @@ namespace BinanceTestnet.Strategies
                         var lastClose = klines.Last().Close;
                         var prevClose = klines[^2].Close;
 
-                        if (lastClose > upperBand.Last() && prevClose <= upperBand.Last())
+                        if (lastClose > upperBand.Last() && prevClose <= upperBand.Last() && symbol != null)
                         {
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ LONG SIGNAL ⚡ {symbol} @ {lastClose}");
-                            await OrderManager.PlaceLongOrderAsync(symbol, lastClose, "BB Squeeze", klines.Last().CloseTime);
+                            await OrderManager.PlaceLongOrderAsync(symbol!, lastClose, "BB Squeeze", klines.Last().CloseTime);
                         }
-                        else if (lastClose < lowerBand.Last() && prevClose >= lowerBand.Last())
+                        else if (lastClose < lowerBand.Last() && prevClose >= lowerBand.Last() && symbol != null)
                         {
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ SHORT SIGNAL ⚡ {symbol} @ {lastClose}");
-                            await OrderManager.PlaceShortOrderAsync(symbol, lastClose, "BB Squeeze", klines.Last().CloseTime);
+                            await OrderManager.PlaceShortOrderAsync(symbol!, lastClose, "BB Squeeze", klines.Last().CloseTime);
                         }
                     }
                 }
@@ -214,7 +223,7 @@ namespace BinanceTestnet.Strategies
                         var prevKline = klines[i - 1];
 
                         // Long signal
-                        if (currentKline.Close > currentUpper && prevKline.Close <= currentUpper)
+                        if (currentKline.Close > currentUpper && prevKline.Close <= currentUpper && currentKline.Symbol != null)
                         {
                             signalCount++;
                             Console.WriteLine($"\n>>> LONG SIGNAL <<<");
@@ -224,13 +233,13 @@ namespace BinanceTestnet.Strategies
                             Console.WriteLine($"- Prev Close: {prevKline.Close}, Current Close: {currentKline.Close}");
 
                             await OrderManager.PlaceLongOrderAsync(
-                                currentKline.Symbol,
+                                currentKline.Symbol!,
                                 currentKline.Close,
                                 "BB Squeeze",
                                 currentKline.CloseTime);
                         }
                         // Short signal
-                        else if (currentKline.Close < currentLower && prevKline.Close >= currentLower)
+                        else if (currentKline.Close < currentLower && prevKline.Close >= currentLower && currentKline.Symbol != null)
                         {
                             signalCount++;
                             Console.WriteLine($"\n>>> SHORT SIGNAL <<<");
@@ -240,7 +249,7 @@ namespace BinanceTestnet.Strategies
                             Console.WriteLine($"- Prev Close: {prevKline.Close}, Current Close: {currentKline.Close}");
 
                             await OrderManager.PlaceShortOrderAsync(
-                                currentKline.Symbol,
+                                currentKline.Symbol!,
                                 currentKline.Close,
                                 "BB Squeeze",
                                 currentKline.CloseTime);
@@ -248,7 +257,9 @@ namespace BinanceTestnet.Strategies
                     }
 
                     // Check for open trade closing conditions
-                    var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
+                    var currentPrices = currentKline.Symbol != null
+                        ? new Dictionary<string, decimal> { { currentKline.Symbol!, currentKline.Close } }
+                        : new Dictionary<string, decimal>();
                     await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
                 }
 
@@ -272,60 +283,6 @@ namespace BinanceTestnet.Strategies
             }
         }
 
-        private async Task<List<Kline>> FetchKlinesAsync(string symbol, string interval, int limit)
-        {
-            var request = CreateRequest("/fapi/v1/klines");
-            request.AddParameter("symbol", symbol, ParameterType.QueryString);
-            request.AddParameter("interval", interval, ParameterType.QueryString);
-            request.AddParameter("limit", limit.ToString(), ParameterType.QueryString);
-
-            var response = await Client.ExecuteGetAsync(request);
-            if (response.IsSuccessful)
-            {
-                return ParseKlines(response.Content);
-            }
-            else
-            {
-                Console.WriteLine($"Failed to fetch klines for {symbol}: {response.ErrorMessage}");
-                return null;
-            }
-        }
-
-        private List<Kline> ParseKlines(string content)
-        {
-            try
-            {
-                return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                    ?.Select(k =>
-                    {
-                        var kline = new Kline();
-                        if (k.Count >= 9)
-                        {
-                            kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                            kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                            kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                            kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                            kline.OpenTime = Convert.ToInt64(k[0]);
-                            kline.CloseTime = Convert.ToInt64(k[6]);
-                            kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        }
-                        return kline;
-                    })
-                    .ToList();
-            }
-            catch (JsonException ex)
-            {
-                Console.WriteLine($"JSON Deserialization error: {ex.Message}");
-                return null;
-            }
-        }
-
-        private RestRequest CreateRequest(string resource)
-        {
-            var request = new RestRequest(resource, Method.Get);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("Accept", "application/json");
-            return request;
-        }
+        // Parse and request helpers centralized in StrategyUtils
     }
 }

@@ -35,15 +35,16 @@ namespace BinanceTestnet.Strategies
             try
             {
                 // Fetch enough candles for indicators
-                var request = CreateRequest("/fapi/v1/klines");
-                request.AddParameter("symbol", symbol);
-                request.AddParameter("interval", interval);
-                request.AddParameter("limit", "150"); // Enough for 100 lookback + indicators
-
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", "150"}
+                });
                 var response = await Client.ExecuteGetAsync(request);
                 if (!response.IsSuccessful || response.Content == null) return;
 
-                var klines = ParseKlines(response.Content);
+                var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
                 if (klines == null || klines.Count < LookbackPeriod) return;
 
                 // Calculate indicators
@@ -182,17 +183,23 @@ namespace BinanceTestnet.Strategies
                         currentKline.Low <= fibLevels[61.8m] && 
                         prevKline.Low > fibLevels[61.8m])
                     {
-                        await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, 
+                        if (currentKline.Symbol != null)
+                        {
+                        await OrderManager.PlaceLongOrderAsync(currentKline.Symbol!, currentKline.Close, 
                             "Fib-Long-Hist", currentKline.CloseTime);
-                        LogTradeSignal("LONG", currentKline.Symbol, currentKline.Close, fibHigh, fibLow);
+                        LogTradeSignal("LONG", currentKline.Symbol!, currentKline.Close, fibHigh, fibLow);
+                        }
                     }
                     else if (_isDowntrend && 
                              currentKline.High >= fibLevels[38.2m] && 
                              prevKline.High < fibLevels[38.2m])
                     {
-                        await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, 
+                        if (currentKline.Symbol != null)
+                        {
+                        await OrderManager.PlaceShortOrderAsync(currentKline.Symbol!, currentKline.Close, 
                             "Fib-Short-Hist", currentKline.CloseTime);
-                        LogTradeSignal("SHORT", currentKline.Symbol, currentKline.Close, fibHigh, fibLow);
+                        LogTradeSignal("SHORT", currentKline.Symbol!, currentKline.Close, fibHigh, fibLow);
+                        }
                     }
                 }
             }
@@ -311,14 +318,6 @@ namespace BinanceTestnet.Strategies
             return rsiValues;
         }
 
-        private RestRequest CreateRequest(string resource)
-        {
-            var request = new RestRequest(resource, Method.Get);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("Accept", "application/json");
-
-            return request;
-        }
 
         private void LogTradeSignal(string direction, string symbol, decimal price, decimal? fibHigh, decimal? fibLow)
         {
@@ -336,34 +335,7 @@ namespace BinanceTestnet.Strategies
             // Console.WriteLine($"Content: {response.Content}");
         }
 
-        private List<Kline>? ParseKlines(string content)
-        {
-            try
-            {
-                return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                    ?.Select(k =>
-                    {
-                        var kline = new Kline();
-                        if (k.Count >= 9)
-                        {
-                            kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                            kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                            kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                            kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                            kline.OpenTime = Convert.ToInt64(k[0]);
-                            kline.CloseTime = Convert.ToInt64(k[6]);
-                            kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        }
-                        return kline;
-                    })
-                    .ToList();
-            }
-            catch (JsonException ex)
-            {
-                Console.WriteLine($"JSON Deserialization error: {ex.Message}");
-                return null;
-            }
-        }
+        // Request & parse centralized in StrategyUtils
 
         public Dictionary<decimal, decimal> GetFibonacciLevels(decimal highestHigh, decimal lowestLow)
         {

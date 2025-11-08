@@ -22,15 +22,22 @@ namespace BinanceTestnet.Strategies
         {
             try
             {
-                var request = CreateRequest("/fapi/v1/klines");
-                request.AddParameter("symbol", symbol, ParameterType.QueryString);
-                request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "401", ParameterType.QueryString);
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", "401"}
+                });
 
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful)
                 {
-                    var klines = ParseKlines(response.Content);
+                    if (string.IsNullOrWhiteSpace(response.Content))
+                    {
+                        Console.WriteLine($"No content for {symbol}.");
+                        return;
+                    }
+                    var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
 
                     if (klines != null && klines.Count > 0)
                     {
@@ -120,7 +127,10 @@ namespace BinanceTestnet.Strategies
                     && (double)kline.Low > lastEmaLong.Ema
                     )
                 {
-                    await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.OpenTime);
+                    if (!string.IsNullOrEmpty(kline.Symbol))
+                    {
+                        await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.OpenTime);
+                    }
                     LogTradeSignal("LONG", kline.Symbol, kline.Close);
                 }
 
@@ -131,52 +141,24 @@ namespace BinanceTestnet.Strategies
                          && (double)kline.High < lastEmaLong.Ema
                          )
                 {
-                    await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.OpenTime);
+                    if (!string.IsNullOrEmpty(kline.Symbol))
+                    {
+                        await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.OpenTime);
+                    }
                     LogTradeSignal("SHORT", kline.Symbol, kline.Close);
                 }
 
-                var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices, kline.OpenTime);
+                if (!string.IsNullOrEmpty(kline.Symbol))
+                {
+                    var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
+                    await OrderManager.CheckAndCloseTrades(currentPrices, kline.OpenTime);
+                }
             }
         }
 
-        private List<BinanceTestnet.Models.Kline>? ParseKlines(string content)
-        {
-            try
-            {
-                return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                    ?.Select(k =>
-                    {
-                        var kline = new BinanceTestnet.Models.Kline();
-                        if (k.Count >= 9)
-                        {
-                            kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                            kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                            kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                            kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                            kline.OpenTime = Convert.ToInt64(k[0]);
-                            kline.CloseTime = Convert.ToInt64(k[6]);
-                            kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        }
-                        return kline;
-                    })
-                    .ToList();
-            }
-            catch (JsonException ex)
-            {
-                Console.WriteLine($"JSON Deserialization error: {ex.Message}");
-                return null;
-            }
-        }
+        // Parsing now delegated to StrategyUtils.
 
-        private RestRequest CreateRequest(string resource)
-        {
-            var request = new RestRequest(resource, Method.Get);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("Accept", "application/json");
-
-            return request;
-        }
+        // Request creation now delegated to StrategyUtils.
 
         private void LogTradeSignal(string direction, string symbol, decimal price)
         {

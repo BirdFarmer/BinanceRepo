@@ -33,7 +33,16 @@ public class SMAExpansionStrategy : StrategyBase
         }
 
         // Fetch klines once
-        var klines = await FetchKlines(symbol, interval);
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+        {
+            {"symbol", symbol},
+            {"interval", interval},
+            {"limit", "401"}
+        });
+    var response = await Client.ExecuteGetAsync(request);
+        var klines = response.IsSuccessful && response.Content != null
+            ? Helpers.StrategyUtils.ParseKlines(response.Content)
+            : null;
         if (klines == null || klines.Count == 0)
         {
             Console.WriteLine($"No klines data fetched for {symbol}");
@@ -141,42 +150,7 @@ public class SMAExpansionStrategy : StrategyBase
         }
     }
 
-    private async Task<List<Kline>> FetchKlines(string symbol, string interval)
-    {
-        var request = CreateRequest("/fapi/v1/klines");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
-        request.AddParameter("interval", interval, ParameterType.QueryString);
-        request.AddParameter("limit", "401", ParameterType.QueryString);
-
-        var response = await Client.ExecuteGetAsync(request);
-
-        if (response.IsSuccessful && response.Content != null)
-        {
-            return JsonConvert.DeserializeObject<List<List<object>>>(response.Content)
-                ?.Select(k =>
-                {
-                    var kline = new Kline();
-                    if (k.Count >= 9)
-                    {
-                        kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                        kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                        kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                        kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                        kline.OpenTime = Convert.ToInt64(k[0]);
-                        kline.CloseTime = Convert.ToInt64(k[6]);
-                        kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        kline.Symbol = symbol;
-                    }
-                    return kline;
-                })
-                .ToList();
-        }
-        else
-        {
-            HandleErrorResponse(symbol, response);
-            return null;
-        }
-    }
+    // Request creation and parsing centralized in StrategyUtils
 
     private List<BinanceTestnet.Models.Quote> ConvertToQuoteList(IEnumerable<Kline> klines, decimal[] closes)
     {
@@ -279,12 +253,7 @@ public class SMAExpansionStrategy : StrategyBase
         }
     }
 
-    private RestRequest CreateRequest(string resource)
-    {
-        var request = new RestRequest(resource, Method.Get);
-        request.AddHeader("X-MBX-APIKEY", ApiKey);
-        return request;
-    }
+    // Request creation centralized in StrategyUtils
 
     private async Task<decimal> GetCurrentPriceFromBinance(string symbol)
     {
@@ -294,15 +263,22 @@ public class SMAExpansionStrategy : StrategyBase
             return 0;
         }
 
-        var request = CreateRequest("/fapi/v1/ticker/price");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/ticker/price", new Dictionary<string,string>
+        {
+            {"symbol", symbol}
+        });
 
         var response = await Client.ExecuteGetAsync(request);
 
         if (response.IsSuccessful && response.Content != null)
         {
-            var ticker = JsonConvert.DeserializeObject<dynamic>(response.Content);
-            return ticker.price;
+            var tickerDict = JsonConvert.DeserializeObject<Dictionary<string, object?>>(response.Content);
+            if (tickerDict != null && tickerDict.TryGetValue("price", out var priceObj) && priceObj != null)
+            {
+                if (decimal.TryParse(priceObj.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
+                    return parsed;
+            }
+            return 0m;
         }
         else
         {
@@ -351,13 +327,19 @@ public class SMAExpansionStrategy : StrategyBase
             return 0;
         }
 
-        var klines = FetchKlines(symbol, "1m").Result;
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+        {
+            {"symbol", symbol},
+            {"interval", "1m"},
+            {"limit", "401"}
+        });
+        var response = Client.ExecuteGetAsync(request).Result;
+        var klines = response.IsSuccessful && response.Content != null ? Helpers.StrategyUtils.ParseKlines(response.Content) : new List<Kline>();
         var history = ConvertToQuoteList(klines, klines.Select(k => k.Close).ToArray());
 
         var rsiValues = Indicator.GetRsi(history, period)
             .Where(q => q.Rsi.HasValue)
-            .Select(q => q.Rsi.Value)
-            
+            .Select(q => q.Rsi ?? 0)
             .ToList();
 
         return (decimal)rsiValues.LastOrDefault();

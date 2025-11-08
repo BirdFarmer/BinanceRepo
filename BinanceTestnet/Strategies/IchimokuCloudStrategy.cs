@@ -40,29 +40,29 @@ namespace BinanceTestnet.Strategies
                     var currentIchimoku = ichimoku[i];
                     var prevIchimoku = ichimoku[i - 1];
 
-                    string symbol = currentKline.Symbol;
+                    string? symbol = currentKline.Symbol;
                     decimal lastPrice = currentKline.Close;
                     long closeTime = currentKline.CloseTime;
 
                     // Long entry condition: Price above Kumo, Tenkan-Sen crosses above Kijun-Sen
-                    if (lastPrice > currentIchimoku.SenkouSpanA && lastPrice > currentIchimoku.SenkouSpanB &&
+                    if (symbol != null && lastPrice > currentIchimoku.SenkouSpanA && lastPrice > currentIchimoku.SenkouSpanB &&
                         prevIchimoku.TenkanSen <= prevIchimoku.KijunSen && 
                         currentIchimoku.TenkanSen > currentIchimoku.KijunSen)
                     {
-                        await OrderManager.PlaceLongOrderAsync(symbol, lastPrice, "IchimokuCloud", closeTime);
-                        LogTradeSignal("LONG", symbol, lastPrice);
+                        await OrderManager.PlaceLongOrderAsync(symbol!, lastPrice, "IchimokuCloud", closeTime);
+                        LogTradeSignal("LONG", symbol!, lastPrice);
                     }
                     // Short entry condition: Price below Kumo, Tenkan-Sen crosses below Kijun-Sen
-                    else if (lastPrice < currentIchimoku.SenkouSpanA && lastPrice < currentIchimoku.SenkouSpanB &&
+                    else if (symbol != null && lastPrice < currentIchimoku.SenkouSpanA && lastPrice < currentIchimoku.SenkouSpanB &&
                         prevIchimoku.TenkanSen >= prevIchimoku.KijunSen && 
                         currentIchimoku.TenkanSen < currentIchimoku.KijunSen)
                     {
-                        await OrderManager.PlaceShortOrderAsync(symbol, lastPrice, "IchimokuCloud", closeTime);
-                        LogTradeSignal("SHORT", symbol, lastPrice);
+                        await OrderManager.PlaceShortOrderAsync(symbol!, lastPrice, "IchimokuCloud", closeTime);
+                        LogTradeSignal("SHORT", symbol!, lastPrice);
                     }
 
                     // Check for open trade closing conditions
-                    var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
+                    var currentPrices = symbol != null ? new Dictionary<string, decimal> { { symbol!, lastPrice } } : new Dictionary<string, decimal>();
                     await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.CloseTime);
                 }
             }
@@ -76,15 +76,17 @@ namespace BinanceTestnet.Strategies
         {
             try
             {
-                var request = CreateRequest("/fapi/v1/klines");
-                request.AddParameter("symbol", symbol, ParameterType.QueryString);
-                request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "400", ParameterType.QueryString);
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", "400"}
+                });
 
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful && response.Content != null)
                 {
-                    var klines = ParseKlines(response.Content);
+                    var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
 
                     if (klines != null && klines.Count > 0)
                     {
@@ -167,15 +169,7 @@ namespace BinanceTestnet.Strategies
         }
     
         
-        private RestRequest CreateRequest(string resource)
-        {
-            var request = new RestRequest(resource, Method.Get);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("Accept", "application/json");
-
-            return request;
-        }
-        
+        // Request creation and parsing centralized in StrategyUtils
 
         private void LogTradeSignal(string direction, string symbol, decimal price)
         {
@@ -195,34 +189,7 @@ namespace BinanceTestnet.Strategies
             Console.WriteLine($"Content: {response.Content}");
         }
 
-        private List<Kline>? ParseKlines(string content)
-        {
-            try
-            {
-                return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                    ?.Select(k =>
-                    {
-                        var kline = new Kline();
-                        if (k.Count >= 9)
-                        {
-                            kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                            kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                            kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                            kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                            kline.OpenTime = Convert.ToInt64(k[0]);
-                            kline.CloseTime = Convert.ToInt64(k[6]);
-                            kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        }
-                        return kline;
-                    })
-                    .ToList();
-            }
-            catch (JsonException ex)
-            {
-                Console.WriteLine($"JSON Deserialization error: {ex.Message}");
-                return null;
-            }
-        }
+        
     
 
         public class IchimokuCloud

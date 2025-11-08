@@ -234,51 +234,29 @@ public class FVGStrategy : StrategyBase
         }
     }
 
-    private Dictionary<decimal, decimal> BucketOrderBook(List<List<decimal>> orders)
-    {
-        var bucketedOrders = new Dictionary<decimal, decimal>();
-
-        foreach (var order in orders)
-        {
-            var price = order[0];
-            var quantity = order[1];
-
-            var roundedPrice = RoundToSignificantDigits(price, 4);
-
-            if (bucketedOrders.ContainsKey(roundedPrice))
-            {
-                bucketedOrders[roundedPrice] += quantity;
-            }
-            else
-            {
-                bucketedOrders[roundedPrice] = quantity;
-            }
-        }
-
-        return bucketedOrders;
-    }
-
-    private decimal RoundToSignificantDigits(decimal value, int significantDigits)
-    {
-        if (value == 0) return 0;
-        var scale = (decimal)Math.Pow(10, Math.Floor(Math.Log10((double)Math.Abs(value))) + 1 - significantDigits);
-        return Math.Round(value / scale) * scale;
-    }
+    // Bucket and rounding provided by StrategyUtils
 
     
-    private async Task<Dictionary<string, Dictionary<decimal, decimal>>> FetchOrderBookAsync(string symbol)
+    private async Task<Dictionary<string, Dictionary<decimal, decimal>>?> FetchOrderBookAsync(string symbol)
     {
-        var request = CreateRequest("/fapi/v1/depth");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
-        request.AddParameter("limit", _orderBookDepthLevels.ToString(), ParameterType.QueryString);
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/depth", new Dictionary<string,string>
+        {
+            {"symbol", symbol},
+            {"limit", _orderBookDepthLevels.ToString()}
+        });
 
         var response = await Client.ExecuteGetAsync(request);
-        if (response.IsSuccessful)
+        if (response.IsSuccessful && response.Content != null)
         {
             var orderBook = JsonConvert.DeserializeObject<OrderBook>(response.Content);
+            if (orderBook == null)
+            {
+                Console.WriteLine($"Failed to deserialize order book for {symbol}");
+                return null;
+            }
 
-            var bucketedBids = BucketOrderBook(orderBook.Bids);
-            var bucketedAsks = BucketOrderBook(orderBook.Asks);
+            var bucketedBids = Helpers.StrategyUtils.BucketOrders(orderBook.Bids);
+            var bucketedAsks = Helpers.StrategyUtils.BucketOrders(orderBook.Asks);
 
             return new Dictionary<string, Dictionary<decimal, decimal>>
             {
@@ -317,13 +295,13 @@ public class FVGStrategy : StrategyBase
         };
     }
 
-    private bool ValidateFVGWithOrderBook(FVGZone fvgZone, Dictionary<string, Dictionary<decimal, decimal>> orderBookData)
+    private bool ValidateFVGWithOrderBook(FVGZone fvgZone, Dictionary<string, Dictionary<decimal, decimal>>? orderBookData)
     {
         if (orderBookData == null)
             return false;
 
-        var bids = orderBookData["Bids"];
-        var asks = orderBookData["Asks"];
+        if (!orderBookData.TryGetValue("Bids", out var bids) || !orderBookData.TryGetValue("Asks", out var asks))
+            return false;
 
         decimal totalBidVolume = bids.Values.Sum();
         decimal totalAskVolume = asks.Values.Sum();
@@ -362,54 +340,21 @@ public class FVGStrategy : StrategyBase
 
 
     
-    private List<BinanceTestnet.Models.Kline>? ParseKlines(string content)
+    // Parsing and request creation centralized in StrategyUtils
+    private async Task<List<Kline>?> FetchKlinesAsync(string symbol, string interval)
     {
-        try
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
         {
-            return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                ?.Select(k =>
-                {
-                    var kline = new BinanceTestnet.Models.Kline();
-                    if (k.Count >= 9)
-                    {
-                        kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                        kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                        kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                        kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                        kline.OpenTime = Convert.ToInt64(k[0]);
-                        kline.CloseTime = Convert.ToInt64(k[6]);
-                        kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                    }
-                    return kline;
-                })
-                .ToList();
-        }
-        catch (JsonException ex)
-        {
-            Console.WriteLine($"JSON Deserialization error: {ex.Message}");
-            return null;
-        }
-    }
-
-    private RestRequest CreateRequest(string resource)
-    {
-        var request = new RestRequest(resource, Method.Get);
-        request.AddHeader("Content-Type", "application/json");
-        request.AddHeader("Accept", "application/json");
-
-        return request;
-    }
-    private async Task<List<Kline>> FetchKlinesAsync(string symbol, string interval)
-    {
-        var request = CreateRequest("/fapi/v1/klines");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
-        request.AddParameter("interval", interval, ParameterType.QueryString);
-        request.AddParameter("limit", (_fvgLookbackPeriod + 1).ToString(), ParameterType.QueryString);
+            {"symbol", symbol},
+            {"interval", interval},
+            {"limit", (_fvgLookbackPeriod + 1).ToString()}
+        });
 
         var response = await Client.ExecuteGetAsync(request);
-        if (response.IsSuccessful)
+        if (response.IsSuccessful && response.Content != null)
         {
-            return ParseKlines(response.Content);
+            var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
+            return klines;
         }
         else
         {
@@ -438,10 +383,10 @@ public enum FVGType
 public class OrderBook
 {
     [JsonProperty("bids")]
-    public List<List<decimal>> Bids { get; set; }
+    public List<List<decimal>> Bids { get; set; } = new();
 
     [JsonProperty("asks")]
-    public List<List<decimal>> Asks { get; set; }
+    public List<List<decimal>> Asks { get; set; } = new();
 }
 
 public class OrderBookEntry

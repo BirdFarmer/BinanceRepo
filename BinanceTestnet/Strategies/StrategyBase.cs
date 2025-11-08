@@ -10,6 +10,7 @@ namespace BinanceTestnet.Strategies
         protected string ApiKey { get; }
         protected OrderManager OrderManager { get; }
         protected Wallet Wallet { get; }
+        protected bool UseClosedCandles => Helpers.CandlePolicy.UseClosed;
 
         protected StrategyBase(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
         {
@@ -23,5 +24,12 @@ namespace BinanceTestnet.Strategies
 
         // New abstract method for historical data
         public abstract Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData);
+
+        // Shared helper for selecting the signal/previous kline following the global policy
+        protected (Kline? signal, Kline? previous) SelectSignalPair(IReadOnlyList<Kline> klines)
+            => Helpers.StrategyUtils.SelectSignalPair(klines, UseClosedCandles);
+
+        protected List<Quote> ToIndicatorQuotes(IReadOnlyList<Kline> klines)
+            => Helpers.StrategyUtils.ToIndicatorQuotes(klines, UseClosedCandles);
     }
 }
