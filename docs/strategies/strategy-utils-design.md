@@ -1,6 +1,6 @@
-# StrategyUtils Design (Phase 2)
+# StrategyUtils Design (Phase 2 → Phase 3 Intro)
 
-Audience: internal design for Strategy Suite cleanup. This document specifies the shared helpers we will introduce in Phase 2. No functional changes planned—only consolidation and safety guards.
+Audience: internal design for Strategy Suite cleanup. This document specifies the shared helpers introduced in Phase 2 and sets the stage for Phase 3 (signal stability & candle policy). Phase 2 delivered consolidation and safety guards with zero intended functional changes. Phase 3 will deliberately adjust signal timing to eliminate forming-candle noise.
 
 Goals
 - Remove duplicate utility code across strategies (HTTP requests, klines parsing, candle selection, MA helpers).
@@ -85,7 +85,7 @@ Usage Examples (pseudocode)
   var ehma = StrategyUtils.CalculateEHMA(quotes, 70);
   var last = StrategyUtils.LastOrDefaultSafe(ehma);
 
-Migration Plan (no behavior change)
+Migration Plan (Phase 2 – no behavior change)
 1) Introduce `StrategyUtils` with methods above.
 2) Update AroonStrategy, HullSMAStrategy, EnhancedMACDStrategy to:
    - Use CreateGet/ParseKlines
@@ -93,8 +93,59 @@ Migration Plan (no behavior change)
    - Use CalculateEHMA for their current EHMA logic
 3) Run build & minimal backtest smoke to confirm identical behavior (signal counts should not change in Phase 2).
 4) Later phases:
-   - Phase 3: Enforce closed-candle usage and fix Aroon down-cross logic
-   - Phase 4: Move parameters to config and inject
+  - Phase 3: Enforce closed-candle usage across all strategies (replace klines.Last() with policy-controlled selection). Add instrumentation logging (TraceSignalCandle) to audit before/after differences. Fix Aroon down-cross logic and ensure divergence strategies reference only finalized candles.
+  - Phase 4: Externalize parameters (periods, thresholds, multipliers) into config (appsettings + injection) and add validation layer.
+  - Phase 5: Test harness + unit tests for StrategyUtils and per-strategy deterministic backtest fixtures.
+  - Phase 6: Performance (shared klines cache, reduced HTTP churn, async batching).
+  - Phase 7: Advanced analytics (PnL attribution, slippage modeling, Monte Carlo scenario generation).
+
+---
+## Phase 3 Introduction: Closed-Candle Enforcement & Signal Integrity
+
+Problem Today
+Most strategies evaluate indicators using the forming candle (latest klines.Last()) which can repaint intra-interval. This causes:
+- Early entries that vanish if the candle reverses before close.
+- Divergence detection instability (extrema not confirmed until close).
+- MACD/RSI cross overshoot/undershoot noise.
+
+Objectives
+1. Uniform candle policy: Signals derive from last fully closed candle; comparisons use its predecessor.
+2. Indicator input trimming: Indicator series exclude the forming candle when policy = Closed.
+3. Auditable transition: Log every order with metadata (policy mode, evaluated candle close time vs. server now) for before/after diffs.
+4. Zero silent behavioral drift: Introduce a flag (env var `TRADING_USE_CLOSED_CANDLES`) defaulting to forming until explicitly enabled.
+
+New Utilities Added in Code (Phase 2 tail)
+- `StrategyBase.UseClosedCandles` (reads CandlePolicy env-controlled flag).
+- `StrategyUtils.ToIndicatorQuotes(klines, useClosedCandle)` — builds quote list trimming the last forming candle if closed mode.
+- `StrategyUtils.SelectSignalPair(klines, useClosedCandle)` — returns (signal, previous) pair abstracting index math.
+- `StrategyUtils.ExcludeForming(klines)` — helper for manual operations when needed.
+
+Upcoming Additions (Phase 3 tasks)
+- `TraceSignalCandle(strategyName, symbol, mode, signalCloseTime, evaluatedPrice)` helper (lightweight, optional logger interface injection later).
+- Strategy refactors (MACD*, RSI*, SMA*, Bollinger, Ichimoku, Fibonacci, Distribution, Aroon, FVG, Support/Resistance) to use `SelectSignalPair` & trimmed quotes.
+- Divergence strategies: confirm pivot points only on closed candles; avoid counting incomplete swing lows/highs.
+- Aroon: revisit down-cross logic (currently simplified) ensuring it doesn’t misfire mid-candle.
+
+Risk Mitigation
+- Incremental rollout: convert 2–3 strategies first (MACDStandard, RSIMomentum, SupportResistance), compare logged signals forming vs closed for 24h.
+- Fallback: revert by unsetting env variable (no code rollback required).
+- Validation metric: Count of signals per strategy (forming vs closed) and outcome delta (positions opened) archived.
+
+Success Criteria
+- All strategies produce entries only at finalized candle boundaries when closed mode enabled.
+- No nullability or indexing regressions (helper centralization prevents off-by-one mistakes).
+- Logged metadata shows consistent timing: signalCloseTime <= now - intervalDuration.
+
+Non-Goals (Phase 3)
+- No parameter optimization.
+- No order sizing changes.
+- No new indicator families.
+
+Follow-Up (Post Phase 3)
+- Update each strategy markdown: add “Candle Policy: Closed” section & note prior forming behavior.
+- Backtest differential analysis: run historical simulation with forming vs closed to quantify signal stability changes.
+
+---
 
 Test Plan (helpers)
 - ParseKlines
@@ -116,3 +167,5 @@ Non-Goals (Phase 2)
 Open Questions
 - Do we want a global logger inside helpers, or keep helpers pure and let strategies log? (Proposal: keep helpers pure.)
 - Do we need a shared Kline/Quote cache now, or defer to Phase 7 performance work?
+- Where to store Phase 3 signal audit logs (structured JSON file per day vs console)?
+- Whether to unify divergence swing detection into a shared module (Phase 3 or defer to Phase 5 tests layer)?
