@@ -42,7 +42,11 @@ namespace BinanceTestnet.Strategies
                             .Select(q => new BinanceTestnet.Models.Quote { Date = q.Date, Close = q.Close })
                             .ToList();
 
+                        // Core MACD
                         var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
+                        // Added minimal tuning: light trend filter using EMA(50).
+                        // Rationale: reduce whipsaw during flat / counter-trend phases while preserving closed-candle policy.
+                        var emaTrend = Indicator.GetEma(quotes, 50).ToList();
 
                         if (macdResults.Count > 1)
                         {
@@ -52,13 +56,19 @@ namespace BinanceTestnet.Strategies
                             var (signalKline, previousKline) = SelectSignalPair(klines);
                             if (signalKline == null || previousKline == null) return;
 
-                            if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal)
+                            // Map latest EMA value (same indexing as quotes/macd) for trend confirmation
+                            var lastEma = emaTrend.Count == quotes.Count ? emaTrend[emaTrend.Count - 1].Ema : null;
+
+                            bool trendFilterLong = lastEma == null || signalKline.Close > (decimal)lastEma; // allow if EMA unavailable
+                            bool trendFilterShort = lastEma == null || signalKline.Close < (decimal)lastEma;
+
+                            if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal && trendFilterLong)
                             {
                                 await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
                                 Helpers.StrategyUtils.TraceSignalCandle("MACDStandard", symbol, UseClosedCandles, signalKline, previousKline, "Bullish MACD cross");
                                 LogTradeSignal("LONG", symbol, signalKline.Close);
                             }
-                            else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal)
+                            else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal && trendFilterShort)
                             {
                                 await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
                                 Helpers.StrategyUtils.TraceSignalCandle("MACDStandard", symbol, UseClosedCandles, signalKline, previousKline, "Bearish MACD cross");
@@ -113,6 +123,7 @@ namespace BinanceTestnet.Strategies
             }).ToList();
 
             var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
+            var emaTrend = Indicator.GetEma(quotes, 50).ToList();
 
             for (int i = 1; i < macdResults.Count; i++)
             {
@@ -122,13 +133,17 @@ namespace BinanceTestnet.Strategies
 
                 if(kline.Symbol == null) continue;
 
-                if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal)
+                var ema = emaTrend.Count > i ? emaTrend[i].Ema : null;
+                bool trendFilterLong = ema == null || kline.Close > (decimal)ema;
+                bool trendFilterShort = ema == null || kline.Close < (decimal)ema;
+
+                if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal && trendFilterLong)
                 {
                     Helpers.StrategyUtils.TraceSignalCandle("MACDStandard-Hist", kline.Symbol, true, kline, null, "Bullish MACD cross (historical)");
                     await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "MAC-D", kline.CloseTime);
                     LogTradeSignal("LONG", kline.Symbol, kline.Close);
                 }
-                else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal)
+                else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal && trendFilterShort)
                 {
                     Helpers.StrategyUtils.TraceSignalCandle("MACDStandard-Hist", kline.Symbol, true, kline, null, "Bearish MACD cross (historical)");
                     await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "MAC-D", kline.CloseTime);
