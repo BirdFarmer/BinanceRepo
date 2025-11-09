@@ -9,7 +9,7 @@ using BinanceTestnet.Models;
 using BinanceTestnet.Trading;
 using System.Globalization;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public class SupportResistanceStrategy : StrategyBase
     {
@@ -52,22 +52,26 @@ namespace BinanceLive.Strategies
             {
                 //Console.WriteLine($"\n=== Processing {symbol} ({interval}) ===");
                 
-                var request = CreateRequest("/fapi/v1/klines");
-                request.AddParameter("symbol", symbol, ParameterType.QueryString);
-                request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "500", ParameterType.QueryString);
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", "500"}
+                });
 
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful && response.Content != null)
                 {
-                    var klines = ParseKlines(response.Content);
+                    var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
 
                     if (klines != null && klines.Count > 1)
                     {
                         //Console.WriteLine($"Retrieved {klines.Count} klines for {symbol}");
                         
-                        // SIMPLE: Always use the LAST CLOSED candle (index -2)
-                        var lastClosedKline = klines[klines.Count - 2];
+                        // Select signal candle based on runtime policy
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var lastClosedKline = signalKline; // name retained for minimal downstream change
                         var klineEndTime = DateTimeOffset.FromUnixTimeMilliseconds(lastClosedKline.CloseTime).UtcDateTime;
                         
                         //Console.WriteLine($"Using closed candle from: {klineEndTime:HH:mm:ss}");
@@ -140,7 +144,7 @@ namespace BinanceLive.Strategies
                     HandleErrorResponse(symbol, response);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 //Console.WriteLine($"Error processing {symbol}: {ex.Message}");
             }
@@ -213,7 +217,8 @@ namespace BinanceLive.Strategies
             // Check for retest entries (need previous kline data)
             if (klines.Count >= 3) // Need at least 3 candles for proper retest detection
             {
-                var prevClosedKline = klines[klines.Count - 3]; // Two candles back
+                // Previous closed relative to selected signal candle
+                var prevClosedKline = klines[klines.Count - (UseClosedCandles ? 3 : 2)];
                 var prevVolume = prevClosedKline.Volume;
 
                 // Check for bullish engulfing
@@ -517,8 +522,11 @@ namespace BinanceLive.Strategies
                     _entryTakenFromSupportBreakout = false;
                 }
 
-                var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
+                if (!string.IsNullOrEmpty(currentKline.Symbol))
+                {
+                    var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
+                    await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
+                }
             }
         }
 
@@ -606,13 +614,7 @@ namespace BinanceLive.Strategies
             //Console.WriteLine($"************************************************");
         }
 
-        private RestRequest CreateRequest(string resource)
-        {
-            var request = new RestRequest(resource, Method.Get);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("Accept", "application/json");
-            return request;
-        }
+        // Request creation centralized in StrategyUtils
 
         private void HandleErrorResponse(string symbol, RestResponse response)
         {
@@ -621,57 +623,6 @@ namespace BinanceLive.Strategies
             //Console.WriteLine($"Content: {response.Content}");
         }
 
-        private List<Kline>? ParseKlines(string content)
-        {
-            try
-            {
-                var klinesList = JsonConvert.DeserializeObject<List<List<object>>>(content);
-                if (klinesList == null) return null;
-                
-                var klines = new List<Kline>();
-                
-                foreach (var klineData in klinesList)
-                {
-                    if (klineData.Count < 9) continue;
-                    
-                    var kline = new Kline
-                    {
-                        OpenTime = Convert.ToInt64(klineData[0]),
-                        Open = ParseDecimal(klineData[1]),
-                        High = ParseDecimal(klineData[2]),
-                        Low = ParseDecimal(klineData[3]),
-                        Close = ParseDecimal(klineData[4]),
-                        Volume = ParseDecimal(klineData[5]),
-                        CloseTime = Convert.ToInt64(klineData[6]),
-                        NumberOfTrades = Convert.ToInt32(klineData[8])
-                    };
-                    
-                    klines.Add(kline);
-                }
-                
-                return klines;
-            }
-            catch (Exception ex)
-            {
-                //Console.WriteLine($"Error parsing klines: {ex.Message}");
-                return null;
-            }
-        }
-
-        private decimal ParseDecimal(object value)
-        {
-            if (value == null) return 0;
-            
-            // Handle both string and numeric types
-            string stringValue = value.ToString();
-            
-            if (decimal.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal result))
-            {
-                return result;
-            }
-            
-            //Console.WriteLine($"Failed to parse decimal: {stringValue}");
-            return 0;
-        }
+        // Parsing helpers centralized in StrategyUtils
     }
 }

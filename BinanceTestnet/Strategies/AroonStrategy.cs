@@ -9,10 +9,11 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using BinanceTestnet.Trading;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public class AroonStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         private const int AroonPeriod = 20; // Aroon Period
         private const int SmaPeriod = 200;  // SMA Period
         private const int HullLength = 70;  // Hull Length for EHMA
@@ -26,34 +27,32 @@ namespace BinanceLive.Strategies
         {
             try
             {
-                var request = CreateRequest("/fapi/v1/klines");
-                request.AddParameter("symbol", symbol, ParameterType.QueryString);
-                request.AddParameter("interval", interval, ParameterType.QueryString);
-                request.AddParameter("limit", "800", ParameterType.QueryString);  // Fetch 750 data points
-
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", "800"}
+                });
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful && response.Content != null)
                 {
-                    var klines = ParseKlines(response.Content);
+                    var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
 
                     if (klines != null && klines.Count > 1) // Ensure there are at least two data points
                     {
-                        var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
-                        {
-                            Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
-                            High = k.High,
-                            Low = k.Low,
-                            Close = k.Close,
-                            Open = k.Open,
-                            Volume = k.Volume
-                        }).ToList();
+                        // Build indicator quotes respecting policy
+                        var quotes = ToIndicatorQuotes(klines);
 
                         var aroonResults = Indicator.GetAroon(quotes, AroonPeriod).ToList();
                         var smaResults = Indicator.GetSma(quotes, SmaPeriod).ToList();
-                        var hullResults = CalculateEHMA(quotes, HullLength).ToList();
+                        var hullResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullLength)
+                            .Select(hr => new HullSuiteResult { Date = hr.Date, EHMA = hr.EHMA, EHMAPrev = hr.EHMAPrev })
+                            .ToList();
 
-                        var currentKline = klines.Last();
-                        var prevKline = klines[klines.Count - 2];
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var currentKline = signalKline;
+                        var prevKline = previousKline;
                         var currentSMA = smaResults.LastOrDefault();
                         var previousSMA = smaResults.ElementAt(smaResults.Count - 2);
                         var currentAroon = aroonResults.LastOrDefault();
@@ -129,7 +128,9 @@ namespace BinanceLive.Strategies
 
             var smaResults = Indicator.GetSma(quotes, SmaPeriod).ToList();
             var aroonResults = Indicator.GetAroon(quotes, AroonPeriod).ToList();
-            var hullResults = CalculateEHMA(quotes, HullLength).ToList();
+            var hullResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullLength)
+                .Select(hr => new HullSuiteResult { Date = hr.Date, EHMA = hr.EHMA, EHMAPrev = hr.EHMAPrev })
+                .ToList();
 
             for (int i = SmaPeriod - 1; i < historicalData.Count(); i++)
             {
@@ -158,7 +159,7 @@ namespace BinanceLive.Strategies
                     bool isHullCrossingUp = currentHull.EHMA > currentHull.EHMAPrev && prevHull.EHMA <= prevHull.EHMAPrev;
                     bool isHullCrossingDown = currentHull.EHMA < currentHull.EHMAPrev && prevHull.EHMA >= prevHull.EHMAPrev;
                     
-                    if(currentKline.Symbol != null)
+                    if(!string.IsNullOrEmpty(currentKline.Symbol))
                     {
                         if (isHullCrossingUp 
                             && isSMAPointingUp 
@@ -177,7 +178,7 @@ namespace BinanceLive.Strategies
                     }
                 }
 
-                if (currentKline.Symbol != null && currentKline.Close > 0)
+                if (!string.IsNullOrEmpty(currentKline.Symbol) && currentKline.Close > 0)
                 {
                     var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
                     await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
@@ -185,86 +186,7 @@ namespace BinanceLive.Strategies
             }
         }
 
-        private List<HullSuiteResult> CalculateEHMA(List<BinanceTestnet.Models.Quote> quotes, int length)
-        {
-            var results = new List<HullSuiteResult>();
-            
-            // Calculate EMA for half-length
-            var emaShort = Indicator.GetEma(quotes, length / 2).ToList();
-            
-            // Calculate EMA for full length
-            var emaLong = Indicator.GetEma(quotes, length).ToList();
-            
-            // Calculate EHMA
-            for (int i = 0; i < quotes.Count; i++)
-            {
-                if (i < length) // Skip until enough data points are available
-                {
-                    results.Add(new HullSuiteResult
-                    {
-                        Date = quotes[i].Date,
-                        EHMA = 0,
-                        EHMAPrev = 0
-                    });
-                    continue;
-                }
-
-                var ehmaValue = emaShort[i].Ema * 2 - emaLong[i].Ema;
-                var ehmaprevValue = i > 0 ? emaShort[i - 1].Ema * 2 - emaLong[i - 1].Ema : ehmaValue;
-
-                results.Add(new HullSuiteResult
-                {
-                    Date = quotes[i].Date,
-                    EHMA = (decimal)ehmaValue!,
-                    EHMAPrev = (decimal)ehmaprevValue!
-                });
-            }
-
-            return results;
-        }
-
-        private List<Kline>? ParseKlines(string content)
-        {
-            try
-            {
-                return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                    ?.Select(k =>
-                    {
-                        var kline = new Kline();
-                        if (k.Count >= 9)
-                        {
-                            kline.Open = ParseDecimal(k[1]);
-                            kline.High = ParseDecimal(k[2]);
-                            kline.Low = ParseDecimal(k[3]);
-                            kline.Close = ParseDecimal(k[4]);
-                            kline.OpenTime = Convert.ToInt64(k[0]);
-                            kline.CloseTime = Convert.ToInt64(k[6]);
-                            kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        }
-                        return kline;
-                    })
-                    .ToList();
-            }
-            catch (JsonException ex)
-            {
-                LogError($"JSON Deserialization error: {ex.Message}");
-                return null;
-            }
-        }
-
-        private decimal ParseDecimal(object value)
-        {
-            return decimal.TryParse(value?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var result) ? result : 0;
-        }
-
-        private RestRequest CreateRequest(string resource)
-        {
-            var request = new RestRequest(resource, Method.Get);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("Accept", "application/json");
-
-            return request;
-        }
+        // EHMA and parsing are provided by StrategyUtils; local versions removed.
 
         private int IdentifyAroonSignal(List<AroonResult> aroonResults)
         {

@@ -9,7 +9,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Skender.Stock.Indicators;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public static class DateTimeExtensions
     {
@@ -21,6 +21,7 @@ namespace BinanceLive.Strategies
 
     public class BollingerSqueezeStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         private readonly int _bbPeriod = 25;       // Standard
         private readonly double _bbStdDev = 1.5;   // Tighter bands → More crosses
         private readonly int _atrPeriod = 14;      // Standard
@@ -40,7 +41,16 @@ namespace BinanceLive.Strategies
             {
                 //Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Starting Bollinger Squeeze for {symbol} {interval}");
 
-                var klines = await FetchKlinesAsync(symbol, interval, _bbPeriod + _atrPeriod + 10);
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", (_bbPeriod + _atrPeriod + 10).ToString()}
+                });
+                var response = await Client.ExecuteGetAsync(request);
+                var klines = response.IsSuccessful && response.Content != null
+                    ? Helpers.StrategyUtils.ParseKlines(response.Content)
+                    : null;
 
                 if (klines == null)
                 {
@@ -50,10 +60,13 @@ namespace BinanceLive.Strategies
 
                 //Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Retrieved {klines.Count} klines for {symbol}");
 
-                if (klines.Count > _bbPeriod + _atrPeriod)
+                // Apply closed-candle policy: work off finalized candles for indicators when enabled
+                var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+
+                if (workingKlines.Count > _bbPeriod + _atrPeriod)
                 {
-                    var (upperBand, lowerBand, _) = CalculateBollingerBands(klines);
-                    var atrValues = CalculateATR(klines, _atrPeriod);
+                    var (upperBand, lowerBand, _) = CalculateBollingerBands(workingKlines);
+                    var atrValues = CalculateATR(workingKlines, _atrPeriod);
                     var currentATR = atrValues.Last();
                     var bbWidth = upperBand.Last() - lowerBand.Last();
                     bool isSqueeze = bbWidth < currentATR * _squeezeThreshold;
@@ -62,7 +75,7 @@ namespace BinanceLive.Strategies
                     if (isSqueeze)
                     { 
                         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {symbol} | " +
-                                                                $"Close: {klines.Last().Close:F4} | " +
+                                                                $"Close: {workingKlines.Last().Close:F4} | " +
                                                                 $"BB Width: {bbWidth:F4} | " +
                                                                 $"ATR: {currentATR:F4} | " +
                                                                 $"Ratio: {bbWidth / currentATR:F4} | " +
@@ -76,18 +89,21 @@ namespace BinanceLive.Strategies
                     
                     if (isSqueeze)//validSqueeze
                     {
-                        var lastClose = klines.Last().Close;
-                        var prevClose = klines[^2].Close;
+                        // Select signal/previous respecting policy (fallback to workingKlines end points)
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var lastClose = signalKline.Close;
+                        var prevClose = previousKline.Close;
 
-                        if (lastClose > upperBand.Last() && prevClose <= upperBand.Last())
+                        if (lastClose > upperBand.Last() && prevClose <= upperBand.Last() && symbol != null)
                         {
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ LONG SIGNAL ⚡ {symbol} @ {lastClose}");
-                            await OrderManager.PlaceLongOrderAsync(symbol, lastClose, "BB Squeeze", klines.Last().CloseTime);
+                            await OrderManager.PlaceLongOrderAsync(symbol!, lastClose, "BB Squeeze", signalKline.CloseTime);
                         }
-                        else if (lastClose < lowerBand.Last() && prevClose >= lowerBand.Last())
+                        else if (lastClose < lowerBand.Last() && prevClose >= lowerBand.Last() && symbol != null)
                         {
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ SHORT SIGNAL ⚡ {symbol} @ {lastClose}");
-                            await OrderManager.PlaceShortOrderAsync(symbol, lastClose, "BB Squeeze", klines.Last().CloseTime);
+                            await OrderManager.PlaceShortOrderAsync(symbol!, lastClose, "BB Squeeze", signalKline.CloseTime);
                         }
                     }
                 }
@@ -214,7 +230,7 @@ namespace BinanceLive.Strategies
                         var prevKline = klines[i - 1];
 
                         // Long signal
-                        if (currentKline.Close > currentUpper && prevKline.Close <= currentUpper)
+                        if (currentKline.Close > currentUpper && prevKline.Close <= currentUpper && currentKline.Symbol != null)
                         {
                             signalCount++;
                             Console.WriteLine($"\n>>> LONG SIGNAL <<<");
@@ -224,13 +240,13 @@ namespace BinanceLive.Strategies
                             Console.WriteLine($"- Prev Close: {prevKline.Close}, Current Close: {currentKline.Close}");
 
                             await OrderManager.PlaceLongOrderAsync(
-                                currentKline.Symbol,
+                                currentKline.Symbol!,
                                 currentKline.Close,
                                 "BB Squeeze",
                                 currentKline.CloseTime);
                         }
                         // Short signal
-                        else if (currentKline.Close < currentLower && prevKline.Close >= currentLower)
+                        else if (currentKline.Close < currentLower && prevKline.Close >= currentLower && currentKline.Symbol != null)
                         {
                             signalCount++;
                             Console.WriteLine($"\n>>> SHORT SIGNAL <<<");
@@ -240,7 +256,7 @@ namespace BinanceLive.Strategies
                             Console.WriteLine($"- Prev Close: {prevKline.Close}, Current Close: {currentKline.Close}");
 
                             await OrderManager.PlaceShortOrderAsync(
-                                currentKline.Symbol,
+                                currentKline.Symbol!,
                                 currentKline.Close,
                                 "BB Squeeze",
                                 currentKline.CloseTime);
@@ -248,7 +264,9 @@ namespace BinanceLive.Strategies
                     }
 
                     // Check for open trade closing conditions
-                    var currentPrices = new Dictionary<string, decimal> { { currentKline.Symbol, currentKline.Close } };
+                    var currentPrices = currentKline.Symbol != null
+                        ? new Dictionary<string, decimal> { { currentKline.Symbol!, currentKline.Close } }
+                        : new Dictionary<string, decimal>();
                     await OrderManager.CheckAndCloseTrades(currentPrices, currentKline.OpenTime);
                 }
 
@@ -272,60 +290,6 @@ namespace BinanceLive.Strategies
             }
         }
 
-        private async Task<List<Kline>> FetchKlinesAsync(string symbol, string interval, int limit)
-        {
-            var request = CreateRequest("/fapi/v1/klines");
-            request.AddParameter("symbol", symbol, ParameterType.QueryString);
-            request.AddParameter("interval", interval, ParameterType.QueryString);
-            request.AddParameter("limit", limit.ToString(), ParameterType.QueryString);
-
-            var response = await Client.ExecuteGetAsync(request);
-            if (response.IsSuccessful)
-            {
-                return ParseKlines(response.Content);
-            }
-            else
-            {
-                Console.WriteLine($"Failed to fetch klines for {symbol}: {response.ErrorMessage}");
-                return null;
-            }
-        }
-
-        private List<Kline> ParseKlines(string content)
-        {
-            try
-            {
-                return JsonConvert.DeserializeObject<List<List<object>>>(content)
-                    ?.Select(k =>
-                    {
-                        var kline = new Kline();
-                        if (k.Count >= 9)
-                        {
-                            kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                            kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                            kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                            kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                            kline.OpenTime = Convert.ToInt64(k[0]);
-                            kline.CloseTime = Convert.ToInt64(k[6]);
-                            kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        }
-                        return kline;
-                    })
-                    .ToList();
-            }
-            catch (JsonException ex)
-            {
-                Console.WriteLine($"JSON Deserialization error: {ex.Message}");
-                return null;
-            }
-        }
-
-        private RestRequest CreateRequest(string resource)
-        {
-            var request = new RestRequest(resource, Method.Get);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("Accept", "application/json");
-            return request;
-        }
+        // Parse and request helpers centralized in StrategyUtils
     }
 }

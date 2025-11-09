@@ -8,7 +8,7 @@ using BinanceTestnet.Trading;
 using System.Diagnostics;
 using BinanceTestnet.Strategies;
 
-namespace BinanceLive.Strategies
+namespace BinanceTestnet.Strategies
 {
     public class StrategyRunner
     {
@@ -69,8 +69,10 @@ namespace BinanceLive.Strategies
                     _orderManager.CloseAllActiveTradesForBacktest(closePrice, lastKline.OpenTime);
                 } 
             }
-            catch(Exception e)
-            {}
+            catch(Exception)
+            {
+                // Swallowing exception intentionally; consider logging if needed.
+            }
 
         }
 
@@ -124,6 +126,9 @@ namespace BinanceLive.Strategies
                     case SelectedTradingStrategy.SupportResistance:
                         strategies.Add(new SupportResistanceStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;              
+                    case SelectedTradingStrategy.SimpleSMA375:
+                        strategies.Add(new SimpleSMA375Strategy(_client, _apiKey, _orderManager, _wallet));
+                        break;             
                                                                         
                 }
             }

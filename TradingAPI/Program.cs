@@ -14,6 +14,8 @@ builder.Services.AddSingleton(new RestClient("https://api.binance.com"));
 // Build the app
 var app = builder.Build();
 
+// Candle policy removed; strategies operate on forming candles by default
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

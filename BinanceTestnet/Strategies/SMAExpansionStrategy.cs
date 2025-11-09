@@ -10,10 +10,21 @@ using RestSharp;
 using Skender.Stock.Indicators;
 using BinanceTestnet.Trading;
 
+namespace BinanceTestnet.Strategies
+{
 public class SMAExpansionStrategy : StrategyBase
 {
+    protected override bool SupportsClosedCandles => true;
     private const int ExpansionWindowSize = 1;  // Adjusted for more robust detection
+    // Relaxed fallback: when strict expansion detector is neutral, use simple SMA stacking with 200-SMA slope confirmation
+    private const bool UseStackedFallback = true;
+    // Added: frequency tuning knobs
+    private const int CooldownBars = 5; // minimum bars between entries per symbol
+    private const decimal MinSlope200 = 0.0000005m; // minimal absolute slope for 200 SMA trend confirmation
+    private const decimal MinExpansionAcceleration = 0.0002m; // minimum change in (SMA25 - SMA200) spread to qualify as expansion
+    private const decimal PartialStackTolerance = 0.0001m; // tolerance allowing near ordering of stacked SMAs
     private static ConcurrentDictionary<string, Queue<int>> recentExpansions = new ConcurrentDictionary<string, Queue<int>>();
+    private static ConcurrentDictionary<string, int> _lastSignalIndex = new ConcurrentDictionary<string, int>();
     private ConcurrentDictionary<string, Queue<int>> _expansionResults;
 
     public SMAExpansionStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
@@ -31,15 +42,24 @@ public class SMAExpansionStrategy : StrategyBase
         }
 
         // Fetch klines once
-        var klines = await FetchKlines(symbol, interval);
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+        {
+            {"symbol", symbol},
+            {"interval", interval},
+            {"limit", "401"}
+        });
+    var response = await Client.ExecuteGetAsync(request);
+        var klines = response.IsSuccessful && response.Content != null
+            ? Helpers.StrategyUtils.ParseKlines(response.Content)
+            : null;
         if (klines == null || klines.Count == 0)
         {
             Console.WriteLine($"No klines data fetched for {symbol}");
             return;
         }
 
-        var closes = klines.Select(k => k.Close).ToArray();
-        var history = ConvertToQuoteList(klines, closes);
+    var closes = klines.Select(k => k.Close).ToArray();
+    var history = ConvertToQuoteList(UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines, closes);
 
         // Parallelize SMA and RSI calculations
         var smaTasks = new[]
@@ -69,11 +89,36 @@ public class SMAExpansionStrategy : StrategyBase
                 index
             );
 
+            // Fallback: simple stacked SMA check if strict detector returns neutral
+            if (UseStackedFallback && expansionResult == 0)
+            {
+                expansionResult = EvaluateStackedTrend(sma25, sma50, sma100, sma200, index);
+                if (expansionResult == 0)
+                {
+                    expansionResult = EvaluateAccelerationFallback(sma25, sma50, sma100, sma200, index, MinSlope200, MinExpansionAcceleration, PartialStackTolerance);
+                }
+            }
+
             decimal currentPrice = await GetCurrentPriceFromBinance(symbol);
             TrackExpansion(symbol, currentPrice, expansionResult);
 
             // Check trading conditions after tracking expansion
-            await CheckTradingConditions(symbol, currentPrice, klines.Last().OpenTime, sma100[sma100.Count - 1]);
+            var (signal, _) = SelectSignalPair(klines);
+            if (signal == null) return;
+
+            // Cooldown enforcement
+            if (!_lastSignalIndex.TryGetValue(symbol, out var lastIdx)) lastIdx = -99999;
+            bool cooled = index - lastIdx >= CooldownBars;
+            if (expansionResult != 0 && cooled)
+            {
+                _lastSignalIndex[symbol] = index;
+            }
+            else if (expansionResult != 0 && !cooled)
+            {
+                expansionResult = 0; // suppress due to cooldown
+            }
+
+            await CheckTradingConditions(symbol, currentPrice, signal.OpenTime, sma100[sma100.Count - 1]);
         }
     }
 
@@ -125,6 +170,15 @@ public class SMAExpansionStrategy : StrategyBase
                     
                 );
 
+                if (UseStackedFallback && expansionResult == 0)
+                {
+                    expansionResult = EvaluateStackedTrend(sma25, sma50, sma100, sma200, i);
+                    if (expansionResult == 0)
+                    {
+                        expansionResult = EvaluateAccelerationFallback(sma25, sma50, sma100, sma200, i, MinSlope200, MinExpansionAcceleration, PartialStackTolerance);
+                    }
+                }
+
                 // Retrieve the corresponding kline
                 var kline = klinesArray[klineIndex];
 
@@ -133,48 +187,131 @@ public class SMAExpansionStrategy : StrategyBase
                 // Track expansion based on the current kline and expansion result
                 TrackExpansion(kline.Symbol, kline.Close, expansionResult);
 
+                // Historical cooldown
+                if (kline.Symbol != null && expansionResult != 0)
+                {
+                    if (!_lastSignalIndex.TryGetValue(kline.Symbol, out var lastIdx)) lastIdx = -99999;
+                    bool cooled = i - lastIdx >= CooldownBars;
+                    if (cooled)
+                        _lastSignalIndex[kline.Symbol] = i;
+                    else
+                        expansionResult = 0; // suppress signal due to cooldown
+                }
+
                 // Ensure SMA100 and kline are aligned for checking trading conditions
-                await CheckTradingConditions(kline.Symbol, kline.Close, kline.CloseTime, (double)sma100[i]);
+                if (kline.Symbol != null)
+                {
+                    await CheckTradingConditions(kline.Symbol, kline.Close, kline.CloseTime, (double)sma100[i]);
+                }
             }
         }
     }
 
-    private async Task<List<Kline>> FetchKlines(string symbol, string interval)
+    // Relaxed stacked-trend evaluation: returns 1 for long, -1 for short, 0 for neutral
+    private int EvaluateStackedTrend(List<decimal> sma25, List<decimal> sma50, List<decimal> sma100, List<decimal> sma200, int idx)
     {
-        var request = CreateRequest("/fapi/v1/klines");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
-        request.AddParameter("interval", interval, ParameterType.QueryString);
-        request.AddParameter("limit", "401", ParameterType.QueryString);
-
-        var response = await Client.ExecuteGetAsync(request);
-
-        if (response.IsSuccessful && response.Content != null)
+        try
         {
-            return JsonConvert.DeserializeObject<List<List<object>>>(response.Content)
-                ?.Select(k =>
-                {
-                    var kline = new Kline();
-                    if (k.Count >= 9)
-                    {
-                        kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                        kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                        kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                        kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                        kline.OpenTime = Convert.ToInt64(k[0]);
-                        kline.CloseTime = Convert.ToInt64(k[6]);
-                        kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        kline.Symbol = symbol;
-                    }
-                    return kline;
-                })
-                .ToList();
+            if (idx <= 0) return 0; // need previous point for slope
+            if (idx >= sma25.Count || idx >= sma50.Count || idx >= sma100.Count || idx >= sma200.Count) return 0;
+
+            var s25 = sma25[idx];
+            var s50 = sma50[idx];
+            var s100 = sma100[idx];
+            var s200 = sma200[idx];
+            var s200Prev = sma200[idx - 1];
+
+            bool stackedLong = s25 > s50 && s50 > s100 && s100 > s200;
+            bool stackedShort = s25 < s50 && s50 < s100 && s100 < s200;
+            bool slopeUp = s200 > s200Prev;
+            bool slopeDown = s200 < s200Prev;
+
+            if (stackedLong && slopeUp) return 1;
+            if (stackedShort && slopeDown) return -1;
+            return 0;
         }
-        else
+        catch
         {
-            HandleErrorResponse(symbol, response);
-            return null;
+            return 0;
         }
     }
+
+    // Overload for double-based SMA lists (used in live/async path before casting)
+    private int EvaluateStackedTrend(List<double> sma25, List<double> sma50, List<double> sma100, List<double> sma200, int idx)
+    {
+        try
+        {
+            if (idx <= 0) return 0;
+            if (idx >= sma25.Count || idx >= sma50.Count || idx >= sma100.Count || idx >= sma200.Count) return 0;
+
+            var s25 = sma25[idx];
+            var s50 = sma50[idx];
+            var s100 = sma100[idx];
+            var s200v = sma200[idx];
+            var s200Prev = sma200[idx - 1];
+
+            bool stackedLong = s25 > s50 && s50 > s100 && s100 > s200v;
+            bool stackedShort = s25 < s50 && s50 < s100 && s100 < s200v;
+            bool slopeUp = s200v > s200Prev;
+            bool slopeDown = s200v < s200Prev;
+
+            if (stackedLong && slopeUp) return 1;
+            if (stackedShort && slopeDown) return -1;
+            return 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    // Acceleration-based fallback (decimal SMA lists)
+    private int EvaluateAccelerationFallback(List<decimal> sma25, List<decimal> sma50, List<decimal> sma100, List<decimal> sma200,
+        int idx, decimal minSlope200, decimal minAccel, decimal tolerance)
+    {
+        if (idx <= 1) return 0;
+        if (idx >= sma200.Count) return 0;
+        var s25 = sma25[idx];
+        var s50 = sma50[idx];
+        var s100 = sma100[idx];
+        var s200v = sma200[idx];
+        var s25Prev = sma25[idx - 1];
+        var s200Prev = sma200[idx - 1];
+        decimal spreadNow = s25 - s200v;
+        decimal spreadPrev = s25Prev - s200Prev;
+        decimal accel = spreadNow - spreadPrev;
+        decimal slope200 = s200v - s200Prev;
+        bool partialLongStack = s25 > s50 - tolerance && s50 > s100 - tolerance && s100 > s200v - tolerance;
+        bool partialShortStack = s25 < s50 + tolerance && s50 < s100 + tolerance && s100 < s200v + tolerance;
+        if (partialLongStack && slope200 > minSlope200 && accel > minAccel) return 1;
+        if (partialShortStack && slope200 < -minSlope200 && accel < -minAccel) return -1;
+        return 0;
+    }
+
+    // Acceleration-based fallback (double SMA lists)
+    private int EvaluateAccelerationFallback(List<double> sma25, List<double> sma50, List<double> sma100, List<double> sma200,
+        int idx, decimal minSlope200, decimal minAccel, decimal tolerance)
+    {
+        if (idx <= 1) return 0;
+        if (idx >= sma200.Count) return 0;
+        var s25 = (decimal)sma25[idx];
+        var s50 = (decimal)sma50[idx];
+        var s100 = (decimal)sma100[idx];
+        var s200v = (decimal)sma200[idx];
+        var s25Prev = (decimal)sma25[idx - 1];
+        var s200Prev = (decimal)sma200[idx - 1];
+        decimal spreadNow = s25 - s200v;
+        decimal spreadPrev = s25Prev - s200Prev;
+        decimal accel = spreadNow - spreadPrev;
+        decimal slope200 = s200v - s200Prev;
+        bool partialLongStack = s25 > s50 - tolerance && s50 > s100 - tolerance && s100 > s200v - tolerance;
+        bool partialShortStack = s25 < s50 + tolerance && s50 < s100 + tolerance && s100 < s200v + tolerance;
+        if (partialLongStack && slope200 > minSlope200 && accel > minAccel) return 1;
+        if (partialShortStack && slope200 < -minSlope200 && accel < -minAccel) return -1;
+        return 0;
+    }
+
+    // Request creation and parsing centralized in StrategyUtils
 
     private List<BinanceTestnet.Models.Quote> ConvertToQuoteList(IEnumerable<Kline> klines, decimal[] closes)
     {
@@ -277,12 +414,7 @@ public class SMAExpansionStrategy : StrategyBase
         }
     }
 
-    private RestRequest CreateRequest(string resource)
-    {
-        var request = new RestRequest(resource, Method.Get);
-        request.AddHeader("X-MBX-APIKEY", ApiKey);
-        return request;
-    }
+    // Request creation centralized in StrategyUtils
 
     private async Task<decimal> GetCurrentPriceFromBinance(string symbol)
     {
@@ -292,15 +424,22 @@ public class SMAExpansionStrategy : StrategyBase
             return 0;
         }
 
-        var request = CreateRequest("/fapi/v1/ticker/price");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/ticker/price", new Dictionary<string,string>
+        {
+            {"symbol", symbol}
+        });
 
         var response = await Client.ExecuteGetAsync(request);
 
         if (response.IsSuccessful && response.Content != null)
         {
-            var ticker = JsonConvert.DeserializeObject<dynamic>(response.Content);
-            return ticker.price;
+            var tickerDict = JsonConvert.DeserializeObject<Dictionary<string, object?>>(response.Content);
+            if (tickerDict != null && tickerDict.TryGetValue("price", out var priceObj) && priceObj != null)
+            {
+                if (decimal.TryParse(priceObj.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
+                    return parsed;
+            }
+            return 0m;
         }
         else
         {
@@ -349,13 +488,19 @@ public class SMAExpansionStrategy : StrategyBase
             return 0;
         }
 
-        var klines = FetchKlines(symbol, "1m").Result;
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+        {
+            {"symbol", symbol},
+            {"interval", "1m"},
+            {"limit", "401"}
+        });
+        var response = Client.ExecuteGetAsync(request).Result;
+        var klines = response.IsSuccessful && response.Content != null ? Helpers.StrategyUtils.ParseKlines(response.Content) : new List<Kline>();
         var history = ConvertToQuoteList(klines, klines.Select(k => k.Close).ToArray());
 
         var rsiValues = Indicator.GetRsi(history, period)
             .Where(q => q.Rsi.HasValue)
-            .Select(q => q.Rsi.Value)
-            
+            .Select(q => q.Rsi ?? 0)
             .ToList();
 
         return (decimal)rsiValues.LastOrDefault();
@@ -395,5 +540,6 @@ public class SMAExpansionStrategy : StrategyBase
         Console.WriteLine($"Status Code: {response.StatusCode}");
         Console.WriteLine($"Content: {response.Content}");
     }
+}
 }
 

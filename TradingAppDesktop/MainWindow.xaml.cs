@@ -20,10 +20,10 @@ namespace TradingAppDesktop
 {
     public partial class MainWindow : Window
     {
-        private BinanceTradingService _tradingService;
+        private BinanceTradingService _tradingService = null!; // set by App on startup via SetTradingService
         private bool _isStarting = false; // Add this class field
         private readonly object _startLock = new(); // Add this for thread safety
-        private List<string> _customCoinSelection = null;
+        private List<string>? _customCoinSelection = null;
     private RecentTradesViewModel _recentTradesVm;
     private PaperWalletViewModel _paperWalletVm;
     
@@ -33,7 +33,9 @@ namespace TradingAppDesktop
     private decimal _trailingCallbackPercent = 1.0m;
     
     // Persisted settings
-    private UserSettings _userSettings = null;
+    private UserSettings? _userSettings = null;
+    // UI: Closed candles toggle state (persisted)
+    private bool _useClosedCandles = false;
     
 
 
@@ -66,6 +68,15 @@ namespace TradingAppDesktop
                 // Load persisted settings once controls are ready
                 _userSettings = UserSettings.Load();
                 ApplyUserSettingsToUi();
+
+                // Initialize closed-candle checkbox from persisted settings
+                if (UseClosedCandlesCheckBox != null)
+                {
+                    UseClosedCandlesCheckBox.IsChecked = _userSettings?.UseClosedCandles ?? false;
+                    _useClosedCandles = UseClosedCandlesCheckBox.IsChecked == true;
+                    // Propagate to runtime config for strategies
+                    BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.UseClosedCandles = _useClosedCandles;
+                }
             };
         }
 
@@ -88,7 +99,8 @@ namespace TradingAppDesktop
                 new StrategyItem(SelectedTradingStrategy.FibonacciRetracement, "Fibonacci", "Fibonacci retracement levels"),
                 new StrategyItem(SelectedTradingStrategy.Aroon, "Aroon", "Aroon oscillator strategy"),
                 new StrategyItem(SelectedTradingStrategy.HullSMA, "Hull SMA", "Hull moving average system"),
-                //new StrategyItem(SelectedTradingStrategy.SMAExpansion, "SMA Expansion", "3 SMAs expanding, trade reversal"), 
+                new StrategyItem(SelectedTradingStrategy.SMAExpansion, "SMA Expansion", "Multi-SMA expansion / 200 turn"), 
+                new StrategyItem(SelectedTradingStrategy.SimpleSMA375, "Simple SMA 375", "Regime shift via long SMA crossover"),
                 new StrategyItem(SelectedTradingStrategy.BollingerSqueeze, "Bollinger Squeeze", "Breaking out of Bollinger Bands squeeze"),
                 new StrategyItem(SelectedTradingStrategy.SupportResistance, "Support Resistance Break", "Breaking out and retesting pivots")
             });
@@ -102,6 +114,8 @@ namespace TradingAppDesktop
                     isLive,
                     isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
                 );
+
+                // SMA Expansion re-enabled per user request; no tooltip restriction.
             }
 
             TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));
@@ -511,6 +525,7 @@ namespace TradingAppDesktop
 
             if (CallbackSlider != null)
                 CallbackSlider.Value = (double)_userSettings.TrailingCallbackPercent;
+            // Closed candles checkbox will be set in Loaded once visual tree exists
         }
 
         // private List<StrategyItem> GetDefaultStrategies()
@@ -540,11 +555,11 @@ namespace TradingAppDesktop
             public TextBoxWriter(TextBox output) => _output = output;
             public override Encoding Encoding => Encoding.UTF8;
 
-            public override void WriteLine(string value)
+            public override void WriteLine(string? value)
             {
                 _output.Dispatcher.Invoke(() =>
                 {
-                    _output.AppendText(value + Environment.NewLine);
+                    _output.AppendText((value ?? string.Empty) + Environment.NewLine);
                     _output.ScrollToEnd();
                 });
             }
@@ -668,6 +683,21 @@ namespace TradingAppDesktop
 
             // Additional logic if needed:
             StatusText.Text = $"{StrategySelector.SelectedCount} strategies selected";
+        }
+
+        // UI handler: toggle closed candle mode
+        private void UseClosedCandlesCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            _useClosedCandles = UseClosedCandlesCheckBox.IsChecked == true;
+            // Persist setting
+            if (_userSettings != null)
+            {
+                _userSettings.UseClosedCandles = _useClosedCandles;
+                _userSettings.Save();
+            }
+            // Apply to runtime config read by strategies
+            BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.UseClosedCandles = _useClosedCandles;
+            Log($"Candle policy: {(_useClosedCandles ? "Closed-only" : "Forming allowed")}");
         }
 
         

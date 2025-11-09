@@ -10,8 +10,11 @@ using RestSharp;
 using Skender.Stock.Indicators;
 using BinanceTestnet.Trading;
 
+namespace BinanceTestnet.Strategies
+{
 public class SimpleSMA375Strategy : StrategyBase
 {
+    protected override bool SupportsClosedCandles => true;
     private const int SmaPeriod = 375;  // Period for the SMA
     private ConcurrentDictionary<string, decimal> lastSMA375 = new ConcurrentDictionary<string, decimal>();
 
@@ -29,20 +32,31 @@ public class SimpleSMA375Strategy : StrategyBase
 
         // Fetch more data points to ensure enough for SMA calculation
         const int dataPointsRequired = 800;
-        var klines = await FetchKlines(symbol, interval, dataPointsRequired);
+        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+        {
+            {"symbol", symbol},
+            {"interval", interval},
+            {"limit", dataPointsRequired.ToString()}
+        });
+        var response = await Client.ExecuteGetAsync(request);
+        var klines = response.IsSuccessful && response.Content != null
+            ? Helpers.StrategyUtils.ParseKlines(response.Content)
+            : null;
         if (klines == null || klines.Count < SmaPeriod)
         {
             Console.WriteLine($"Error: Not enough kline data fetched for {symbol}. Required: {SmaPeriod}, Available: {klines?.Count}");
             return;
         }
 
-        var closes = klines.Select(k => k.Close).ToArray();
-        var history = ConvertToQuoteList(klines, closes);
+        // Build indicator history respecting candle policy (exclude forming when closed-candle mode)
+        var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+        var closes = workingKlines.Select(k => k.Close).ToArray();
+        var history = ConvertToQuoteList(workingKlines, closes);
 
         // Calculate SMA 375
         var sma375 = Indicator.GetSma(history, SmaPeriod)
             .Where(q => q.Sma.HasValue)
-            .Select(q => q.Sma.Value)
+            .Select(q => (decimal)q.Sma!.Value)
             .ToList();
 
         if (sma375.Count < SmaPeriod)
@@ -51,31 +65,33 @@ public class SimpleSMA375Strategy : StrategyBase
             return;
         }
 
-        // Get the latest kline (the most recent one)
-        var latestKline = klines.Last();
+        // Select signal and previous candle according to policy
+        var (signalKline, previousKline) = SelectSignalPair(klines);
+        if (signalKline == null || previousKline == null)
+            return;
+
+        var latestKline = signalKline;
         decimal currentPriceClose = latestKline.Close;
-        decimal currentPriceLow = latestKline.Low;
-        decimal currentPriceHigh = latestKline.High;
-        decimal previousPriceClose = klines[klines.Count - 2].Close;
-        decimal previousPriceLow = klines[klines.Count - 2].Low;
-        decimal previousPriceHigh = klines[klines.Count - 2].High;
-        decimal currentSMA375 = (decimal)sma375.Last(); // Get the latest SMA value
-        decimal previousSMA375 = (decimal)sma375[sma375.Count - 2]; // Get the previous SMA value [sma375.Count - 2]
-        bool isUpwards = currentSMA375 > previousSMA375;
-        bool IsDowntrend = currentSMA375 < previousSMA375;
+        decimal previousPriceClose = previousKline.Close;
+        decimal currentSMA375 = (decimal)sma375.Last();
+        decimal previousSMA375 = (decimal)sma375[sma375.Count - 2];
 
-        // Check for a crossover
-        bool crossedAbove = previousPriceLow < previousSMA375 && currentPriceLow > currentSMA375;
-        bool crossedBelow = previousPriceHigh > previousSMA375 && currentPriceHigh < currentSMA375;
+        // True crossover occurs when the side of (close - SMA) flips between previous and current
+        int prevSide = Math.Sign((double)(previousPriceClose - previousSMA375));
+        int currSide = Math.Sign((double)(currentPriceClose - currentSMA375));
+        bool crossedAbove = prevSide <= 0 && currSide > 0; // bear/at-SMA -> bull
+        bool crossedBelow = prevSide >= 0 && currSide < 0; // bull/at-SMA -> bear
 
-        if (crossedAbove && isUpwards)
+        if (crossedAbove)
         {
             Console.WriteLine($"Long Signal for {symbol} at {currentPriceClose}");
+            Helpers.StrategyUtils.TraceSignalCandle(nameof(SimpleSMA375Strategy), symbol, UseClosedCandles, latestKline, previousKline, $"SMA375 cross UP: prevClose={previousPriceClose} prevSMA={previousSMA375} currClose={currentPriceClose} currSMA={currentSMA375}");
             await OrderManager.PlaceLongOrderAsync(symbol, currentPriceClose, "SMA375 CrossUp", latestKline.CloseTime);
         }
-        else if (crossedBelow && IsDowntrend)
+        else if (crossedBelow)
         {
             Console.WriteLine($"Short Signal for {symbol} at {currentPriceClose}");
+            Helpers.StrategyUtils.TraceSignalCandle(nameof(SimpleSMA375Strategy), symbol, UseClosedCandles, latestKline, previousKline, $"SMA375 cross DOWN: prevClose={previousPriceClose} prevSMA={previousSMA375} currClose={currentPriceClose} currSMA={currentSMA375}");
             await OrderManager.PlaceShortOrderAsync(symbol, currentPriceClose, "SMA375 CrossDown", latestKline.CloseTime);
         }
 
@@ -86,7 +102,7 @@ public class SimpleSMA375Strategy : StrategyBase
 
     public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
     {
-        var klines = historicalData.ToList();
+    var klines = historicalData.ToList();
         if (klines.Count < SmaPeriod)
         {
             Console.WriteLine($"Error: Not enough historical kline data. Required: {SmaPeriod}, Available: {klines.Count}");
@@ -99,7 +115,7 @@ public class SimpleSMA375Strategy : StrategyBase
         // Calculate SMA 375
         var sma375 = Indicator.GetSma(history, SmaPeriod)
             .Where(q => q.Sma.HasValue)
-            .Select(q => q.Sma.Value)
+            .Select(q => (decimal)q.Sma!.Value)
             .ToList();
 
         // Ensure that we have enough SMA values to work with
@@ -117,78 +133,42 @@ public class SimpleSMA375Strategy : StrategyBase
             decimal currentPriceClose = klines[i].Close;
             decimal previousPriceClose = klines[i - 1].Close;
 
-            decimal currentPriceLow = klines[i].Low;
-            decimal currentPriceHigh = klines[i].High;
-            decimal previousPriceLow = klines[klines.Count - 2].Low;
-            decimal previousPriceHigh = klines[klines.Count - 2].High;
-
             int smaIndex = i - smaStartIndex;
             decimal currentSMA375 = (decimal)sma375[smaIndex];
             decimal previousSMA375 = (decimal)sma375[smaIndex - 1];
-            bool isUpwards = currentSMA375 > previousSMA375;
-            bool isDownwards = currentSMA375 < previousSMA375;
 
-            // Check for a crossover
-            bool crossedAbove = previousPriceLow < previousSMA375 && currentPriceLow > currentSMA375;
-            bool crossedBelow = previousPriceHigh > previousSMA375 && currentPriceHigh < currentSMA375;
+            // Side flip detection on closes
+            int prevSide = Math.Sign((double)(previousPriceClose - previousSMA375));
+            int currSide = Math.Sign((double)(currentPriceClose - currentSMA375));
+            bool crossedAbove = prevSide <= 0 && currSide > 0;
+            bool crossedBelow = prevSide >= 0 && currSide < 0;
 
-            if (crossedAbove && isUpwards)
+            if (!string.IsNullOrEmpty(klines[i].Symbol) && crossedAbove)
             {
                 Console.WriteLine($"Long Signal (Historical) for {klines[i].Symbol} at {currentPriceClose}");
-                await OrderManager.PlaceLongOrderAsync(klines[i].Symbol, currentPriceClose, "SMA375", historicalData.Last().CloseTime);
+                Helpers.StrategyUtils.TraceSignalCandle(nameof(SimpleSMA375Strategy), klines[i].Symbol!, UseClosedCandles, klines[i], klines[i-1], $"SMA375 cross UP (hist): prevClose={previousPriceClose} prevSMA={previousSMA375} currClose={currentPriceClose} currSMA={currentSMA375}");
+                await OrderManager.PlaceLongOrderAsync(klines[i].Symbol!, currentPriceClose, "SMA375", historicalData.Last().CloseTime);
             }
-            else if (crossedBelow && isDownwards)
+            else if (!string.IsNullOrEmpty(klines[i].Symbol) && crossedBelow)
             {
-
                 Console.WriteLine($"Short Signal (Historical) for {klines[i].Symbol} at {currentPriceClose}");
-                
-                await OrderManager.PlaceShortOrderAsync(klines[i].Symbol, currentPriceClose, "SMA375", historicalData.Last().CloseTime);
+                Helpers.StrategyUtils.TraceSignalCandle(nameof(SimpleSMA375Strategy), klines[i].Symbol!, UseClosedCandles, klines[i], klines[i-1], $"SMA375 cross DOWN (hist): prevClose={previousPriceClose} prevSMA={previousSMA375} currClose={currentPriceClose} currSMA={currentSMA375}");
+                await OrderManager.PlaceShortOrderAsync(klines[i].Symbol!, currentPriceClose, "SMA375", historicalData.Last().CloseTime);
             }
-                    // Check and close existing trades
-            var currentPrices = new Dictionary<string, decimal> { { klines[i].Symbol, currentPriceClose } };
-            await OrderManager.CheckAndCloseTrades(currentPrices, historicalData.Last().CloseTime);
+            // Check and close existing trades
+            if (!string.IsNullOrEmpty(klines[i].Symbol))
+            {
+                string sym = klines[i].Symbol!;
+                var currentPrices = new Dictionary<string, decimal> { { sym, currentPriceClose } };
+                await OrderManager.CheckAndCloseTrades(currentPrices, historicalData.Last().CloseTime);
+            }
         }
     }
 
 
 
 
-    private async Task<List<Kline>> FetchKlines(string symbol, string interval, int dataPoints)
-    {
-        var request = CreateRequest("/fapi/v1/klines");
-        request.AddParameter("symbol", symbol, ParameterType.QueryString);
-        request.AddParameter("interval", interval, ParameterType.QueryString);
-        request.AddParameter("limit", dataPoints.ToString(), ParameterType.QueryString);
-
-        var response = await Client.ExecuteGetAsync(request);
-
-        if (response.IsSuccessful)
-        {
-            return JsonConvert.DeserializeObject<List<List<object>>>(response.Content)
-                ?.Select(k =>
-                {
-                    var kline = new Kline();
-                    if (k.Count >= 9)
-                    {
-                        kline.Open = k[1] != null && decimal.TryParse(k[1].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var open) ? open : 0;
-                        kline.High = k[2] != null && decimal.TryParse(k[2].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var high) ? high : 0;
-                        kline.Low = k[3] != null && decimal.TryParse(k[3].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var low) ? low : 0;
-                        kline.Close = k[4] != null && decimal.TryParse(k[4].ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var close) ? close : 0;
-                        kline.OpenTime = Convert.ToInt64(k[0]);
-                        kline.CloseTime = Convert.ToInt64(k[6]);
-                        kline.NumberOfTrades = Convert.ToInt32(k[8]);
-                        kline.Symbol = symbol;
-                    }
-                    return kline;
-                })
-                .ToList();
-        }
-        else
-        {
-            HandleErrorResponse(symbol, response);
-            return null;
-        }
-    }
+    // Request creation and parsing centralized in StrategyUtils
 
     private List<BinanceTestnet.Models.Quote> ConvertToQuoteList(IEnumerable<Kline> klines, decimal[] closes)
     {
@@ -206,12 +186,7 @@ public class SimpleSMA375Strategy : StrategyBase
         return quotes;
     }
 
-    private RestRequest CreateRequest(string resource)
-    {
-        var request = new RestRequest(resource, Method.Get);
-        request.AddHeader("X-MBX-APIKEY", ApiKey);
-        return request;
-    }
+    // Request creation centralized in StrategyUtils
 
     private void HandleErrorResponse(string symbol, RestResponse response)
     {
@@ -219,4 +194,5 @@ public class SimpleSMA375Strategy : StrategyBase
         Console.WriteLine($"Status Code: {response.StatusCode}");
         Console.WriteLine($"Content: {response.Content}");
     }
+}
 }

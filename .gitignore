@@ -1,16 +1,17 @@
-# Ignore build output folders
+# Build output
 [Bb]in/
 [Oo]bj/
 
-# Ignore Visual Studio temporary files, build results, and
-# folder-based project configuration
+# Visual Studio / IDE
 .vs/
+.idea/
+.vscode/
 *.user
 *.suo
 *.userosscache
 *.sln.docstates
 
-# Ignore .NET Core and .NET Standard project artifacts
+# .NET artifacts
 project.lock.json
 project.fragment.lock.json
 artifacts/
@@ -19,17 +20,9 @@ artifacts/
 *.nupkg
 *.snupkg
 
-# Ignore JetBrains Rider files
-.idea/
-
-# Ignore xml
-*.xml# 
-
-Ignore xlsx
+# File types not under source control
+*.xml
 *.xlsx
-
-# Ignore solution file
-*.sln
 
 
 # Ignore temporary files
@@ -42,8 +35,7 @@ Ignore xlsx
 # Ignore csv files
 *.csv
 
-# Ignore Recycle Bin used by VSCode.
-.vscode/
+# VSCode local history
 .history/
 
 # Ignore dll, pdb, cache files
@@ -51,14 +43,13 @@ Ignore xlsx
 *.pdb
 .cache/
 
-# Ignore all other hidden files and directories (optional)
-.*
-!TradingAppDesktop/
-!TradingAppDesktop/Services/
-!TradingAppDesktop/Controls/
-!MarketAnalysis/
+# Project-specific outputs and data dumps
+BinanceTestnet/Excels/**
+BinanceTestnet/path_to_your_db/**
+TradingAppDesktop/crash_log.txt
+db/**
 
-# Do not ignore configuration files
+# Do not ignore configuration files (re-include)
 !appsettings.json
 !appsettings.Development.json
 !appsettings.Production.json
