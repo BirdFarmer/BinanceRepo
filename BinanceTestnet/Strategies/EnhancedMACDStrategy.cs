@@ -13,6 +13,7 @@ namespace BinanceTestnet.Strategies
 {
     public class EnhancedMACDStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         public EnhancedMACDStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
             : base(client, apiKey, orderManager, wallet)
         {
@@ -41,7 +42,9 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
-                        var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
+                        // Build quotes respecting closed-candle policy (exclude forming candle when enabled)
+                        var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+                        var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
                         {
                             Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
                             Close = k.Close
@@ -62,20 +65,26 @@ namespace BinanceTestnet.Strategies
                             var lastEmaShort = emaShort[emaShort.Count - 1];
                             var lastEmaLong = emaLong[emaLong.Count - 1];
 
-                            // Long Signal
-                            if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal 
+                            // Select signal candle respecting policy
+                            var (signalKline, previousKline) = SelectSignalPair(klines);
+                            if (signalKline == null || previousKline == null)
+                                return;
+
+                            // Long Signal: MACD bullish cross + EMA confirmation
+                            if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal
                                 && lastEmaShort.Ema > lastEmaLong.Ema)
                             {
-                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().OpenTime);
-                                LogTradeSignal("LONG", symbol, klines.Last().Close);
+                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "Enhanced MACD", signalKline.OpenTime);
+                                Helpers.StrategyUtils.TraceSignalCandle("EnhancedMACD", symbol, UseClosedCandles, signalKline, previousKline, "Bullish MACD cross + EMA alignment");
+                                LogTradeSignal("LONG", symbol, signalKline.Close);
                             }
-
-                            // Short Signal
-                            else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal 
+                            // Short Signal: MACD bearish cross + EMA confirmation
+                            else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal
                                      && lastEmaShort.Ema < lastEmaLong.Ema)
-                            {   
-                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "Enhanced MACD", klines.Last().OpenTime);
-                                LogTradeSignal("SHORT", symbol, klines.Last().Close);
+                            {
+                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "Enhanced MACD", signalKline.OpenTime);
+                                Helpers.StrategyUtils.TraceSignalCandle("EnhancedMACD", symbol, UseClosedCandles, signalKline, previousKline, "Bearish MACD cross + EMA alignment");
+                                LogTradeSignal("SHORT", symbol, signalKline.Close);
                             }
                         }
                     }
@@ -97,7 +106,9 @@ namespace BinanceTestnet.Strategies
 
         public override async Task RunOnHistoricalDataAsync(IEnumerable<BinanceTestnet.Models.Kline> historicalData)
         {
-            var quotes = historicalData.Select(k => new BinanceTestnet.Models.Quote
+            var klines = historicalData.ToList();
+            var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+            var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
             {
                 Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
                 Close = k.Close
@@ -118,7 +129,7 @@ namespace BinanceTestnet.Strategies
                 var lastBb = bbResults[i];
                 var lastEmaShort = emaShort[i];
                 var lastEmaLong = emaLong[i];
-                var kline = historicalData.ElementAt(i);
+                var kline = workingKlines.ElementAt(i);
                 
                 // Long Signal
                 if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal 
@@ -130,8 +141,8 @@ namespace BinanceTestnet.Strategies
                     if (!string.IsNullOrEmpty(kline.Symbol))
                     {
                         await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.OpenTime);
+                        LogTradeSignal("LONG", kline.Symbol!, kline.Close);
                     }
-                    LogTradeSignal("LONG", kline.Symbol, kline.Close);
                 }
 
                 // Short Signal
@@ -144,8 +155,8 @@ namespace BinanceTestnet.Strategies
                     if (!string.IsNullOrEmpty(kline.Symbol))
                     {
                         await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "Enhanced MACD", kline.OpenTime);
+                        LogTradeSignal("SHORT", kline.Symbol!, kline.Close);
                     }
-                    LogTradeSignal("SHORT", kline.Symbol, kline.Close);
                 }
 
                 if (!string.IsNullOrEmpty(kline.Symbol))

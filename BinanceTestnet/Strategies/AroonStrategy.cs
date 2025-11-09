@@ -13,6 +13,7 @@ namespace BinanceTestnet.Strategies
 {
     public class AroonStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         private const int AroonPeriod = 20; // Aroon Period
         private const int SmaPeriod = 200;  // SMA Period
         private const int HullLength = 70;  // Hull Length for EHMA
@@ -39,15 +40,8 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 1) // Ensure there are at least two data points
                     {
-                        var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
-                        {
-                            Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
-                            High = k.High,
-                            Low = k.Low,
-                            Close = k.Close,
-                            Open = k.Open,
-                            Volume = k.Volume
-                        }).ToList();
+                        // Build indicator quotes respecting policy
+                        var quotes = ToIndicatorQuotes(klines);
 
                         var aroonResults = Indicator.GetAroon(quotes, AroonPeriod).ToList();
                         var smaResults = Indicator.GetSma(quotes, SmaPeriod).ToList();
@@ -55,8 +49,10 @@ namespace BinanceTestnet.Strategies
                             .Select(hr => new HullSuiteResult { Date = hr.Date, EHMA = hr.EHMA, EHMAPrev = hr.EHMAPrev })
                             .ToList();
 
-                        var currentKline = klines.Last();
-                        var prevKline = klines[klines.Count - 2];
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var currentKline = signalKline;
+                        var prevKline = previousKline;
                         var currentSMA = smaResults.LastOrDefault();
                         var previousSMA = smaResults.ElementAt(smaResults.Count - 2);
                         var currentAroon = aroonResults.LastOrDefault();

@@ -9,6 +9,7 @@ namespace BinanceTestnet.Strategies
 {
     public class HullSMAStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         private const int HullShortLength = 35; // Short Hull length
         private const int HullLongLength = 100; // Long Hull length
         //private const int SmaPeriod = 50; // SMA Period (commented out)
@@ -36,17 +37,11 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 1)
                     {
-                        var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
-                        {
-                            Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
-                            High = k.High,
-                            Low = k.Low,
-                            Close = k.Close,
-                            Open = k.Open,
-                            Volume = k.Volume
-                        }).ToList();                        
+                        // Build indicator quotes using policy-aware helper
+                        var quotes = ToIndicatorQuotes(klines);                        
                         
-                        var rsi = Indicator.GetRsi(quotes, 20).LastOrDefault().Rsi;
+                        var rsiResult = Indicator.GetRsi(quotes, 20).LastOrDefault();
+                        var rsi = rsiResult?.Rsi ?? 50; // neutral fallback
 
                         // Add a filter for RSI to avoid trades in a "boring" zone (between 40 and 60)
                         bool rsiNotInBoringZone = rsi < 40 || rsi > 60;
@@ -56,8 +51,10 @@ namespace BinanceTestnet.Strategies
                         var hullLongResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullLongLength)
                             .Select(x => new HullSuiteResult { Date = x.Date, EHMA = x.EHMA, EHMAPrev = x.EHMAPrev}).ToList();
 
-                        var currentKline = klines.Last();
-                        var prevKline = klines[klines.Count - 2];
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var currentKline = signalKline;
+                        var prevKline = previousKline;
                         var currentHullShort = hullShortResults.LastOrDefault();
                         var currentHullLong = hullLongResults.LastOrDefault();
                         var prevHullShort = hullShortResults[hullShortResults.Count - 2];
@@ -75,7 +72,7 @@ namespace BinanceTestnet.Strategies
                                                       && prevHullShort.EHMA >= prevHullLong.EHMA
                                                       && currentHullLong.EHMA < prevHullLong.EHMA;
 
-                            decimal currentPrice;
+                            // currentPrice removed (unused)
 
                             if (isHullCrossingUp)
                             {
@@ -120,7 +117,8 @@ namespace BinanceTestnet.Strategies
                 Close = k.Close
             }).ToList();
 
-            var rsi = Indicator.GetRsi(quotes, 20).LastOrDefault().Rsi;
+            var rsiHistResult = Indicator.GetRsi(quotes, 20).LastOrDefault();
+            var rsi = rsiHistResult?.Rsi ?? 50; // neutral fallback
 
             var hullShortResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullShortLength)
                 .Select(x => new HullSuiteResult { Date = x.Date, EHMA = x.EHMA, EHMAPrev = x.EHMAPrev}).ToList();

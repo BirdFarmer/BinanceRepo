@@ -13,6 +13,7 @@ namespace BinanceTestnet.Strategies
 {
     public class MACDStandardStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         public MACDStandardStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
         : base(client, apiKey, orderManager, wallet)
         {
@@ -36,7 +37,8 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
-                        var quotes = Helpers.StrategyUtils.ToQuotes(klines, includeOpen:false, includeVolume:false)
+                        // Build indicator quotes respecting closed-candle policy
+                        var quotes = ToIndicatorQuotes(klines)
                             .Select(q => new BinanceTestnet.Models.Quote { Date = q.Date, Close = q.Close })
                             .ToList();
 
@@ -47,15 +49,20 @@ namespace BinanceTestnet.Strategies
                             var lastMacd = macdResults[macdResults.Count - 1];
                             var prevMacd = macdResults[macdResults.Count - 2];
 
+                            var (signalKline, previousKline) = SelectSignalPair(klines);
+                            if (signalKline == null || previousKline == null) return;
+
                             if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal)
                             {
-                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "MAC-D", klines.Last().OpenTime);
-                                LogTradeSignal("LONG", symbol, klines.Last().Close);
+                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
+                                Helpers.StrategyUtils.TraceSignalCandle("MACDStandard", symbol, UseClosedCandles, signalKline, previousKline, "Bullish MACD cross");
+                                LogTradeSignal("LONG", symbol, signalKline.Close);
                             }
                             else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal)
                             {
-                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "MAC-D", klines.Last().OpenTime);
-                                LogTradeSignal("SHORT", symbol, klines.Last().Close);
+                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
+                                Helpers.StrategyUtils.TraceSignalCandle("MACDStandard", symbol, UseClosedCandles, signalKline, previousKline, "Bearish MACD cross");
+                                LogTradeSignal("SHORT", symbol, signalKline.Close);
                             }
                         }
                     }
@@ -117,11 +124,13 @@ namespace BinanceTestnet.Strategies
 
                 if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal)
                 {
+                    Helpers.StrategyUtils.TraceSignalCandle("MACDStandard-Hist", kline.Symbol, true, kline, null, "Bullish MACD cross (historical)");
                     await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "MAC-D", kline.CloseTime);
                     LogTradeSignal("LONG", kline.Symbol, kline.Close);
                 }
                 else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal)
                 {
+                    Helpers.StrategyUtils.TraceSignalCandle("MACDStandard-Hist", kline.Symbol, true, kline, null, "Bearish MACD cross (historical)");
                     await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "MAC-D", kline.CloseTime);
                     LogTradeSignal("SHORT", kline.Symbol, kline.Close);
                 }

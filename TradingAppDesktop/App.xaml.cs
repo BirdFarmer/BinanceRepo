@@ -17,11 +17,11 @@ namespace TradingAppDesktop
 {
     public partial class App : Application
     {
-        private ILoggerFactory _loggerFactory;
-        public BinanceTradingService TradingService { get; private set; }
+    public BinanceTradingService? TradingService { get; private set; }
 
         protected override async void OnStartup(StartupEventArgs e)
         {
+            // Removed CandlePolicy; strategies use forming candle implicitly.
 
             var (isApproved, deviceId) = await HardwareLockService.CheckApprovalAsync();
             
@@ -101,7 +101,7 @@ namespace TradingAppDesktop
             });
 
             //2. Create main window
-            MainWindow mainWindow = null;
+            MainWindow? mainWindow = null;
 
             try
             { 
@@ -181,7 +181,7 @@ namespace TradingAppDesktop
 
         private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
-            ShowFatalError(e.ExceptionObject as Exception);
+            ShowFatalError((e.ExceptionObject as Exception) ?? new Exception("Unknown unhandled exception"));
         }
 
         private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

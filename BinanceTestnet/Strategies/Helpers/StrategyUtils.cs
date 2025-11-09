@@ -10,6 +10,8 @@ namespace BinanceTestnet.Strategies.Helpers
 {
     public static class StrategyUtils
     {
+    // Signal tracing delegate (can be swapped for structured logger later)
+    public static Action<string, string, bool, long, decimal, string>? SignalTracer;
         // 1) HTTP
         public static RestRequest CreateGet(string resource, IDictionary<string, string>? query = null)
         {
@@ -213,6 +215,32 @@ namespace BinanceTestnet.Strategies.Helpers
             if (value == 0) return 0;
             var scale = (decimal)Math.Pow(10, Math.Floor(Math.Log10((double)Math.Abs(value))) + 1 - significantDigits);
             return Math.Round(value / scale) * scale;
+        }
+
+        // Trace helper wrapper
+        public static void TraceSignal(string strategy, string symbol, bool closedMode, Kline kline, string detail)
+        {
+            try
+            {
+                SignalTracer?.Invoke(strategy, symbol, closedMode, kline.CloseTime, kline.Close, detail);
+            }
+            catch { /* swallow – tracing must never break strategy flow */ }
+        }
+
+        // Unified signal-candle logging helper: includes explicit candle type and previous candle reference (if provided)
+        public static void TraceSignalCandle(string strategy, string symbol, bool closedMode, Kline signal, Kline? previous, string detail)
+        {
+            try
+            {
+                var candleType = closedMode ? "CLOSED" : "FORMING";
+                var signalTime = DateTimeOffset.FromUnixTimeMilliseconds(signal.CloseTime).UtcDateTime;
+                var prevTime = previous != null ? DateTimeOffset.FromUnixTimeMilliseconds(previous.CloseTime).UtcDateTime.ToString("u") : "n/a";
+                // Console line (lightweight – can be replaced by structured logger later)
+                Console.WriteLine($"[Signal] strategy={strategy} symbol={symbol} mode={candleType} signalClose={signalTime:u} prevClose={prevTime} price={signal.Close} detail={detail}");
+                // Delegate for external observers
+                SignalTracer?.Invoke(strategy, symbol, closedMode, signal.CloseTime, signal.Close, detail);
+            }
+            catch { /* never throw from tracing */ }
         }
     }
 }

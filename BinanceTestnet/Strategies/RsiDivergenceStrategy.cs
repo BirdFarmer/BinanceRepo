@@ -36,7 +36,9 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
-                        var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
+                        // Respect closed-candle policy for calculations
+                        var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+                        var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
                         {
                             Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
                             Close = k.Close,
@@ -49,23 +51,30 @@ namespace BinanceTestnet.Strategies
 
                         if (rsiResults.Count > 2 && stochasticResults.Count > 2)
                         {
+                            // If using closed candles, drop the forming indicator value
                             var lastRsi = rsiResults.Last();
                             var lastStochastic = stochasticResults.Last();
 
                             // Check for bullish RSI divergence and Stochastic <= 10 for LONG
-                            if (IsBullishDivergence(klines, rsiResults, stochasticResults) && lastStochastic.K <= 10)
+                            var (signalKline, previousKline) = SelectSignalPair(klines);
+                            if (signalKline == null || previousKline == null) return;
+
+                            // Evaluate divergence on the same candle set used for indicators (workingKlines)
+                            if (IsBullishDivergence(workingKlines, rsiResults, stochasticResults) && lastStochastic.K <= 10)
                             {
                                 Console.WriteLine($"Bullish RSI divergence and Stochastic is below 10. Going LONG");
-                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "RSI Divergence", klines.Last().OpenTime);
-                                LogTradeSignal("LONG", symbol, klines.Last().Close);
+                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "RSI Divergence", signalKline.OpenTime);
+                                Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, signalKline, previousKline, "Bullish divergence + Stoch<=10");
+                                LogTradeSignal("LONG", symbol, signalKline.Close);
                             }
 
                             // Check for bearish RSI divergence and Stochastic >= 90 for SHORT
-                            else if (IsBearishDivergence(klines, rsiResults, stochasticResults) && lastStochastic.K >= 90)
+                            else if (IsBearishDivergence(workingKlines, rsiResults, stochasticResults) && lastStochastic.K >= 90)
                             {
                                 Console.WriteLine($"Bearish RSI divergence and Stochastic is above 90. Going SHORT");
-                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "RSI Divergence", klines.Last().OpenTime);
-                                LogTradeSignal("SHORT", symbol, klines.Last().Close);
+                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "RSI Divergence", signalKline.OpenTime);
+                                Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, signalKline, previousKline, "Bearish divergence + Stoch>=90");
+                                LogTradeSignal("SHORT", symbol, signalKline.Close);
                             }
                         }
                     }
@@ -97,26 +106,27 @@ namespace BinanceTestnet.Strategies
 
             // Look back 100 candles to find the highest price top and corresponding RSI
             decimal highestPrice = decimal.MinValue;
-            decimal highestRsi = decimal.MinValue;
+            double highestRsi = double.MinValue;
 
             for (int i = klines.Count - 21; i >= klines.Count - 1 - lookback; i--)
             {
                 if (rsiResults[i].Rsi == null) continue;
                 
                 // Update the highest RSI and high price in the period
-                if ((decimal)rsiResults[i].Rsi > highestRsi || highestRsi == null)
+                var rsiVal = rsiResults[i].Rsi;
+                if (rsiVal.HasValue && rsiVal.Value > highestRsi)
                 {
-                    highestRsi = (decimal)rsiResults[i].Rsi;
+                    highestRsi = rsiVal.Value;
                     highestPrice = klines[i].High;
                 }
             }
             
-            if(highestRsi == decimal.MinValue) return false; 
+            if(highestRsi == double.MinValue) return false; 
 
             // Check if current price is higher but RSI is lower
             //if (latestKline.High > highestPrice && (decimal)latestRsi < highestRsi && highestRsi >= 80)
             if (highestRsi >= 80 
-                && (decimal)latestRsi < highestRsi 
+                && latestRsi.HasValue && latestRsi.Value < highestRsi 
                 && klines[klines.Count - 1].High > highestPrice 
                 && klines[klines.Count - 1].Close < klines[klines.Count - 1].Open)
             {
@@ -138,7 +148,7 @@ namespace BinanceTestnet.Strategies
 
             // Look back 100 candles to find the lowest price bottom and corresponding RSI
             decimal lowestPrice = decimal.MaxValue;
-            decimal lowestRsi = decimal.MaxValue;
+            double lowestRsi = double.MaxValue;
                  
             // Find the lowest RSI and corresponding low price in the lookback period
             for (int i = klines.Count - 21; i >= klines.Count - 1 - lookback; i--)
@@ -146,19 +156,20 @@ namespace BinanceTestnet.Strategies
                 if (rsiResults[i].Rsi == null) continue;
                 
                 // Update the lowest RSI and low price in the period
-                if ((decimal)rsiResults[i].Rsi < lowestRsi || lowestRsi == null)
+                var rsiVal = rsiResults[i].Rsi;
+                if (rsiVal.HasValue && rsiVal.Value < lowestRsi)
                 {
-                    lowestRsi = (decimal)rsiResults[i].Rsi;
+                    lowestRsi = rsiVal.Value;
                     lowestPrice = klines[i].Low;
                 }
             }
 
-            if(lowestRsi == decimal.MinValue) return false;
+            if(lowestRsi == double.MaxValue) return false;
 
             // Check if current price is lower but RSI is higher
             // if (latestKline.Low < lowestPrice && (decimal)latestRsi > lowestRsi && lowestRsi <= 20)
             if (lowestRsi <= 20     
-                && (decimal)latestRsi > lowestRsi 
+                && latestRsi.HasValue && latestRsi.Value > lowestRsi 
                 && klines[klines.Count - 1].Low < lowestPrice
                 && klines[klines.Count - 1].Close > klines[klines.Count - 1].Open)
             {
@@ -200,21 +211,27 @@ namespace BinanceTestnet.Strategies
                     // Check for Bullish Divergence and place Long order
                     if (IsBullishDivergence(klinesSubset, rsiSubset, stochasticSubset) && stochasticK <= 10)
                     {
-                        await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "RSI Divergence", kline.CloseTime);
-                        LogTradeSignal("LONG", kline.Symbol, kline.Close);
+                        if (!string.IsNullOrEmpty(kline.Symbol)) {
+                            await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "RSI Divergence", kline.CloseTime);
+                            LogTradeSignal("LONG", kline.Symbol!, kline.Close);
+                        }
                     }
 
                     // Check for Bearish Divergence and place Short order
                     else if (IsBearishDivergence(klinesSubset, rsiSubset, stochasticSubset) && stochasticK >= 90)
                     {
-                        await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "RSI Divergence", kline.CloseTime);
-                        LogTradeSignal("SHORT", kline.Symbol, kline.Close);
+                        if (!string.IsNullOrEmpty(kline.Symbol)) {
+                            await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "RSI Divergence", kline.CloseTime);
+                            LogTradeSignal("SHORT", kline.Symbol!, kline.Close);
+                        }
                     }
                 }
 
                 // Check and close active trades after placing new orders
-                var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices, kline.CloseTime);
+                if (!string.IsNullOrEmpty(kline.Symbol)) {
+                    var currentPrices = new Dictionary<string, decimal> { { kline.Symbol, kline.Close } };
+                    await OrderManager.CheckAndCloseTrades(currentPrices, kline.CloseTime);
+                }
             }
         }
 

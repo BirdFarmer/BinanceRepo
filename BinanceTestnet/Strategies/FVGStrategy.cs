@@ -12,6 +12,7 @@ namespace BinanceTestnet.Strategies
 {
 public class FVGStrategy : StrategyBase
 {
+    protected override bool SupportsClosedCandles => true;
     private readonly int _fvgLookbackPeriod = 36; // Number of periods to look back for FVGs
     private readonly int _orderBookDepthLevels = 1000; // Number of levels to fetch from order book
 
@@ -28,7 +29,8 @@ public class FVGStrategy : StrategyBase
 
             if (klines != null && klines.Count > _fvgLookbackPeriod)
             {
-                var closedKlines = klines.Take(klines.Count - 1).ToList();
+                // Always detect FVGs on closed candles only
+                var closedKlines = Helpers.StrategyUtils.ExcludeForming(klines);
                 var fvgZones = IdentifyFVGs(closedKlines);
 
                 RemoveFulfilledFVGs(fvgZones, closedKlines, symbol);
@@ -44,7 +46,9 @@ public class FVGStrategy : StrategyBase
 
                         if (ValidateFVGWithOrderBook(lastFVG, orderBook))
                         {
-                            var currentKline = klines.Last();
+                            var (signalKline, previousKline) = SelectSignalPair(klines);
+                            if (signalKline == null || previousKline == null) return;
+                            var currentKline = signalKline;
 
                             if (lastFVG.Type == FVGType.Bullish)
                             {
@@ -108,7 +112,7 @@ public class FVGStrategy : StrategyBase
                 var historicalKlines = ConvertQuotesToKlines(quotes.Take(i + 1).ToList());
                 var fvgZones = IdentifyFVGs(historicalKlines);
 
-                RemoveFulfilledFVGs(fvgZones, historicalKlines, historicalData.ElementAt(i).Symbol);
+                RemoveFulfilledFVGs(fvgZones, historicalKlines, historicalData.ElementAt(i).Symbol!);
 
                 if (fvgZones.Count >= 2)
                 {
@@ -125,7 +129,7 @@ public class FVGStrategy : StrategyBase
                                 currentQuote.Low > lastFVG.UpperBound)
                             {
                                 await OrderManager.PlaceLongOrderAsync(
-                                    historicalData.ElementAt(i + 1).Symbol,
+                                    historicalData.ElementAt(i + 1).Symbol!,
                                     currentQuote.Close,
                                     "FVG",
                                     new DateTimeOffset(currentQuote.Date).ToUnixTimeMilliseconds());
@@ -140,7 +144,7 @@ public class FVGStrategy : StrategyBase
                                 currentQuote.High < lastFVG.LowerBound)
                             {
                                 await OrderManager.PlaceShortOrderAsync(
-                                    historicalData.ElementAt(i + 1).Symbol,
+                                    historicalData.ElementAt(i + 1).Symbol!,
                                     currentQuote.Close,
                                     "FVG",
                                     new DateTimeOffset(currentQuote.Date).ToUnixTimeMilliseconds());
@@ -151,7 +155,7 @@ public class FVGStrategy : StrategyBase
                 }            
 
                 // Check for open trade closing conditions
-                var currentPrices = new Dictionary<string, decimal> { { historicalData.ElementAt(i).Symbol, currentQuote.Close } };
+                var currentPrices = new Dictionary<string, decimal> { { historicalData.ElementAt(i).Symbol!, currentQuote.Close } };
                 await OrderManager.CheckAndCloseTrades(currentPrices, historicalData.ElementAt(i).OpenTime);
             }
         }

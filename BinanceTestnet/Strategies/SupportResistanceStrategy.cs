@@ -68,8 +68,10 @@ namespace BinanceTestnet.Strategies
                     {
                         //Console.WriteLine($"Retrieved {klines.Count} klines for {symbol}");
                         
-                        // SIMPLE: Always use the LAST CLOSED candle (index -2)
-                        var lastClosedKline = klines[klines.Count - 2];
+                        // Select signal candle based on runtime policy
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var lastClosedKline = signalKline; // name retained for minimal downstream change
                         var klineEndTime = DateTimeOffset.FromUnixTimeMilliseconds(lastClosedKline.CloseTime).UtcDateTime;
                         
                         //Console.WriteLine($"Using closed candle from: {klineEndTime:HH:mm:ss}");
@@ -142,7 +144,7 @@ namespace BinanceTestnet.Strategies
                     HandleErrorResponse(symbol, response);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 //Console.WriteLine($"Error processing {symbol}: {ex.Message}");
             }
@@ -215,7 +217,8 @@ namespace BinanceTestnet.Strategies
             // Check for retest entries (need previous kline data)
             if (klines.Count >= 3) // Need at least 3 candles for proper retest detection
             {
-                var prevClosedKline = klines[klines.Count - 3]; // Two candles back
+                // Previous closed relative to selected signal candle
+                var prevClosedKline = klines[klines.Count - (UseClosedCandles ? 3 : 2)];
                 var prevVolume = prevClosedKline.Volume;
 
                 // Check for bullish engulfing

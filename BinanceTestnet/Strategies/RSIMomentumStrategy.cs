@@ -9,6 +9,7 @@ namespace BinanceTestnet.Strategies
 {
 public class RSIMomentumStrategy : StrategyBase
 {
+    protected override bool SupportsClosedCandles => true;
     private readonly int _rsiPeriod = 14;
     private readonly int _lookbackPeriod = 150;
     private readonly object _lock = new();
@@ -42,7 +43,11 @@ public class RSIMomentumStrategy : StrategyBase
                 return;
             }
 
-            var rsiValues = await FetchRSIFromKlinesAsync(klines);
+            // Respect closed-candle policy by excluding forming candle for indicator evaluation
+            var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+            if (workingKlines.Count <= _rsiPeriod) return;
+
+            var rsiValues = await FetchRSIFromKlinesAsync(workingKlines);
             if (rsiValues.Count == 0) return;
 
             // Console.WriteLine($"[DEBUG] RSI State Map Count: {rsiStateMap.Count}");
@@ -52,13 +57,13 @@ public class RSIMomentumStrategy : StrategyBase
             // **Always evaluate first before setting initial state**
             if (rsiStateMap.ContainsKey(symbol))
             {
-                await EvaluateRSIConditions(rsiValues, symbol, klines);
+                await EvaluateRSIConditions(rsiValues, symbol, workingKlines);
             }
 
             // **Now initialize the RSI state if it does not exist**
             if (!rsiStateMap.ContainsKey(symbol))
             {
-                InitializeRSIState(symbol, rsiValues, klines);
+                InitializeRSIState(symbol, rsiValues, workingKlines);
             }
         }
         catch (Exception ex)
@@ -83,7 +88,8 @@ public class RSIMomentumStrategy : StrategyBase
                 var lastRsi = rsiResults[i];
                 var prevRsi = rsiResults[i - 1];
                 var kline = historicalData.ElementAt(i);
-                string symbol = kline.Symbol;
+                string? symbol = kline.Symbol;
+                if (string.IsNullOrEmpty(symbol)) continue;
 
                 if (!rsiStateMap.ContainsKey(symbol))
                     rsiStateMap[symbol] = "neutral";
@@ -149,9 +155,8 @@ public class RSIMomentumStrategy : StrategyBase
             decimal currentRsi = rsiValues[^1];   // RSI of current candle
             string currentState = rsiStateMap.ContainsKey(symbol) ? rsiStateMap[symbol] : "NEUTRAL";
 
-            var prevKline = klines[^2];  // Previous Kline
-
-            var currKline = klines[^1];  // Current Kline (real-time)
+            var prevKline = klines[^2];  // Previous Kline (aligned to rsiValues)
+            var currKline = klines[^1];  // Current evaluated Kline (closed if policy requires)
 
             // // Ensure the trade is placed only in real-time, not historical
             // if (currKline.CloseTime < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) return;
@@ -161,7 +166,7 @@ public class RSIMomentumStrategy : StrategyBase
             if (currentState == "OVERSOLD" && previousRsi < 71 && currentRsi >= 71)
             {
                 Console.WriteLine($"[TRADE] Long Entry for {symbol} at {currKline.Close} with RSI {currentRsi} on {DateTimeOffset.FromUnixTimeMilliseconds(currKline.CloseTime).UtcDateTime}");
-
+                Helpers.StrategyUtils.TraceSignalCandle("RSIMomentum", symbol, UseClosedCandles, currKline, prevKline, "RSI >= 71 from OVERSOLD");
                 Task.Run(async () => await PlaceTradeAsync(symbol, "LONG", currKline.Close, currKline.CloseTime));
 
                 Console.WriteLine($"[STATE CHANGE] {symbol} changed from OVERSOLD to OVERBOUGHT at RSI {currentRsi}.");
@@ -170,7 +175,7 @@ public class RSIMomentumStrategy : StrategyBase
             else if (currentState == "OVERBOUGHT" && previousRsi > 29 && currentRsi <= 29)
             {
                 Console.WriteLine($"[TRADE] Short Entry for {symbol} at {currKline.Close} with RSI {currentRsi} on {DateTimeOffset.FromUnixTimeMilliseconds(currKline.CloseTime).UtcDateTime}");
-
+                Helpers.StrategyUtils.TraceSignalCandle("RSIMomentum", symbol, UseClosedCandles, currKline, prevKline, "RSI <= 29 from OVERBOUGHT");
                 Task.Run(async () => await PlaceTradeAsync(symbol, "SHORT", currKline.Close, currKline.CloseTime));
 
                 Console.WriteLine($"[STATE CHANGE] {symbol} changed from OVERBOUGHT to OVERSOLD at RSI {currentRsi}.");
@@ -212,8 +217,8 @@ public class RSIMomentumStrategy : StrategyBase
             Volume = k.Volume
         }).ToList();
 
-        var rsiResults = Indicator.GetRsi(quotes, _rsiPeriod).ToList();
-        return rsiResults.Where(r => r.Rsi.HasValue).Select(r => (decimal)r.Rsi.Value).ToList();
+    var rsiResults = Indicator.GetRsi(quotes, _rsiPeriod).ToList();
+    return rsiResults.Where(r => r.Rsi.HasValue).Select(r => (decimal)r.Rsi.GetValueOrDefault()).ToList();
     }
 
     // Request creation and parsing centralized in StrategyUtils

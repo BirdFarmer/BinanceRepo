@@ -103,7 +103,7 @@ Migration Plan (Phase 2 – no behavior change)
 ## Phase 3 Introduction: Closed-Candle Enforcement & Signal Integrity
 
 Problem Today
-Most strategies evaluate indicators using the forming candle (latest klines.Last()) which can repaint intra-interval. This causes:
+Historically (pre-Phase 3) strategies evaluated indicators using the forming candle (latest `klines.Last()`) which can repaint intra-interval. This causes:
 - Early entries that vanish if the candle reverses before close.
 - Divergence detection instability (extrema not confirmed until close).
 - MACD/RSI cross overshoot/undershoot noise.
@@ -112,27 +112,31 @@ Objectives
 1. Uniform candle policy: Signals derive from last fully closed candle; comparisons use its predecessor.
 2. Indicator input trimming: Indicator series exclude the forming candle when policy = Closed.
 3. Auditable transition: Log every order with metadata (policy mode, evaluated candle close time vs. server now) for before/after diffs.
-4. Zero silent behavioral drift: Introduce a flag (env var `TRADING_USE_CLOSED_CANDLES`) defaulting to forming until explicitly enabled.
+4. Zero silent behavioral drift: Transition gated behind a UI checkbox (no environment variable). Forming remains default; closed mode opt-in.
 
-New Utilities Added in Code (Phase 2 tail)
-- `StrategyBase.UseClosedCandles` (reads CandlePolicy env-controlled flag).
-- `StrategyUtils.ToIndicatorQuotes(klines, useClosedCandle)` — builds quote list trimming the last forming candle if closed mode.
+New Utilities Added in Code (Phase 2 tail → Phase 3 rollout)
+- `StrategyRuntimeConfig.UseClosedCandles` — runtime flag controlled by desktop UI checkbox (persisted); default false.
+- `StrategyBase.SupportsClosedCandles` (virtual) — strategy-level capability. Only strategies overriding this to `true` will honor closed mode.
+- `StrategyBase.UseClosedCandles` (effective) — evaluates `StrategyRuntimeConfig.UseClosedCandles && SupportsClosedCandles`.
+- Startup diagnostics — each strategy logs its effective policy and capability on construction.
+- `StrategyUtils.ToIndicatorQuotes(klines, useClosedCandle)` — builds quote list trimming the forming candle when closed mode.
 - `StrategyUtils.SelectSignalPair(klines, useClosedCandle)` — returns (signal, previous) pair abstracting index math.
 - `StrategyUtils.ExcludeForming(klines)` — helper for manual operations when needed.
 
 Upcoming Additions (Phase 3 tasks)
 - `TraceSignalCandle(strategyName, symbol, mode, signalCloseTime, evaluatedPrice)` helper (lightweight, optional logger interface injection later).
-- Strategy refactors (MACD*, RSI*, SMA*, Bollinger, Ichimoku, Fibonacci, Distribution, Aroon, FVG, Support/Resistance) to use `SelectSignalPair` & trimmed quotes.
+- Remaining strategy refactors: any legacy strategies still directly using `klines.Last()` will migrate to `SelectSignalPair` & trimmed quotes.
 - Divergence strategies: confirm pivot points only on closed candles; avoid counting incomplete swing lows/highs.
 - Aroon: revisit down-cross logic (currently simplified) ensuring it doesn’t misfire mid-candle.
 
 Risk Mitigation
-- Incremental rollout: convert 2–3 strategies first (MACDStandard, RSIMomentum, SupportResistance), compare logged signals forming vs closed for 24h.
-- Fallback: revert by unsetting env variable (no code rollback required).
+- Incremental rollout: converted a pilot set first (MACDStandard, RSIMomentum, SupportResistance) then expanded.
+- Fallback: simply leave UI checkbox unchecked (no code rollback required) for forming behavior.
 - Validation metric: Count of signals per strategy (forming vs closed) and outcome delta (positions opened) archived.
 
 Success Criteria
-- All strategies produce entries only at finalized candle boundaries when closed mode enabled.
+- All closed-capable strategies produce entries only at finalized candle boundaries when closed mode enabled.
+- Unsupported strategies clearly log fallback to forming mode (predictable mixed behavior).
 - No nullability or indexing regressions (helper centralization prevents off-by-one mistakes).
 - Logged metadata shows consistent timing: signalCloseTime <= now - intervalDuration.
 
@@ -142,8 +146,26 @@ Non-Goals (Phase 3)
 - No new indicator families.
 
 Follow-Up (Post Phase 3)
-- Update each strategy markdown: add “Candle Policy: Closed” section & note prior forming behavior.
+- Update each strategy markdown: add “Candle Policy” section noting closed capability & prior forming behavior.
 - Backtest differential analysis: run historical simulation with forming vs closed to quantify signal stability changes.
+- UI enhancement (optional): annotate strategy list with a Closed-capable badge.
+
+### Current Status (November 2025)
+Most (but not all) strategies now override `SupportsClosedCandles = true` and therefore react to the checkbox:
+- Converted: MACDStandard, MACDDivergence, RSIMomentum, SimpleSMA375, SMAExpansion, BollingerSqueeze, FibonacciRetracement, CandleDistributionReversal, SupportResistance, Aroon, HullSMA, EmaStochRsi, FVG, IchimokuCloud, EnhancedMACD.
+- Pending/legacy (forming-only until refactored): any remaining strategies without the override (they will log capability = false and ignore the checkbox).
+
+Operational Semantics:
+- Checkbox OFF: All strategies run forming-candle mode (historical behavior) for consistency.
+- Checkbox ON: Closed-capable strategies evaluate indicators on the last fully closed candle; forming-only strategies continue using the forming candle (mixed mode acceptable, clearly logged).
+
+Startup Logging Example:
+```
+[StrategyInit] Strategy=MACDStandard SupportsClosedCandles=True UseClosedCandles=True (effective closed candle policy active)
+[StrategyInit] Strategy=LegacyFoo SupportsClosedCandles=False UseClosedCandles=False (fallback forming; checkbox ignored)
+```
+
+This phased adoption prevents silent behavior drift while allowing immediate safety improvements where implemented.
 
 ---
 

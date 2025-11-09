@@ -13,6 +13,7 @@ namespace BinanceTestnet.Strategies
 {
     public class EmaStochRsiStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         public EmaStochRsiStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
         : base(client, apiKey, orderManager, wallet)
         {
@@ -38,12 +39,10 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
-                        var lastKline = klines.Last();
-                        var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
-                        {
-                            Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
-                            Close = k.Close
-                        }).ToList();
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var lastKline = signalKline;
+                        var quotes = ToIndicatorQuotes(klines);
 
                         var ema8 = Indicator.GetEma(quotes, 8).ToList();
                         var ema14 = Indicator.GetEma(quotes, 14).ToList();

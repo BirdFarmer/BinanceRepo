@@ -13,6 +13,7 @@ namespace BinanceTestnet.Strategies
 {
     public class CandleDistributionReversalStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         public CandleDistributionReversalStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
             : base(client, apiKey, orderManager, wallet)
         {
@@ -36,19 +37,23 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
-                        var signal = IdentifySignal(klines);
+                        // Respect closed-candle policy by excluding forming candle for pattern stats
+                        var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+                        var signal = IdentifySignal(workingKlines);
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
 
                         if (signal != 0)
                         {
                             if (signal == 1)
                             {
-                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "CandleDistReversal", klines.Last().OpenTime);
-                                LogTradeSignal("LONG", symbol, klines.Last().Close);
+                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "CandleDistReversal", signalKline.OpenTime);
+                                LogTradeSignal("LONG", symbol, signalKline.Close);
                             }
                             else if (signal == -1)
                             {
-                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "CandleDistReversal", klines.Last().OpenTime);
-                                LogTradeSignal("SHORT", symbol, klines.Last().Close);
+                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "CandleDistReversal", signalKline.OpenTime);
+                                LogTradeSignal("SHORT", symbol, signalKline.Close);
                             }
                         }
                         else

@@ -10,6 +10,7 @@ namespace TradingAppDesktop.Services
         public decimal TpAtrMultiplier { get; set; } = 2.5m;
         public decimal TrailingActivationAtrMultiplier { get; set; } = 3.0m;
         public decimal TrailingCallbackPercent { get; set; } = 1.0m;
+        public bool UseClosedCandles { get; set; } = false; // Persisted UI toggle
 
         private static readonly string SettingsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "user.settings.json");
 

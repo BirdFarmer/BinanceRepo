@@ -13,6 +13,7 @@ namespace BinanceTestnet.Strategies
 {
      public class FibonacciRetracementStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         private int _trendBars;
         private bool _isUptrend;
         private bool _isDowntrend;
@@ -51,9 +52,12 @@ namespace BinanceTestnet.Strategies
                 var emaValues = CalculateEMA(klines.Select(k => k.Close).ToList(), EmaPeriod);
                 var rsiValues = CalculateRSI(klines.Select(k => k.Close).ToList(), RsiLength);
                 
-                var currentClose = klines.Last().Close;
-                var currentEMA = emaValues.Last();
-                var currentRSI = rsiValues.Last();
+                    // Determine signal candle respecting policy
+                    var (signalKline, previousKline) = SelectSignalPair(klines);
+                    if (signalKline == null || previousKline == null) return;
+                    var currentClose = signalKline.Close;
+                    var currentEMA = emaValues.Last();
+                    var currentRSI = rsiValues.Last();
 
                 // Update trend state
                 UpdateTrendState(currentClose, currentEMA, currentRSI);
@@ -62,8 +66,8 @@ namespace BinanceTestnet.Strategies
                 var (fibHigh, fibLow) = GetFibHighLow(klines);
                 var fibLevels = GetFibonacciLevels(fibHigh, fibLow);
 
-                var currentKline = klines.Last();
-                var prevKline = klines[^2];
+                    var currentKline = signalKline;
+                    var prevKline = previousKline;
 
                 // Generate signals (matches PineScript exactly)
                 if (_isUptrend && 
@@ -166,6 +170,8 @@ namespace BinanceTestnet.Strategies
                 {
                     var currentKline = klines[i];
                     var prevKline = klines[i-1];
+                        var (signalKline, previousKline) = SelectSignalPair(klines.Skip(i - LookbackPeriod).Take(LookbackPeriod).ToList());
+                        if (signalKline == null || previousKline == null) continue;
                     var currentClose = currentKline.Close;
                     var currentEMA = emaValues[i];
                     var currentRSI = rsiValues[i];

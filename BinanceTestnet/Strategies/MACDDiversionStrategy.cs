@@ -14,6 +14,7 @@ namespace BinanceTestnet.Strategies
 {
     public class MACDDivergenceStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         public MACDDivergenceStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
         : base(client, apiKey, orderManager, wallet)
         {
@@ -37,7 +38,9 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
-                        var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
+                        // Respect closed-candle policy for indicator calculations
+                        var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+                        var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
                         {
                             Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
                             Close = k.Close
@@ -46,16 +49,23 @@ namespace BinanceTestnet.Strategies
                         var macdResults = Indicator.GetMacd(quotes, 25, 125, 9).ToList();
                         var divergence = IdentifyDivergence(macdResults);                       
 
+                        // Determine which kline to use for order placement based on policy
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null)
+                        {
+                            return;
+                        }
+
                         if (divergence != 0)
                         {
                             if (divergence == 1)
                             {
-                                await OrderManager.PlaceLongOrderAsync(symbol, klines.Last().Close, "MAC-D", klines.Last().OpenTime);
+                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
                                 //LogTradeSignal("LONG", symbol, klines.Last().Close);
                             }
                             else if (divergence == -1)
                             {
-                                await OrderManager.PlaceShortOrderAsync(symbol, klines.Last().Close, "MAC-D", klines.Last().OpenTime);
+                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
                                 //LogTradeSignal("SHORT", symbol, klines.Last().Close);
                             }
                         }

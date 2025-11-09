@@ -13,6 +13,7 @@ namespace BinanceTestnet.Strategies
 {
     public class IchimokuCloudStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         public IchimokuCloudStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) : base(client, apiKey, orderManager, wallet)
         {
         }
@@ -90,21 +91,17 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
-                        var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
-                        {
-                            Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
-                            High = k.High,
-                            Low = k.Low,
-                            Close = k.Close
-                        }).ToList();
+                        var quotes = ToIndicatorQuotes(klines);
 
                         var ichimoku = Indicator.GetIchimoku(quotes).ToList();
 
                         if (ichimoku.Count > 1)
                         {
-                            var lastKline = klines.Last(); // Get the most recent Kline
-                            var lastIchimoku = ichimoku.Last(); // Get the latest Ichimoku data
-                            var prevIchimoku = ichimoku[ichimoku.Count - 2]; // Get the previous Ichimoku data
+                            var (signalKline, previousKline) = SelectSignalPair(klines);
+                            if (signalKline == null || previousKline == null) return;
+                            var lastKline = signalKline; // selected by policy
+                            var lastIchimoku = ichimoku.Last(); // align with quotes
+                            var prevIchimoku = ichimoku[ichimoku.Count - 2]; // previous
 
                             // Long Signal: Price above Kumo, Tenkan-Sen crosses above Kijun-Sen
                             if (lastKline.Close > lastIchimoku.SenkouSpanA &&

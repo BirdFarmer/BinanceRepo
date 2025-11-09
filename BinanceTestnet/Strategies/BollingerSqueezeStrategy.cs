@@ -21,6 +21,7 @@ namespace BinanceTestnet.Strategies
 
     public class BollingerSqueezeStrategy : StrategyBase
     {
+        protected override bool SupportsClosedCandles => true;
         private readonly int _bbPeriod = 25;       // Standard
         private readonly double _bbStdDev = 1.5;   // Tighter bands → More crosses
         private readonly int _atrPeriod = 14;      // Standard
@@ -59,10 +60,13 @@ namespace BinanceTestnet.Strategies
 
                 //Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Retrieved {klines.Count} klines for {symbol}");
 
-                if (klines.Count > _bbPeriod + _atrPeriod)
+                // Apply closed-candle policy: work off finalized candles for indicators when enabled
+                var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+
+                if (workingKlines.Count > _bbPeriod + _atrPeriod)
                 {
-                    var (upperBand, lowerBand, _) = CalculateBollingerBands(klines);
-                    var atrValues = CalculateATR(klines, _atrPeriod);
+                    var (upperBand, lowerBand, _) = CalculateBollingerBands(workingKlines);
+                    var atrValues = CalculateATR(workingKlines, _atrPeriod);
                     var currentATR = atrValues.Last();
                     var bbWidth = upperBand.Last() - lowerBand.Last();
                     bool isSqueeze = bbWidth < currentATR * _squeezeThreshold;
@@ -71,7 +75,7 @@ namespace BinanceTestnet.Strategies
                     if (isSqueeze)
                     { 
                         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {symbol} | " +
-                                                                $"Close: {klines.Last().Close:F4} | " +
+                                                                $"Close: {workingKlines.Last().Close:F4} | " +
                                                                 $"BB Width: {bbWidth:F4} | " +
                                                                 $"ATR: {currentATR:F4} | " +
                                                                 $"Ratio: {bbWidth / currentATR:F4} | " +
@@ -85,18 +89,21 @@ namespace BinanceTestnet.Strategies
                     
                     if (isSqueeze)//validSqueeze
                     {
-                        var lastClose = klines.Last().Close;
-                        var prevClose = klines[^2].Close;
+                        // Select signal/previous respecting policy (fallback to workingKlines end points)
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var lastClose = signalKline.Close;
+                        var prevClose = previousKline.Close;
 
                         if (lastClose > upperBand.Last() && prevClose <= upperBand.Last() && symbol != null)
                         {
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ LONG SIGNAL ⚡ {symbol} @ {lastClose}");
-                            await OrderManager.PlaceLongOrderAsync(symbol!, lastClose, "BB Squeeze", klines.Last().CloseTime);
+                            await OrderManager.PlaceLongOrderAsync(symbol!, lastClose, "BB Squeeze", signalKline.CloseTime);
                         }
                         else if (lastClose < lowerBand.Last() && prevClose >= lowerBand.Last() && symbol != null)
                         {
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ SHORT SIGNAL ⚡ {symbol} @ {lastClose}");
-                            await OrderManager.PlaceShortOrderAsync(symbol!, lastClose, "BB Squeeze", klines.Last().CloseTime);
+                            await OrderManager.PlaceShortOrderAsync(symbol!, lastClose, "BB Squeeze", signalKline.CloseTime);
                         }
                     }
                 }

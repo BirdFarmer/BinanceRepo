@@ -69,8 +69,10 @@ namespace BinanceTestnet.Strategies
                     _orderManager.CloseAllActiveTradesForBacktest(closePrice, lastKline.OpenTime);
                 } 
             }
-            catch(Exception e)
-            {}
+            catch(Exception)
+            {
+                // Swallowing exception intentionally; consider logging if needed.
+            }
 
         }
 
@@ -124,6 +126,9 @@ namespace BinanceTestnet.Strategies
                     case SelectedTradingStrategy.SupportResistance:
                         strategies.Add(new SupportResistanceStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;              
+                    case SelectedTradingStrategy.SimpleSMA375:
+                        strategies.Add(new SimpleSMA375Strategy(_client, _apiKey, _orderManager, _wallet));
+                        break;             
                                                                         
                 }
             }
