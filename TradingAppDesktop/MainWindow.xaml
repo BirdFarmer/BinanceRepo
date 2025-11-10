@@ -451,6 +451,7 @@
                 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="CoinSelectionButton" Content="MANAGE COINS" Click="CoinSelectionButton_Click" Background="#9b59b6" Foreground="White" Margin="5"/>
+                    <Button x:Name="MultiTesterButton" Content="MULTI TESTER" Click="MultiTesterButton_Click" Background="#6C5CE7" Foreground="White" Margin="5"/>
                     <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click"/>
                     <Button x:Name="StartButton" Content="START TRADING" 
                             Background="{StaticResource SuccessColor}" Click="StartButton_Click"/>

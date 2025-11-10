@@ -91,6 +91,22 @@ namespace TradingAppDesktop.Controls
             UpdateSelection();
         }
 
+        // Set a short insight/tooltip for a strategy by enum
+        public void SetStrategyInsight(SelectedTradingStrategy strategy, string tooltip)
+        {
+            var item = _strategies.FirstOrDefault(x => x.Strategy.Equals(strategy));
+            if (item == null) return;
+            item.ToolTipText = tooltip;
+        }
+
+        // Set a short insight/tooltip for a strategy by display name
+        public void SetStrategyInsightByName(string name, string tooltip)
+        {
+            var item = _strategies.FirstOrDefault(x => string.Equals(x.Name, name, System.StringComparison.OrdinalIgnoreCase));
+            if (item == null) return;
+            item.ToolTipText = tooltip;
+        }
+
         private void StrategyItemChanged(object sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(StrategyItem.IsSelected))

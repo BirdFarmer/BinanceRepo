@@ -1,0 +1,96 @@
+<Window x:Class="TradingAppDesktop.Views.MultiTesterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Multi Backtest Harness" Height="600" Width="900"
+        WindowStartupLocation="CenterOwner" FontFamily="Segoe UI">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+    <Grid Background="#1E1E2D" Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="MULTI BACKTEST HARNESS" FontSize="18" FontWeight="Bold" Foreground="#6C5CE7" Margin="4"/>
+        <Grid Grid.Row="1" Margin="0,10,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <!-- Left config panel -->
+            <Border Grid.Column="0" Background="#2D2D44" CornerRadius="6" Padding="10" Margin="0,0,8,0">
+                <StackPanel>
+                    <TextBlock Text="Configuration" FontWeight="Bold" Foreground="#6C5CE7" Margin="0,0,0,8"/>
+                    <TextBlock Text="Config File (JSON)" Foreground="White"/>
+                    <DockPanel>
+                        <TextBox x:Name="ConfigPathTextBox" MinWidth="200" Text="multi_backtest.sample.json" Margin="0,5,5,5" x:FieldModifier="protected"/>
+                        <Button Content="Browse" Click="BrowseConfig_Click"/>
+                    </DockPanel>
+                    <TextBlock Text="Database Path" Foreground="White"/>
+                    <DockPanel>
+                        <TextBox x:Name="DatabasePathTextBox" MinWidth="200" Text="TradingData.db" Margin="0,5,5,5" x:FieldModifier="protected"/>
+                        <Button Content="Browse" Click="BrowseDb_Click"/>
+                    </DockPanel>
+                    <Separator Margin="0,10"/>
+                    <Button x:Name="RunButton" Content="Run Backtests" Click="RunButton_Click" Background="#00B894" x:FieldModifier="protected"/>
+                    <Button x:Name="CancelButton" Content="Cancel" Click="CancelButton_Click" Background="#FF7675" IsEnabled="False" x:FieldModifier="protected"/>
+                    <TextBlock x:Name="StatusText" Text="Idle" Foreground="#FDCB6E" Margin="0,10,0,0" x:FieldModifier="protected"/>
+                    <TextBlock Text="Output: results/multi/multi_results.csv" Foreground="#69468f" FontSize="11" Margin="0,4,0,0"/>
+                    <Button Content="Open Results Folder" Click="OpenResults_Click" Margin="0,8,0,0"/>
+                    <Separator Margin="10,10,10,10"/>
+                    <Separator Margin="10,10,10,10"/>
+                    <!-- JSON Config Editor Section -->
+                    <Border Background="#23233A" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Edit JSON Config" FontWeight="Bold" Foreground="#00B894" FontSize="15" Margin="0,0,0,6"/>
+                            <TextBox x:Name="JsonConfigEditor" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" MinHeight="120" MaxHeight="220" TextWrapping="Wrap" Background="#181826" Foreground="#B0B0B0" x:FieldModifier="protected"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="Reload" Click="ReloadJsonConfig_Click" Background="#0984e3" Foreground="White" Margin="0,0,8,0"/>
+                                <Button Content="Validate" Click="ValidateJsonConfig_Click" Background="#00b894" Foreground="White" Margin="0,0,8,0"/>
+                                <Button Content="Save" Click="SaveJsonConfig_Click" Background="#fdcb6e" Foreground="Black"/>
+                            </StackPanel>
+                            <TextBlock x:Name="JsonConfigStatus" Text="" Foreground="#fdcb6e" FontSize="12" Margin="0,6,0,0" x:FieldModifier="protected"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+            <!-- Right progress panel -->
+            <Border Grid.Column="1" Background="#2D2D44" CornerRadius="6" Padding="10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Progress" Foreground="#6C5CE7" FontWeight="Bold"/>
+                    <!-- Moved summary here so it appears to the right of the config panel -->
+                    <Border Grid.Row="1" Background="#23233A" CornerRadius="4" Padding="8" Margin="0,8,0,8">
+                        <StackPanel>
+                            <TextBlock Text="Latest Run Summary" FontWeight="Bold" Foreground="#00B894" FontSize="15" Margin="0,0,0,6"/>
+                            <!-- Use a read-only TextBox so users can select and copy summary text -->
+                            <TextBox x:Name="SummaryTextBox" Text="No summary available." Foreground="#B0B0B0" FontSize="13" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent" x:FieldModifier="protected" AcceptsReturn="True"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                                <Button Content="Copy Insights" Click="CopySummary_Click" Background="#6C5CE7" Foreground="White" Padding="6,4"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="ProgressList" x:FieldModifier="protected">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                             <!-- Use read-only TextBox per progress line so users can select/copy entries -->
+                             <!-- Bind OneWay to the item (string). TextBox.Text defaults to TwoWay on some setups and binding to the whole object triggers
+                                 "Two way binding requires path or xpath" — make it explicitly OneWay to avoid modal binding errors. -->
+                             <TextBox Text="{Binding Mode=OneWay}" Foreground="#B0B0B0" FontFamily="Consolas" FontSize="12" Margin="0,2" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+        <Border Grid.Row="2" Background="#252538" Padding="6" CornerRadius="4">
+            <TextBlock Text="Multi Tester runs strategy combinations defined in JSON and appends rows to CSV." Foreground="#B0B0B0" FontSize="12"/>
+        </Border>
+    </Grid>
+    </ScrollViewer>
+</Window>
