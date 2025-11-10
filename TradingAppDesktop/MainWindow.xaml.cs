@@ -248,6 +248,100 @@ namespace TradingAppDesktop
         {
         }
 
+        // Apply a best-setup insight produced by MultiTesterWindow.
+        // The insight is a compact string produced by the multi-tester, e.g.
+        // "Best setup — TF:1h; Symbols:tier_50_54; TP:2.5; SL:2.0; Win:45% ; Net:37; Trades:12; Start:...; Candles:..."
+        public void ApplyBestSetup(string strategyDisplayName, string insight)
+        {
+            if (string.IsNullOrWhiteSpace(insight))
+            {
+                Log("No insight available to apply.");
+                return;
+            }
+
+            try
+            {
+                // Parse key:value; pairs split by ';'
+                var parts = insight.Split(';').Select(p => p.Trim()).Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+                string tf = string.Empty;
+                string symbolsRaw = string.Empty;
+                string tpRaw = string.Empty;
+                string slRaw = string.Empty;
+
+                foreach (var p in parts)
+                {
+                    var kv = p.Split(':', 2);
+                    if (kv.Length < 2) continue;
+                    var key = kv[0].Trim();
+                    var val = kv[1].Trim();
+                    if (key.StartsWith("TF", StringComparison.OrdinalIgnoreCase)) tf = val;
+                    else if (key.StartsWith("Symbols", StringComparison.OrdinalIgnoreCase)) symbolsRaw = val;
+                    else if (key.Equals("TP", StringComparison.OrdinalIgnoreCase) || key.StartsWith("TP Mult", StringComparison.OrdinalIgnoreCase)) tpRaw = val;
+                    else if (key.Equals("SL", StringComparison.OrdinalIgnoreCase) || key.StartsWith("Risk Ratio", StringComparison.OrdinalIgnoreCase)) slRaw = val;
+                }
+
+                // Apply timeframe
+                if (!string.IsNullOrWhiteSpace(tf) && TimeFrameComboBox != null)
+                {
+                    // TimeFrameComboBox items are TimeFrameItem with Value
+                    foreach (var item in TimeFrameComboBox.Items)
+                    {
+                        if (item is TimeFrameItem tfi && string.Equals(tfi.Value, tf, StringComparison.OrdinalIgnoreCase))
+                        {
+                            TimeFrameComboBox.SelectedItem = tfi;
+                            break;
+                        }
+                    }
+                }
+
+                // Apply TP/SL to sliders where possible
+                if (!string.IsNullOrWhiteSpace(tpRaw) && double.TryParse(tpRaw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var tpVal))
+                {
+                    if (AtrMultiplierSlider != null)
+                    {
+                        AtrMultiplierSlider.Value = tpVal;
+                        // refresh label text
+                        AtrMultiplier_ValueChanged(AtrMultiplierSlider, new RoutedPropertyChangedEventArgs<double>(AtrMultiplierSlider.Value, AtrMultiplierSlider.Value));
+                    }
+                }
+                if (!string.IsNullOrWhiteSpace(slRaw) && double.TryParse(slRaw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var slVal))
+                {
+                    if (RiskRewardSlider != null)
+                    {
+                        // RiskRewardSlider shows 1:X, we'll set it to the SL value (best effort)
+                        RiskRewardSlider.Value = slVal;
+                        RiskReward_ValueChanged(RiskRewardSlider, new RoutedPropertyChangedEventArgs<double>(RiskRewardSlider.Value, RiskRewardSlider.Value));
+                    }
+                }
+
+                // Symbols: could be a tier name optionally followed by expanded list in parentheses
+                if (!string.IsNullOrWhiteSpace(symbolsRaw))
+                {
+                    // If it contains parentheses, extract inside; otherwise try comma-separated or single token
+                    string raw = symbolsRaw;
+                    if (raw.Contains('(') && raw.Contains(')'))
+                    {
+                        var start = raw.IndexOf('(');
+                        var end = raw.LastIndexOf(')');
+                        if (end > start) raw = raw.Substring(start + 1, end - start - 1);
+                    }
+
+                    var coins = raw.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+                    if (coins.Count > 0)
+                    {
+                        _customCoinSelection = coins;
+                        Log($"Applied best setup coins ({coins.Count}) from '{strategyDisplayName}'.");
+                    }
+                }
+
+                Log($"Applied best setup for {strategyDisplayName} (TF={tf}, TP={tpRaw}, SL={slRaw}).");
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to apply best setup: {ex.Message}");
+            }
+        }
+
         private void OperationMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (OperationModeComboBox.SelectedItem is OperationMode mode)

@@ -1,5 +1,6 @@
 {
   "MACDStandard": "Total runs: 12, Positive runs: 8 (66,7%), Avg netPnL: 4,36",
   "BollingerSqueeze": "Total runs: 12, Positive runs: 0 (0,0%), Avg netPnL: 0,00",
-  "IchimokuCloud": "Total runs: 12, Positive runs: 7 (58,3%), Avg netPnL: 7,83"
+  "IchimokuCloud": "Best setup — TF:1h; Symbols:tier_50_54 (SANDUSDT,THETAUSDT,AAVEUSDT,FTMUSDT,MANAUSDT); TP:2.5; SL:2.0; Win:45.45% ; Net:37.80; Trades:55; Start:2025-10-15 00:00:00 UTC; Candles:(unknown)",
+  "Aroon": "Best setup — TF:15m; Symbols:tier_50_54 (SANDUSDT,THETAUSDT,AAVEUSDT,FTMUSDT,MANAUSDT); TP:2.5; SL:2.0; Win:39.29% ; Net:11.11; Trades:56; Start:2025-10-15 00:00:00 UTC; Candles:(unknown)"
 }

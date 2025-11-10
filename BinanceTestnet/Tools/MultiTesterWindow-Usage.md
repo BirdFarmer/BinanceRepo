@@ -22,10 +22,18 @@ The MultiTesterWindow is a WPF desktop UI for running batch backtests on multipl
 - Progress will be shown in the right panel.
 - After completion, a summary of the latest run appears in the summary section.
 - Results are saved to `results/multi/multi_results.csv` (relative to config location).
+ - Click **Run Backtests** to start batch testing.
+ - Progress will be shown in the right panel; each progress entry is selectable so you can copy lines if needed.
+ - After completion, a rich "Best Run" summary appears in the summary section. The summary now includes the run start datetime (when available) and the number of candles tested, plus a short recommendations block.
+ - There's a **Copy Insights** button in the summary panel to copy the full summary to clipboard.
+ - Results are saved to `results/multi/multi_results.csv` (relative to config location). The CSV now includes `strategy` and `startUtc` (when available) so runs are self-describing.
 
 ### 5. View Results
 - Click **Open Results Folder** to open the output directory in Explorer.
 - The CSV contains detailed metrics for each run (win rate, netPnL, expectancy, top/bottom symbols, etc).
+ - Click **Open Results Folder** to open the output directory in Explorer.
+ - The CSV contains detailed metrics for each run (win rate, netPnL, expectancy, top/bottom symbols, etc). Newer runs also include `strategy` and `startUtc` columns when that data is available.
+ - The runner writes a small `strategy_insights.json` into the same `results/multi` folder containing a concise "best setup" string per strategy (used by the desktop UI).
 
 ## JSON Config Structure & Editing
 
@@ -132,6 +140,18 @@ The config file controls all batch parameters. Example:
 - Always validate your config after editing.
 - Output CSV is overwritten/appended for each run; back up if needed.
 - You can run with different configs by browsing/selecting a new JSON file.
+
+## Per-strategy insights & main UI tooltips
+
+- After a run completes the MultiTester extracts a concise "best setup" for the top-performing run and writes it to `results/multi/strategy_insights.json` next to the CSV.
+- The TradingAppDesktop main window will look for this file (in its own results folder or across the repository) and automatically apply per-strategy short recommendations as tooltips in the strategy selector.
+- Tooltips show the concrete setup that produced the best run (timeframe, symbol set or expanded symbol list if available, TP/SL multipliers, win rate, net PnL, trades, start/candles when present).
+- There is also groundwork to let the UI apply a best-setup automatically (e.g., populate timeframe, TP/SL and symbol selection) — ask me to enable "Apply best setup on click" if you want that wired in.
+
+## Notes on summary & reliability
+
+- The summary presents a best-run focused view and short recommendations. Treat single best-run results cautiously if sample sizes are small — check the trade count and aggregated runs.
+- Expectancy and payoff are shown in the summary; expectancy is the expected profit per trade (p * avgWin − (1−p) * avgLoss) and payoff is avgWin/avgLoss.
 
 ## Troubleshooting
 - If you see errors about missing controls or build issues, clean and rebuild your solution.

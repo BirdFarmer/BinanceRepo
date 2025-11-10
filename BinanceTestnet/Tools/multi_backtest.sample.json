@@ -1,5 +1,5 @@
 {
-  "Strategy": "IchimokuCloud",
+  "Strategy": "Aroon",
   "Timeframes": ["5m", "15m", "1h"],
   "SymbolSets": {
     "tier_1_5": ["ALPACAUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"],

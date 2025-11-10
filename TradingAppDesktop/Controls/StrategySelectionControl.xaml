@@ -28,6 +28,12 @@
                         Margin="0,2"
                         ToolTip="{Binding ToolTipText}"
                         ToolTipService.ShowOnDisabled="True">
+                        <CheckBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Apply Best Setup" Click="ApplyBestSetupMenu_Click"
+                                          CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=ContextMenu}, Path=PlacementTarget.DataContext}"/>
+                            </ContextMenu>
+                        </CheckBox.ContextMenu>
                         <!-- Ensure tooltip also shows when hovering the text label -->
                         <TextBlock 
                             Text="{Binding Name}"

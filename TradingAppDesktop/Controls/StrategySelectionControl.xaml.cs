@@ -107,6 +107,24 @@ namespace TradingAppDesktop.Controls
             item.ToolTipText = tooltip;
         }
 
+        // Context menu handler to request that the main window apply the stored best-setup insight
+        private void ApplyBestSetupMenu_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (sender is MenuItem mi && mi.CommandParameter is StrategyItem item)
+                {
+                    var main = Application.Current?.MainWindow as MainWindow;
+                    if (main != null)
+                    {
+                        // Pass the display name and tooltip text to main window for parsing/applying
+                        main.ApplyBestSetup(item.Name, item.ToolTipText);
+                    }
+                }
+            }
+            catch { /* non-fatal */ }
+        }
+
         private void StrategyItemChanged(object sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(StrategyItem.IsSelected))

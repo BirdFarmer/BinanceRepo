@@ -579,12 +579,52 @@ namespace TradingAppDesktop.Views
                     var safeStrategyKey = strategyName;
                     if (!string.IsNullOrWhiteSpace(safeStrategyKey) && safeStrategyKey != "(unknown)")
                     {
-                        var insLines = insights.ToString().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                            .Select(s => s.Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
-                        // Prefer a concrete recommendation line, skip header like "Recommendations & Insights:"
-                        var shortInsight = insLines.FirstOrDefault(l => !l.StartsWith("Recommendations", StringComparison.OrdinalIgnoreCase) && l.Length > 6)
-                                           ?? insLines.FirstOrDefault() ?? string.Empty;
-                        if (string.IsNullOrWhiteSpace(shortInsight)) shortInsight = "See detailed summary for recommendations.";
+                        // Build a concise parameter-summary based on the best run so the tooltip shows the setup that produced
+                        // the top-performing result (timeframe, symbol set, TP/SL, win rate, net PnL, trades, start, candles).
+                        var bestTf = GetBest("timeframe");
+                        var bestSymbols = GetBest("symbolSet");
+                        // Try to expand symbol set names (e.g. tier_50_54) into concrete symbol lists
+                        try
+                        {
+                            var sampleCfg = FindSampleConfig();
+                            if (File.Exists(sampleCfg))
+                            {
+                                var j = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(sampleCfg));
+                                var sets = j["SymbolSets"] as Newtonsoft.Json.Linq.JObject;
+                                if (sets != null && sets.TryGetValue(bestSymbols, out var arr))
+                                {
+                                    try
+                                    {
+                                        var list = arr.Values<string>().ToArray();
+                                        if (list.Length > 0)
+                                        {
+                                            // Replace the short name with expanded representation
+                                            bestSymbols = bestSymbols + " (" + string.Join(",", list) + ")";
+                                            // Also update the UI summary text to show expanded symbols
+                                            if (tb4 != null)
+                                            {
+                                                tb4.Text = tb4.Text.Replace($"Symbols: {GetBest("symbolSet")}", $"Symbols: {bestSymbols}");
+                                            }
+                                        }
+                                    }
+                                    catch { /* ignore */ }
+                                }
+                            }
+                        }
+                        catch { /* ignore */ }
+                        var bestTp = GetBest("tpMult");
+                        var bestSl = GetBest("slMult");
+                        var bestWin = GetBest("winRate");
+                        var bestNet = GetBest("netPnl");
+                        var bestTrades = GetBest("trades");
+
+                        // Use formattedStart and candlesTested if available (parsed earlier)
+                        var startDisplay = formattedStart ?? "(unknown)";
+                        var candlesDisplay = candlesTested ?? "(unknown)";
+
+                        var shortInsight =
+                            $"Best setup — TF:{bestTf}; Symbols:{bestSymbols}; TP:{bestTp}; SL:{bestSl}; Win:{bestWin}% ; Net:{bestNet}; Trades:{bestTrades}; Start:{startDisplay}; Candles:{candlesDisplay}";
+
                         var map = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                         var insPath = Path.Combine(outputDir, "strategy_insights.json");
                         if (File.Exists(insPath))
