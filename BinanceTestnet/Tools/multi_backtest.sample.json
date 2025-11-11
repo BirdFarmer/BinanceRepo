@@ -1,5 +1,5 @@
 {
-  "Strategy": "Aroon",
+  "Strategy": "RsiDivergence",
   "Timeframes": ["5m", "15m", "1h"],
   "SymbolSets": {
     "tier_1_5": ["ALPACAUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"],
@@ -19,7 +19,7 @@
     "Format": "csv"
   },
   "Historical": {
-    "StartUtc": "2025-10-15T00:00:00Z",
+    "StartUtc": "2025-10-01T00:00:00Z",
     "BatchSize": 1000,
     "MaxCandles": 3000
   }

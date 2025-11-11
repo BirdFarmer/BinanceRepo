@@ -52,7 +52,7 @@ namespace BinanceTestnet.Tools
         // ISO 8601 UTC string, e.g., 2025-10-01T00:00:00Z
         public string? StartUtc { get; set; }
         // Per-request size (Binance futures max ~1500)
-        public int BatchSize { get; set; } = 1000;
+        public int BatchSize { get; set; } = 1500;
         // Optional hard cap to avoid excessive memory
         public int? MaxCandles { get; set; }
     }
@@ -136,6 +136,9 @@ namespace BinanceTestnet.Tools
             var selectedStrategies = new List<SelectedTradingStrategy> { selectedStrategy };
             var runner = new StrategyRunner(_client, _apiKey, symbols, timeframe, wallet, orderManager, selectedStrategies);
 
+            string endUtc = null;
+            // Track per-symbol fetched counts to compute a conservative candlesTested value
+            var perSymbolCounts = new List<int>();
             foreach (var symbol in symbols)
             {
                 if (ct.IsCancellationRequested) return;
@@ -146,11 +149,27 @@ namespace BinanceTestnet.Tools
                     Console.WriteLine($"[WARN] No history fetched for {symbol} {timeframe}; skipping.");
                     continue;
                 }
+                perSymbolCounts.Add(history.Count);
                 await runner.RunStrategiesOnHistoricalDataAsync(history);
+                try
+                {
+                    // Use the last kline close time as the run end time (UTC)
+                    var lastCloseMs = history.Last().CloseTime;
+                    var dto = DateTimeOffset.FromUnixTimeMilliseconds(lastCloseMs).UtcDateTime;
+                    endUtc = dto.ToString("yyyy-MM-ddTHH:mm:ss'Z'");
+                }
+                catch { /* ignore */ }
             }
 
-            // Compute metrics and append CSV
-            await WriteCsvRowAsync(sessionId, timeframe, setName, strategyName, _historical?.StartUtc, exitMode, riskProfile, symbols, outputDirectory: _pendingOutputDir);
+            // Compute a conservative candlesTested as the minimum number of candles fetched across symbols (if any)
+            int? candlesTested = null;
+            if (perSymbolCounts.Count > 0)
+            {
+                candlesTested = perSymbolCounts.Min();
+            }
+
+            // Compute metrics and append CSV (include endUtc and candlesTested when available)
+            await WriteCsvRowAsync(sessionId, timeframe, setName, strategyName, _historical?.StartUtc, endUtc, candlesTested, exitMode, riskProfile, symbols, outputDirectory: _pendingOutputDir);
         }
 
         // Capture desired output directory from config at run start
@@ -212,48 +231,41 @@ namespace BinanceTestnet.Tools
 
         private async Task<List<Kline>> FetchRangeFuturesAsync(string symbol, string interval, DateTime startUtc, int batchSize, int? maxCandles, CancellationToken ct)
         {
+            // Single-page fetch: request up to batchSize klines starting at startUtc and return them.
             var all = new List<Kline>(Math.Max(batchSize, 200));
             long startMs = new DateTimeOffset(DateTime.SpecifyKind(startUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+
+            var req = new RestRequest("/fapi/v1/klines", Method.Get);
+            req.AddParameter("symbol", symbol);
+            req.AddParameter("interval", interval);
+            req.AddParameter("startTime", startMs);
+            req.AddParameter("limit", batchSize);
+
+            var resp = await _client.ExecuteAsync<List<List<object>>>(req, ct);
+            if (!resp.IsSuccessful || string.IsNullOrEmpty(resp.Content)) return all;
+
+            var data = JsonConvert.DeserializeObject<List<List<object>>>(resp.Content);
+            if (data == null || data.Count == 0) return all;
+
             int collected = 0;
-
-            while (!ct.IsCancellationRequested)
+            foreach (var k in data)
             {
-                var req = new RestRequest("/fapi/v1/klines", Method.Get);
-                req.AddParameter("symbol", symbol);
-                req.AddParameter("interval", interval);
-                req.AddParameter("startTime", startMs);
-                req.AddParameter("limit", batchSize);
-
-                var resp = await _client.ExecuteAsync<List<List<object>>>(req, ct);
-                if (!resp.IsSuccessful || string.IsNullOrEmpty(resp.Content)) break;
-
-                var data = JsonConvert.DeserializeObject<List<List<object>>>(resp.Content);
-                if (data == null || data.Count == 0) break;
-
-                foreach (var k in data)
+                var kl = new Kline
                 {
-                    var kl = new Kline
-                    {
-                        Symbol = symbol,
-                        OpenTime = (long)k[0],
-                        Open = decimal.Parse(k[1]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
-                        High = decimal.Parse(k[2]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
-                        Low = decimal.Parse(k[3]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
-                        Close = decimal.Parse(k[4]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
-                        Volume = decimal.Parse(k[5]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
-                        CloseTime = (long)k[6],
-                        NumberOfTrades = int.Parse(k[8]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture)
-                    };
-                    all.Add(kl);
-                    collected++;
-                    if (maxCandles.HasValue && collected >= maxCandles.Value)
-                        return all;
-                }
-
-                // Advance start time to just after last open time
-                startMs = all[^1].OpenTime + 1;
-                if (data.Count < batchSize) break; // we're done
-                await Task.Delay(150, ct); // politeness delay
+                    Symbol = symbol,
+                    OpenTime = (long)k[0],
+                    Open = decimal.Parse(k[1]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
+                    High = decimal.Parse(k[2]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
+                    Low = decimal.Parse(k[3]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
+                    Close = decimal.Parse(k[4]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
+                    Volume = decimal.Parse(k[5]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture),
+                    CloseTime = (long)k[6],
+                    NumberOfTrades = int.Parse(k[8]?.ToString() ?? "0", System.Globalization.CultureInfo.InvariantCulture)
+                };
+                all.Add(kl);
+                collected++;
+                if (maxCandles.HasValue && collected >= maxCandles.Value)
+                    break;
             }
             return all;
         }
@@ -264,6 +276,8 @@ namespace BinanceTestnet.Tools
             string setName,
             string strategyName,
             string? startUtc,
+            string? endUtc,
+            int? candlesTested,
             ExitModeConfig exitMode,
             RiskProfileConfig? riskProfile,
             List<string> symbols,
@@ -306,7 +320,7 @@ namespace BinanceTestnet.Tools
             {
                 if (writeHeader)
                 {
-                    await sw.WriteLineAsync("sessionId,timeframe,symbolSet,strategy,startUtc,exitMode,tpMult,slMult,trades,winRate,netPnl,avgWin,avgLoss,payoff,expectancy,maxConsecLoss,avgDuration,topSymbol,bottomSymbol");
+                    await sw.WriteLineAsync("sessionId,timeframe,symbolSet,strategy,startUtc,endUtc,candlesTested,exitMode,tpMult,slMult,trades,winRate,netPnl,avgWin,avgLoss,payoff,expectancy,maxConsecLoss,avgDuration,topSymbol,bottomSymbol");
                 }
                 string row = string.Join(",", new[]
                 {
@@ -315,6 +329,8 @@ namespace BinanceTestnet.Tools
                     setName,
                     strategyName ?? "",
                     startUtc ?? "",
+                    endUtc ?? "",
+                    (candlesTested.HasValue ? candlesTested.Value.ToString() : ""),
                     exitMode.Name,
                     (riskProfile?.TpMultiplier ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture),
                     (riskProfile?.SlMultiplier ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture),

@@ -24,7 +24,7 @@ The MultiTesterWindow is a WPF desktop UI for running batch backtests on multipl
 - Results are saved to `results/multi/multi_results.csv` (relative to config location).
  - Click **Run Backtests** to start batch testing.
  - Progress will be shown in the right panel; each progress entry is selectable so you can copy lines if needed.
- - After completion, a rich "Best Run" summary appears in the summary section. The summary now includes the run start datetime (when available) and the number of candles tested, plus a short recommendations block.
+ - After completion, a rich "Best Run" summary appears in the summary section. The summary includes the run start datetime (when available), the run end datetime (`endUtc`) and the number of candles tested (conservative count), plus a short recommendations block.
  - There's a **Copy Insights** button in the summary panel to copy the full summary to clipboard.
  - Results are saved to `results/multi/multi_results.csv` (relative to config location). The CSV now includes `strategy` and `startUtc` (when available) so runs are self-describing.
 
@@ -32,8 +32,10 @@ The MultiTesterWindow is a WPF desktop UI for running batch backtests on multipl
 - Click **Open Results Folder** to open the output directory in Explorer.
 - The CSV contains detailed metrics for each run (win rate, netPnL, expectancy, top/bottom symbols, etc).
  - Click **Open Results Folder** to open the output directory in Explorer.
- - The CSV contains detailed metrics for each run (win rate, netPnL, expectancy, top/bottom symbols, etc). Newer runs also include `strategy` and `startUtc` columns when that data is available.
- - The runner writes a small `strategy_insights.json` into the same `results/multi` folder containing a concise "best setup" string per strategy (used by the desktop UI).
+ - The CSV contains detailed metrics for each run (win rate, netPnL, expectancy, top/bottom symbols, etc). Newer runs also include `strategy`, `startUtc`, `endUtc` and `candlesTested` columns when that data is available.
+ - `candlesTested` is a conservative integer: for multi-symbol runs it represents the minimum number of candles fetched across symbols (so the value is valid for every symbol); for single-symbol runs it equals the number of klines fetched.
+ - The runner performs a single-page fetch per symbol (one API call requesting up to `BatchSize` klines — default 1500). The implementation does not page across multiple requests. If you need longer history, increase `BatchSize` up to the API limit or run with a later `StartUtc`.
+ - The runner writes a small `strategy_insights.json` into the same `results/multi` folder containing a concise "best setup" string per strategy (used by the desktop UI). Tooltips are informational only; the previous "Apply Best Setup" action was removed to avoid misleading automatic UI changes.
 
 ## JSON Config Structure & Editing
 
@@ -67,8 +69,8 @@ The config file controls all batch parameters. Example:
   },
   "Historical": {
     "StartUtc": "2025-10-01T00:00:00Z",
-    "BatchSize": 1000,
-    "MaxCandles": 3000
+    "BatchSize": 1500,
+    "MaxCandles": 1500
   }
 }
 ```
@@ -145,8 +147,7 @@ The config file controls all batch parameters. Example:
 
 - After a run completes the MultiTester extracts a concise "best setup" for the top-performing run and writes it to `results/multi/strategy_insights.json` next to the CSV.
 - The TradingAppDesktop main window will look for this file (in its own results folder or across the repository) and automatically apply per-strategy short recommendations as tooltips in the strategy selector.
-- Tooltips show the concrete setup that produced the best run (timeframe, symbol set or expanded symbol list if available, TP/SL multipliers, win rate, net PnL, trades, start/candles when present).
-- There is also groundwork to let the UI apply a best-setup automatically (e.g., populate timeframe, TP/SL and symbol selection) — ask me to enable "Apply best setup on click" if you want that wired in.
+Tooltips show the concrete setup that produced the best run (timeframe, symbol set or expanded symbol list if available, TP/SL multipliers, win rate, net PnL, trades, start/end/candles when present). Tooltips are informational only — the UI will not automatically apply configurations from the tooltip.
 
 ## Notes on summary & reliability
 

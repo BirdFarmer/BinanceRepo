@@ -459,13 +459,19 @@ namespace TradingAppDesktop.Views
                 }
                 if (string.IsNullOrWhiteSpace(strategyName)) strategyName = "(unknown)";
 
-                // Try to include run start datetime and number of candles tested when available in CSV
+                // Try to include run start/end datetimes and number of candles tested when available in CSV
                 string[] startCandidates = new[] { "startUtc", "startUtcIso", "startUtcIsoString", "startTime", "startDate", "start" };
+                string[] endCandidates = new[] { "endUtc", "endUtcIso", "endUtcIsoString", "endTime", "endDate", "end", "finishUtc" };
                 string[] candlesCandidates = new[] { "candles", "candlesTested", "testedCandles", "bars", "numCandles" };
                 string foundStartCol = startCandidates.FirstOrDefault(c => header.Contains(c));
+                string foundEndCol = endCandidates.FirstOrDefault(c => header.Contains(c));
                 string foundCandlesCol = candlesCandidates.FirstOrDefault(c => header.Contains(c));
 
                 string formattedStart = "(unknown)";
+                string formattedEnd = "(unknown)";
+                DateTime? parsedStart = null;
+                DateTime? parsedEnd = null;
+
                 if (!string.IsNullOrEmpty(foundStartCol))
                 {
                     var raw = GetBest(foundStartCol);
@@ -474,7 +480,8 @@ namespace TradingAppDesktop.Views
                         // Try parse as ISO or general DateTime, fallback to raw string
                         if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
                         {
-                            formattedStart = dt.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+                            parsedStart = dt.ToUniversalTime();
+                            formattedStart = parsedStart.Value.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
                         }
                         else
                         {
@@ -487,11 +494,13 @@ namespace TradingAppDesktop.Views
                                     if (lv > 1000000000)
                                     {
                                         var dt2 = DateTimeOffset.FromUnixTimeSeconds(lv).UtcDateTime;
+                                        parsedStart = dt2;
                                         formattedStart = dt2.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
                                     }
                                     else
                                     {
                                         var dt3 = new DateTime(lv, DateTimeKind.Utc);
+                                        parsedStart = dt3;
                                         formattedStart = dt3.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
                                     }
                                 }
@@ -505,7 +514,41 @@ namespace TradingAppDesktop.Views
                     }
                 }
 
+                if (!string.IsNullOrEmpty(foundEndCol))
+                {
+                    var rawEnd = GetBest(foundEndCol);
+                    if (!string.IsNullOrWhiteSpace(rawEnd))
+                    {
+                        if (DateTime.TryParse(rawEnd, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dtE))
+                        {
+                            parsedEnd = dtE.ToUniversalTime();
+                            formattedEnd = parsedEnd.Value.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+                        }
+                        else if (long.TryParse(rawEnd, out var lv2))
+                        {
+                            try
+                            {
+                                if (lv2 > 1000000000)
+                                {
+                                    var dt2 = DateTimeOffset.FromUnixTimeSeconds(lv2).UtcDateTime;
+                                    parsedEnd = dt2;
+                                    formattedEnd = dt2.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+                                }
+                                else
+                                {
+                                    var dt3 = new DateTime(lv2, DateTimeKind.Utc);
+                                    parsedEnd = dt3;
+                                    formattedEnd = dt3.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+                                }
+                            }
+                            catch { formattedEnd = rawEnd; }
+                        }
+                        else formattedEnd = rawEnd;
+                    }
+                }
+
                 string candlesTested = "(unknown)";
+                // Prefer explicit candles column if present
                 if (!string.IsNullOrEmpty(foundCandlesCol))
                 {
                     var rawc = GetBest(foundCandlesCol);
@@ -516,16 +559,114 @@ namespace TradingAppDesktop.Views
                     }
                 }
 
+                // If explicit candles not present but we have both start and end plus timeframe, estimate candle count
+                if ((string.IsNullOrEmpty(foundCandlesCol) || candlesTested == "(unknown)") && parsedStart.HasValue && parsedEnd.HasValue)
+                {
+                    int tfMinutes = 0;
+                    try
+                    {
+                        tfMinutes = ParseTimeframeToMinutes(GetBest("timeframe"));
+                    }
+                    catch { tfMinutes = 0; }
+                    if (tfMinutes > 0)
+                    {
+                        var span = parsedEnd.Value - parsedStart.Value;
+                        if (span.TotalMinutes > 0)
+                        {
+                            var estimated = (int)Math.Round(span.TotalMinutes / tfMinutes);
+                            if (estimated < 1) estimated = 1;
+                            candlesTested = estimated.ToString();
+                        }
+                    }
+                }
+
+                // Helper to convert timeframe string like '5m' or '1h' to minutes
+                int ParseTimeframeToMinutes(string tf)
+                {
+                    if (string.IsNullOrWhiteSpace(tf)) return 0;
+                    tf = tf.Trim().ToLowerInvariant();
+                    if (tf.EndsWith("m") && int.TryParse(tf.TrimEnd('m'), out var m)) return m;
+                    if (tf.EndsWith("h") && int.TryParse(tf.TrimEnd('h'), out var h)) return h * 60;
+                    if (tf.EndsWith("d") && int.TryParse(tf.TrimEnd('d'), out var d)) return d * 1440;
+                    // fallback: try parse as minutes
+                    if (int.TryParse(tf, out var v)) return v;
+                    return 0;
+                }
+
+                // Try to surface entry size, leverage and sides (long/short) from CSV or config if available
+                string entryDisplay = string.Empty;
+                string leverageDisplay = string.Empty;
+                string sidesDisplay = string.Empty;
+                try
+                {
+                    // First try CSV best row values (common column names)
+                    var candidateEntry = GetBest("entrySize");
+                    if (string.IsNullOrWhiteSpace(candidateEntry)) candidateEntry = GetBest("entryAmount");
+                    if (string.IsNullOrWhiteSpace(candidateEntry)) candidateEntry = GetBest("positionSize");
+                    if (!string.IsNullOrWhiteSpace(candidateEntry)) entryDisplay = candidateEntry;
+
+                    var candidateLev = GetBest("leverage");
+                    if (string.IsNullOrWhiteSpace(candidateLev)) candidateLev = GetBest("leverageMultiplier");
+                    if (!string.IsNullOrWhiteSpace(candidateLev)) leverageDisplay = candidateLev;
+
+                    var candidateSides = GetBest("sides");
+                    if (string.IsNullOrWhiteSpace(candidateSides)) candidateSides = GetBest("side");
+                    if (!string.IsNullOrWhiteSpace(candidateSides)) sidesDisplay = candidateSides;
+
+                    // Fallback to config file (if available)
+                    var cfgPathLocal = cfgPath;
+                    if ((string.IsNullOrWhiteSpace(entryDisplay) || string.IsNullOrWhiteSpace(leverageDisplay) || string.IsNullOrWhiteSpace(sidesDisplay)) && File.Exists(cfgPathLocal))
+                    {
+                        try
+                        {
+                            var j = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(cfgPathLocal));
+                            if (string.IsNullOrWhiteSpace(entryDisplay))
+                            {
+                                var v = j.SelectToken("EntrySize") ?? j.SelectToken("entrySize") ?? j.SelectToken("PositionSize");
+                                if (v != null) entryDisplay = v.ToString();
+                            }
+                            if (string.IsNullOrWhiteSpace(leverageDisplay))
+                            {
+                                var v = j.SelectToken("Leverage") ?? j.SelectToken("leverage");
+                                if (v != null) leverageDisplay = v.ToString();
+                            }
+                            if (string.IsNullOrWhiteSpace(sidesDisplay))
+                            {
+                                // Accept boolean flags or explicit sides list
+                                var allowShorts = j.SelectToken("AllowShorts") ?? j.SelectToken("allowShorts");
+                                if (allowShorts != null && bool.TryParse(allowShorts.ToString(), out var allow) && allow)
+                                {
+                                    sidesDisplay = "longs and shorts";
+                                }
+                                else
+                                {
+                                    var v = j.SelectToken("Sides") ?? j.SelectToken("sides");
+                                    if (v != null) sidesDisplay = v.ToString();
+                                }
+                            }
+                        }
+                        catch { /* ignore config parse errors */ }
+                    }
+                }
+                catch { /* non-fatal */ }
+
+                // Build the best run summary: show strategy first as requested; remove the Candles Tested line per request
                 var bestSummary =
-                    $"Best Run (by netPnl) - Strategy: {strategyName}\n" +
+                    $"Strategy: {strategyName}\n" +
+                    $"Best Run (by netPnl)\n" +
                     $"Start: {formattedStart}\n" +
+                    $"End: {formattedEnd}\n" +
                     $"Candles Tested: {candlesTested}\n" +
                     $"Timeframe: {GetBest("timeframe")}\n" +
                     $"Symbols: {GetBest("symbolSet")}\n" +
                     $"TP Multiplier: {GetBest("tpMult")}\n" +
                     $"Risk Ratio: {GetBest("slMult")}\n" +
+                    (string.IsNullOrWhiteSpace(entryDisplay) ? string.Empty : $"Entry Size: {entryDisplay}\n") +
+                    (string.IsNullOrWhiteSpace(leverageDisplay) ? string.Empty : $"Leverage: {leverageDisplay}X\n") +
+                    (string.IsNullOrWhiteSpace(sidesDisplay) ? string.Empty : $"Sides: {sidesDisplay}\n") +
                     $"Win Rate: {GetBest("winRate")}%\n" +
                     $"Net PNL: {GetBest("netPnl")}\n" +
+                    $"Trades: {GetBest("trades")}\n" +
                     $"Avg Win: {GetBest("avgWin")}\n" +
                     $"Avg Loss: {GetBest("avgLoss")}\n" +
                     $"Avg Duration: {GetBest("avgDuration")}\n" +
@@ -548,6 +689,17 @@ namespace TradingAppDesktop.Views
                     if (bAvgLoss != 0 && bAvgWin / Math.Max(1, bAvgLoss) < 1m) insights.AppendLine($"⚠ Avg win ({bAvgWin}) is smaller than avg loss ({bAvgLoss}). Consider adjusting TP/SL.");
                     if (bPayoff > 0) insights.AppendLine($"ℹ Payoff: {bPayoff:F2} — higher is generally better.");
                 }
+
+                // Detect runs with zero trades (inactive runs) and add an insight if many runs are inactive
+                try
+                {
+                    var zeroTradeCount = rows.Count(r => ParseInt(GetVal(r, "trades")) == 0);
+                    if (zeroTradeCount > Math.Max(1, totalRuns / 2))
+                    {
+                        insights.AppendLine($"⚠ Many runs produced 0 trades: {zeroTradeCount}/{totalRuns}. Check entry filters, symbol sets, or timeframe — strategy appears inactive in these configurations.");
+                    }
+                }
+                catch { /* non-fatal */ }
 
                 // Show latest run metrics as well
                 // Find the latest row with trades > 0 (safe)
