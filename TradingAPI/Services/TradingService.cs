@@ -8,6 +8,8 @@ using BinanceTestnet.Strategies;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using System.Globalization;
+using Microsoft.Extensions.Logging;
+using System.IO;
 
 namespace TradingAPI.Services
 {
@@ -17,7 +19,7 @@ namespace TradingAPI.Services
         private readonly string? _apiKey;
         private Wallet _wallet;
         private CancellationTokenSource _cts; // Added for stopping trading
-        private string _fileName;
+    private string _fileName = string.Empty;
 
         public TradingService(RestClient client)
         {
@@ -36,24 +38,45 @@ namespace TradingAPI.Services
             var leverage = 15M;
             var tradeDirection = direction;   
             var selectedStrategy = strategy;
-            var takeProfit = takeProfitPercent;
+            var takeProfitDec = (decimal)(takeProfitPercent ?? 1.0);
             var symbols = GetSymbols();
             
-            _fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategy, (decimal)takeProfit, userName);
+            _fileName = GenerateFileName(operationMode, entrySize, leverage, tradeDirection, selectedStrategy, takeProfitDec, userName);
             
             var interval = "1m";
 
-            var orderManager = new OrderManager(_wallet, leverage, operationMode, 
-                                                interval, (decimal)takeProfit, tradeDirection, 
-                                                selectedStrategy, _client, (decimal)takeProfit, 
-                                                entrySize, "change this", "sessionid");
+            // Prepare dependencies for revised OrderManager signature
+            using var loggerFactory = LoggerFactory.Create(builder => { });
+            var logger = loggerFactory.CreateLogger<OrderManager>();
+            var exchangeInfoProvider = new ExchangeInfoStub();
+            var sessionId = $"live-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString()[..6]}";
+            var databasePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TradingData.db");
+            decimal stopLoss = takeProfitDec; // TEMP: mirror TP until provided separately
+            decimal tpIteration = takeProfitDec; // retain existing behavior
+            var orderManager = new OrderManager(
+                wallet: _wallet,
+                leverage: leverage,
+                operationMode: operationMode,
+                interval: interval,
+                takeProfit: takeProfitDec,
+                stopLoss: stopLoss,
+                tradeDirection: tradeDirection,
+                tradingStrategy: selectedStrategy,
+                client: _client,
+                tpIteration: tpIteration,
+                margin: entrySize,
+                databasePath: databasePath,
+                sessionId: sessionId,
+                exchangeInfoProvider: exchangeInfoProvider,
+                logger: logger,
+                onTradeEntered: (_, _, _, _, _) => { });
 
             if (_apiKey == null)
             {
                 throw new System.InvalidOperationException("No API key provided. Cannot continue trading.");
             }
 
-            var runner = new StrategyRunner(_client, _apiKey, symbols, interval, _wallet, orderManager, selectedStrategy);
+            var runner = new StrategyRunner(_client, _apiKey!, symbols, interval, _wallet, orderManager, new List<SelectedTradingStrategy>{ selectedStrategy });
 
             if (operationMode == OperationMode.Backtest)
             {
@@ -94,6 +117,12 @@ namespace TradingAPI.Services
                     await Task.Delay(60000, _cts.Token); // Respect cancellation during delay
                 }
             }
+        }
+
+        // Minimal stub until real exchange info wired for TradingAPI runtime
+        private class ExchangeInfoStub : IExchangeInfoProvider
+        {
+            public Task<ExchangeInfo> GetExchangeInfoAsync() => Task.FromResult(new ExchangeInfo { Symbols = new List<SymbolInfo>() });
         }
         
         public void StopTrading()
@@ -156,21 +185,28 @@ namespace TradingAPI.Services
 
             var response = await client.ExecuteAsync<List<List<object>>>(request);
 
-            if (response.IsSuccessful && response.Content != null)
+            if (response.IsSuccessful && !string.IsNullOrEmpty(response.Content))
             {
                 var klineData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content);
-                foreach (var kline in klineData)
+                if (klineData != null)
                 {
-                    historicalData.Add(new Kline
+                    foreach (var kline in klineData)
                     {
-                        OpenTime = (long)kline[0],
-                        Open = decimal.Parse(kline[1].ToString(), CultureInfo.InvariantCulture),
-                        High = decimal.Parse(kline[2].ToString(), CultureInfo.InvariantCulture),
-                        Low = decimal.Parse(kline[3].ToString(), CultureInfo.InvariantCulture),
-                        Close = decimal.Parse(kline[4].ToString(), CultureInfo.InvariantCulture),
-                        CloseTime = (long)kline[6],
-                        NumberOfTrades = int.Parse(kline[8].ToString(), CultureInfo.InvariantCulture)
-                    });
+                        historicalData.Add(new Kline
+                        {
+                            OpenTime = (long)kline[0],
+                            Open = decimal.Parse(kline[1]?.ToString() ?? "0", CultureInfo.InvariantCulture),
+                            High = decimal.Parse(kline[2]?.ToString() ?? "0", CultureInfo.InvariantCulture),
+                            Low = decimal.Parse(kline[3]?.ToString() ?? "0", CultureInfo.InvariantCulture),
+                            Close = decimal.Parse(kline[4]?.ToString() ?? "0", CultureInfo.InvariantCulture),
+                            CloseTime = (long)kline[6],
+                            NumberOfTrades = int.Parse(kline[8]?.ToString() ?? "0", CultureInfo.InvariantCulture)
+                        });
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to parse historical data for {symbol}.");
                 }
             }
             else

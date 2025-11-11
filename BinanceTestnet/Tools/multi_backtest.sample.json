@@ -1,0 +1,26 @@
+{
+  "Strategy": "RsiDivergence",
+  "Timeframes": ["5m", "15m", "1h"],
+  "SymbolSets": {
+    "tier_1_5": ["ALPACAUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"],
+    "tier_50_54": ["SANDUSDT", "THETAUSDT", "AAVEUSDT", "FTMUSDT", "MANAUSDT"]
+  },
+  "ExitModes": [
+    {
+      "Name": "fixed",
+      "RiskProfiles": [
+        { "Name": "rr_2.5_to_2", "TpMultiplier": 2.5, "SlMultiplier": 2.0 },
+        { "Name": "rr_1_5_to_1", "TpMultiplier": 1.5, "SlMultiplier": 1.0 }
+      ]
+    }
+  ],
+  "Output": {
+    "Directory": "results/multi",
+    "Format": "csv"
+  },
+  "Historical": {
+    "StartUtc": "2025-10-01T00:00:00Z",
+    "BatchSize": 1000,
+    "MaxCandles": 3000
+  }
+}

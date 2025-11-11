@@ -4,6 +4,8 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Globalization;
 using BinanceTestnet.Enums;
 
 namespace TradingAppDesktop.Controls
@@ -11,10 +13,10 @@ namespace TradingAppDesktop.Controls
     public partial class StrategySelectionControl : UserControl, INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler? PropertyChanged;
-        
+
         private ObservableCollection<StrategyItem> _strategies = new();
         private int _selectedCount;
-        
+
         public StrategySelectionControl()
         {
             InitializeComponent();
@@ -26,7 +28,7 @@ namespace TradingAppDesktop.Controls
         {
             foreach (var item in _strategies)
             {
-                item.PropertyChanged += (s, e) => 
+                item.PropertyChanged += (s, e) =>
                 {
                     if (e.PropertyName == nameof(StrategyItem.IsSelected))
                     {
@@ -60,8 +62,8 @@ namespace TradingAppDesktop.Controls
                 var item = new StrategyItem(s.Strategy, s.Name, s.Description);
                 _strategies.Add(item);
             }
-            SetupSelectionTracking(); // Add this line
-            UpdateSelection(); // Initialize count
+            SetupSelectionTracking();
+            UpdateSelection();
         }
 
         public void SetStrategyEnabled(SelectedTradingStrategy strategy, bool enabled, string? tooltipIfDisabled = null)
@@ -89,6 +91,22 @@ namespace TradingAppDesktop.Controls
             }
 
             UpdateSelection();
+        }
+
+        // Set a short insight/tooltip for a strategy by enum
+        public void SetStrategyInsight(SelectedTradingStrategy strategy, string tooltip)
+        {
+            var item = _strategies.FirstOrDefault(x => x.Strategy.Equals(strategy));
+            if (item == null) return;
+            item.ToolTipText = tooltip;
+        }
+
+        // Set a short insight/tooltip for a strategy by display name
+        public void SetStrategyInsightByName(string name, string tooltip)
+        {
+            var item = _strategies.FirstOrDefault(x => string.Equals(x.Name, name, System.StringComparison.OrdinalIgnoreCase));
+            if (item == null) return;
+            item.ToolTipText = tooltip;
         }
 
         private void StrategyItemChanged(object sender, PropertyChangedEventArgs e)
@@ -119,6 +137,25 @@ namespace TradingAppDesktop.Controls
         private void UpdateCount()
         {
             SelectionCountText.Text = $"{SelectedCount}/5 strategies selected";
+        }
+    }
+
+    // Converter to format the tooltip string into multi-line text (namespace scope so XAML can find it)
+    public class TooltipFormatterConverter : IValueConverter
+    {
+        public object Convert(object value, System.Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value == null) return string.Empty;
+            var s = value.ToString() ?? string.Empty;
+            // Replace common separators with new lines for readability
+            s = s.Replace("; ", "\n").Replace(";", "\n");
+            s = s.Replace("|", "\n");
+            return s;
+        }
+
+        public object ConvertBack(object value, System.Type targetType, object parameter, CultureInfo culture)
+        {
+            return Binding.DoNothing;
         }
     }
 
