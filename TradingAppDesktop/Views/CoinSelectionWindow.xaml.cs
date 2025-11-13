@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Text;
+using System.Text.RegularExpressions;
 using BinanceTestnet.Database;
 using System.Threading;
 using System.Threading.Tasks;
@@ -505,6 +508,131 @@ namespace TradingAppDesktop.Views
         private void SavedListsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // no-op; we load explicitly on button click
+        }
+
+        // Allow Delete key to remove selected coins from the current selection
+        private void SelectedCoinsListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            // Delete to remove selected items
+            if (e.Key == Key.Delete)
+            {
+                RemoveSelectedCoins();
+                e.Handled = true;
+                return;
+            }
+
+            // Ctrl+C to copy selected items
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && e.Key == Key.C)
+            {
+                CopySelectedCoins_Click(sender, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+        }
+
+        private void SavedListsListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Delete)
+            {
+                DeleteSavedListButton_Click(sender, new RoutedEventArgs());
+                e.Handled = true;
+            }
+        }
+
+        private void CopySelectedCoins_Click(object sender, RoutedEventArgs e)
+        {
+            var items = SelectedCoinsListBox.SelectedItems.Cast<string>().ToList();
+            if (!items.Any()) return;
+            var txt = string.Join(", ", items);
+            Clipboard.SetText(txt);
+            StatusText.Text = $"Copied {items.Count} coins to clipboard";
+        }
+
+        private void CopySelectedToManual_Click(object sender, RoutedEventArgs e)
+        {
+            var items = SelectedCoinsListBox.SelectedItems.Cast<string>().ToList();
+            if (!items.Any()) return;
+            var txt = string.Join(", ", items);
+            // Append to manual coins text box and ensure newline separation
+            if (ManualCoinsTextBox.Text.Length > 0 && !ManualCoinsTextBox.Text.EndsWith("\n"))
+                ManualCoinsTextBox.AppendText("\n");
+            ManualCoinsTextBox.AppendText(txt);
+            StatusText.Text = $"Pasted {items.Count} coins to Manual list";
+        }
+
+        private void RemoveSelectedCoins_Click(object sender, RoutedEventArgs e)
+        {
+            RemoveSelectedCoins();
+        }
+
+        private void RemoveSelectedCoins()
+        {
+            var selected = SelectedCoinsListBox.SelectedItems.Cast<string>().ToList();
+            if (!selected.Any()) return;
+            foreach (var s in selected)
+            {
+                _currentSelectedCoins.Remove(s);
+            }
+            UpdateSelectedCoinsList();
+            StatusText.Text = $"Removed {selected.Count} coins";
+        }
+
+        private void CopySelectedSavedList_Click(object sender, RoutedEventArgs e)
+        {
+            var items = SavedListsListBox.SelectedItems.Cast<object>().ToList();
+            if (!items.Any()) return;
+            var sb = new StringBuilder();
+            foreach (var it in items)
+            {
+                sb.AppendLine(it.ToString());
+            }
+            Clipboard.SetText(sb.ToString());
+            StatusText.Text = $"Copied {items.Count} saved-list lines to clipboard";
+        }
+
+        // Open the normalize menu on left-click
+        private void NormalizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button b && b.ContextMenu != null)
+            {
+                b.ContextMenu.PlacementTarget = b;
+                b.ContextMenu.IsOpen = true;
+            }
+        }
+
+        private void Normalize_OnePerLine_Click(object sender, RoutedEventArgs e)
+        {
+            NormalizeManualText(onePerLine: true);
+        }
+
+        private void Normalize_CommaSeparated_Click(object sender, RoutedEventArgs e)
+        {
+            NormalizeManualText(onePerLine: false);
+        }
+
+        // Normalize manual textbox content into either one-per-line or comma-separated formats.
+        private void NormalizeManualText(bool onePerLine)
+        {
+            var raw = ManualCoinsTextBox.Text ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(raw)) return;
+
+            // Split on common separators: comma, semicolon, newline, whitespace
+            var tokens = Regex.Split(raw, @"[\s,;]+")
+                              .Select(t => t.Trim().ToUpper())
+                              .Where(t => !string.IsNullOrWhiteSpace(t))
+                              .Distinct()
+                              .ToList();
+
+            if (!tokens.Any()) return;
+
+            var formatted = onePerLine
+                ? string.Join(Environment.NewLine, tokens)
+                : string.Join(", ", tokens);
+
+            ManualCoinsTextBox.Text = formatted + Environment.NewLine;
+            ManualCoinsTextBox.CaretIndex = ManualCoinsTextBox.Text.Length;
+            ManualCoinsTextBox.Focus();
+            StatusText.Text = $"Normalized manual list ({tokens.Count} items)";
         }
 
         private void LoadSavedListButton_Click(object sender, RoutedEventArgs e)

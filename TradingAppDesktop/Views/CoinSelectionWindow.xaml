@@ -75,6 +75,19 @@
                                                  TextWrapping="Wrap" AcceptsReturn="True"
                                                  ToolTip="Enter coin pairs separated by commas or new lines&#x0a;Example: BTCUSDT, ETHUSDT, ADAUSDT"/>
                                         
+                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,6">
+                                            <Button x:Name="NormalizeButton" Content="Trim/Normalize ▾" Height="26" Click="NormalizeButton_Click">
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="One per line" Click="Normalize_OnePerLine_Click"/>
+                                                        <MenuItem Header="Comma separated" Click="Normalize_CommaSeparated_Click"/>
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
+                                            </Button>
+                                            <TextBlock Text="" Width="8"/>
+                                            <TextBlock VerticalAlignment="Center" Foreground="#666" FontSize="11">Normalize pasted text into one-per-line or comma-separated formats</TextBlock>
+                                        </StackPanel>
+
                                         <Button x:Name="ApplyManualButton" Content="Apply Manual Selection" 
                                                 Click="ApplyManualButton_Click" Margin="0,10,0,0"
                                                 Background="#e67e22" Foreground="White" 
@@ -89,7 +102,20 @@
                                 <GroupBox Header="Saved Coin Pair Lists">
                                     <StackPanel Margin="5">
                                         <ListBox x:Name="SavedListsListBox" Height="120" 
-                                                 SelectionChanged="SavedListsListBox_SelectionChanged"/>
+                                                 SelectionChanged="SavedListsListBox_SelectionChanged"
+                                                 PreviewKeyDown="SavedListsListBox_PreviewKeyDown">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBox Text="{Binding ., Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"/>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                            <ListBox.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Copy Selected" Click="CopySelectedSavedList_Click"/>
+                                                    <MenuItem Header="Delete Selected" Click="DeleteSavedListButton_Click"/>
+                                                </ContextMenu>
+                                            </ListBox.ContextMenu>
+                                        </ListBox>
                                         
                                         <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                             <Button x:Name="LoadSavedListButton" Content="Load Selected" 
@@ -116,7 +142,22 @@
                             
                             <TextBlock Grid.Row="0" Text="Selected Coin Pairs:" FontWeight="Bold" Margin="0,0,0,5"/>
                             <ListBox Grid.Row="1" x:Name="SelectedCoinsListBox" 
-                                     SelectionMode="Extended" Height="200"/>
+                                     SelectionMode="Extended" Height="200"
+                                     PreviewKeyDown="SelectedCoinsListBox_PreviewKeyDown">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding ., Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                                <ListBox.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Copy Selected" Click="CopySelectedCoins_Click"/>
+                                        <MenuItem Header="Copy Selected To Manual" Click="CopySelectedToManual_Click"/>
+                                        <Separator />
+                                        <MenuItem Header="Remove Selected" Click="RemoveSelectedCoins_Click"/>
+                                    </ContextMenu>
+                                </ListBox.ContextMenu>
+                            </ListBox>
                         </Grid>
                     </Border>
                 </Grid>

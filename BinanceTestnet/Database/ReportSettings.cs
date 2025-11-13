@@ -55,5 +55,10 @@ namespace BinanceTestnet.Database
             if (Interval.EndsWith("h") && int.TryParse(Interval[..^1], out int hrs)) return hrs * 60;  
             return 15; // Fallback  
         }  
+
+        // Session market state reference configuration
+        // Default reference symbol for session market state calculation
+        public string SessionReferenceSymbol { get; set; } = "BTCUSDT";
+        // (Keep configuration minimal) SessionReferenceSymbol is used as a fallback when trades do not provide a best symbol
     }
 }

@@ -47,7 +47,7 @@ namespace BinanceTestnet.Database
                     """;
                 }
 
-                // Generate all sections with error isolation
+                // Generate all sections with error isolation (regime sections are computed for the session's reference symbol)
                 var sections = new List<ReportSectionResult>
                 {
                     GenerateExecutiveSummarySafe(sessionId, settings, allTrades),
@@ -61,9 +61,8 @@ namespace BinanceTestnet.Database
                     GenerateRiskAnalysisSafe(sessionId, settings, allTrades),
                     GenerateCoinPerformanceSafe(sessionId, settings, allTrades),
                     GenerateCriticalTradesSafe(sessionId, settings, allTrades),
-                    await GenerateBtcMarketContextSafe(sessionId, settings, allTrades),
+                    await GenerateSessionMarketStateSafe(sessionId, settings, allTrades),
                     await GenerateRegimeTimelineSafe(sessionId, settings, allTrades),
-                    await GenerateStrategyHeatmapSafe(sessionId, settings, allTrades),
                     GenerateActionableInsightsSafe(sessionId, settings, allTrades),
                     GenerateDayOfWeekAnalysisSafe(sessionId, settings, allTrades),
                     GenerateExtendedHoursAnalysisSafe(sessionId, settings, allTrades),
@@ -112,7 +111,6 @@ namespace BinanceTestnet.Database
                                 font-family: 'Segoe UI', Arial, sans-serif; 
                                 margin: 20px;
                                 color: #333;
-                                line-height: 1.6;
                             }
                             .header { 
                                 background: var(--color-dark);
@@ -271,13 +269,14 @@ namespace BinanceTestnet.Database
         }
 
         //Generate the regime timeline
-        private string GenerateRegimeTimelineHtml(List<MarketRegimeSegment> segments)
+        private string GenerateRegimeTimelineHtml(List<MarketRegimeSegment> segments, string refSymbol)
         {
             var html = new StringBuilder();
 
-            html.AppendLine("""
+            html.AppendLine($$"""
                 <div class="section">
-                    <h2>📅 BTC Market Regime Timeline</h2>
+                    <h2>📅 Market Regime Timeline — based on {{refSymbol}}</h2>
+                    <p><small>Showing the most active periods for the session symbol ({{refSymbol}}).</small></p>
                     <table>
                         <tr>
                             <th>Period</th>
@@ -287,8 +286,9 @@ namespace BinanceTestnet.Database
                             <th>Insight</th>
                         </tr>
                 """);
+            var display = segments.OrderByDescending(s => s.TradeCount).Take(8).ToList();
 
-            foreach (var segment in segments)
+            foreach (var segment in display)
             {
                 var performanceClass = segment.TotalPnL >= 0 ? "positive" : "negative";
                 var performanceText = segment.TotalPnL >= 0 ? $"+{segment.TotalPnL:F1}" : segment.TotalPnL.ToString("F1");
@@ -964,7 +964,7 @@ namespace BinanceTestnet.Database
         // Add this method to generate the executive summary
         private string GenerateExecutiveSummary(PerformanceMetrics metrics, List<Trade> allTrades,
             Dictionary<string, decimal> strategyPerformance, List<MarketRegimeSegment> regimeSegments,
-            decimal limitedNetProfit, int limitedTrades)
+            decimal limitedNetProfit, int limitedTrades, ReportSettings settings)
         {
             var summary = new StringBuilder();
 
@@ -975,6 +975,10 @@ namespace BinanceTestnet.Database
                 """);
 
             // Key Performance Indicators
+            // Compute ROI using margin-per-trade as a simple invested proxy
+            decimal invested = (settings?.MarginPerTrade ?? 0m) * Math.Max(1, metrics.TotalTrades);
+            decimal roiValue = invested == 0 ? 0m : metrics.NetProfit / invested; // ratio
+
             var kpis = new[]
             {
                 new {
@@ -988,6 +992,12 @@ namespace BinanceTestnet.Database
                     Value = GetRiskAdjustedScore(metrics),
                     Class = GetRiskScoreClass(metrics),
                     Icon = "🎯"
+                },
+                new {
+                    Title = "ROI",
+                    Value = (roiValue).ToString("P2"),
+                    Class = roiValue >= 0 ? "positive" : "negative",
+                    Icon = "💹"
                 },
                 new {
                     Title = "8-Trade Limit Impact",
@@ -1257,7 +1267,7 @@ namespace BinanceTestnet.Database
                 var executedTrades = simulatedTrades.Where(t => t.WasExecuted).Select(t => t.OriginalTrade).ToList();
                 var limitedMetrics = CalculatePerformanceMetrics(executedTrades);
 
-                var html = GenerateExecutiveSummary(metrics, allTrades, strategyPerformance, savedRegimeSegments, limitedMetrics.NetProfit, executedTrades.Count);
+                var html = GenerateExecutiveSummary(metrics, allTrades, strategyPerformance, savedRegimeSegments, limitedMetrics.NetProfit, executedTrades.Count, settings);
                 
                 return ReportSectionResult.CreateSuccess("Executive Summary", html);
             }
@@ -1767,6 +1777,24 @@ namespace BinanceTestnet.Database
             {
                 var (nearLiquidation, _) = _tradeLogger.CalculateLiquidationStats(sessionId, 0.9m);
 
+                var metrics = CalculatePerformanceMetrics(allTrades);
+                var netPnL = metrics.NetProfit;
+                var totalTrades = Math.Max(1, metrics.TotalTrades);
+                var avgPnL = allTrades.Any() ? allTrades.Average(t => t.Profit ?? 0) : 0m;
+                var winRate = metrics.WinRate;
+                // Volatility: stddev of trade PnL
+                double volatility = 0;
+                var pnlList = allTrades.Select(t => (double)(t.Profit ?? 0)).ToList();
+                if (pnlList.Count >= 2)
+                {
+                    var avg = pnlList.Average();
+                    var var = pnlList.Sum(x => (x - avg) * (x - avg)) / pnlList.Count;
+                    volatility = Math.Sqrt(var);
+                }
+
+                decimal invested = (settings?.MarginPerTrade ?? 0m) * totalTrades;
+                var roi = invested == 0 ? 0m : netPnL / invested;
+
                 var html = $$"""
                     <div class="section">
                         <h2>⚠️ Risk Analysis</h2>
@@ -1784,6 +1812,19 @@ namespace BinanceTestnet.Database
                                 <p class="negative">{{allTrades.Min(t => t.Profit ?? 0).ToString("F1")}}</p>
                             </div>
                         </div>
+                        <div style="margin-top:12px; display:flex; gap:12px;">
+                            <div style="flex:1;">
+                                <strong>Win Rate:</strong> {{winRate.ToString("F1")}}%<br>
+                                <strong>Avg PnL:</strong> {{avgPnL.ToString("F2")}}
+                            </div>
+                            <div style="flex:1;">
+                                <strong>Volatility (PnL std):</strong> {{volatility.ToString("F2")}}<br>
+                                <strong>ROI (est):</strong> {{roi.ToString("P2")}}
+                            </div>
+                        </div>
+                        <div style="margin-top:10px;" class="warning">
+                            <strong>Note:</strong> Risk metrics are estimated using per-trade margin as a proxy for capital. Review position sizing and stop placement for concrete risk management.
+                        </div>
                     </div>
                 """;
 
@@ -1795,90 +1836,145 @@ namespace BinanceTestnet.Database
             }
         }
 
-        private async Task<ReportSectionResult> GenerateBtcMarketContextSafe(string sessionId, ReportSettings settings, List<Trade> allTrades)
+        private async Task<ReportSectionResult> GenerateSessionMarketStateSafe(string sessionId, ReportSettings settings, List<Trade> allTrades)
         {
             try
             {
-                var marketContext = await _marketAnalyzer.AnalyzePeriodAsync(
-                    "BTCUSDT",
-                    allTrades.Min(t => t.EntryTime),
-                    allTrades.Max(t => t.EntryTime),
-                    settings.Interval,
-                    allTrades
-                );
+                // Choose reference symbol from trades (most-traded) and fall back to settings
+                var refSymbol = DetermineSessionReferenceSymbol(settings, allTrades);
 
-                // Safe access to properties with null checks
-                var generalRegime = marketContext.GeneralMarketRegime ?? new MarketRegime { Type = MarketRegimeType.Unknown };
-                var tradingRegime = marketContext.TradingAlignedRegime ?? new MarketRegime { Type = MarketRegimeType.Unknown };
-                var generalPerformance = marketContext.PerformanceByGeneralRegime?.ContainsKey(generalRegime.Type) == true
-                    ? marketContext.PerformanceByGeneralRegime[generalRegime.Type]
-                    : new StrategyPerformance();
-                var tradingPerformance = marketContext.PerformanceByTradingRegime?.ContainsKey(tradingRegime.Type) == true
-                    ? marketContext.PerformanceByTradingRegime[tradingRegime.Type]
-                    : new StrategyPerformance();
+                var startTime = allTrades.Min(t => t.EntryTime);
+                var endTime = allTrades.Max(t => t.EntryTime);
+
+                // Gather trades for the reference symbol
+                var symbolTrades = allTrades.Where(t => string.Equals(t.Symbol, refSymbol, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(t => t.EntryTime).ToList();
+
+                // Prepare price series from available trade prices
+                var prices = new List<decimal>();
+                foreach (var t in symbolTrades)
+                {
+                    if (t.EntryPrice > 0) prices.Add(t.EntryPrice);
+                    if (t.ExitPrice.HasValue && t.ExitPrice.Value > 0) prices.Add(t.ExitPrice.Value);
+                }
+
+                // If we don't have price points from trades, attempt to fetch trend info (best-effort)
+                if (!prices.Any())
+                {
+                    try
+                    {
+                        var marketContext = await _marketAnalyzer.AnalyzePeriodAsync(refSymbol, startTime, endTime, settings.Interval, allTrades);
+                        var primary = marketContext?.TradingTrendAnalysis?.Primary1H ?? marketContext?.GeneralTrendAnalysis?.Primary1H;
+                        if (primary != null && primary.Price > 0)
+                        {
+                            prices.Add(primary.Price);
+                        }
+                    }
+                    catch { /* ignore analyzer failures and fall through to Unknown */ }
+                }
+
+                if (!prices.Any())
+                {
+                    var unknownHtml = $$"""
+                        <div class="section">
+                            <h2>📈 Session Market State</h2>
+                            <p>State: <strong>Unknown</strong></p>
+                            <p>Basis: No price data available for symbol <strong>{{refSymbol}}</strong> during this session.</p>
+                        </div>
+                    """;
+                    return ReportSectionResult.CreateSuccess("Session Market State", unknownHtml);
+                }
+
+                // Prefer chronological prices from trades (first entry -> last exit) for clarity
+                decimal startPrice = 0;
+                decimal lastPrice = 0;
+
+                if (symbolTrades.Any())
+                {
+                    var firstTrade = symbolTrades.First();
+                    if (firstTrade.EntryPrice > 0) startPrice = firstTrade.EntryPrice;
+                    else if (firstTrade.ExitPrice.HasValue && firstTrade.ExitPrice.Value > 0) startPrice = firstTrade.ExitPrice.Value;
+
+                    var lastTrade = symbolTrades.Last();
+                    if (lastTrade.ExitPrice.HasValue && lastTrade.ExitPrice.Value > 0) lastPrice = lastTrade.ExitPrice.Value;
+                    else if (lastTrade.EntryPrice > 0) lastPrice = lastTrade.EntryPrice;
+                }
+
+                // Fallback to any available price points collected
+                if (startPrice == 0) startPrice = prices.First();
+                if (lastPrice == 0) lastPrice = prices.Last();
+                decimal sessionPct = startPrice == 0 ? 0 : (lastPrice - startPrice) / startPrice * 100m;
+
+                // Compute a simple slope (linear regression on index)
+                double slope = 0;
+                if (prices.Count >= 2)
+                {
+                    var xs = Enumerable.Range(0, prices.Count).Select(i => (double)i).ToArray();
+                    var ys = prices.Select(p => (double)p).ToArray();
+                    var xMean = xs.Average();
+                    var yMean = ys.Average();
+                    var num = xs.Zip(ys, (x, y) => (x - xMean) * (y - yMean)).Sum();
+                    var den = xs.Select(x => (x - xMean) * (x - xMean)).Sum();
+                    slope = den == 0 ? 0 : num / den;
+                }
+
+                // Volatility: stddev of log returns
+                double volatilityPct = 0;
+                if (prices.Count >= 2)
+                {
+                    var logReturns = new List<double>();
+                    for (int i = 1; i < prices.Count; i++)
+                    {
+                        if (prices[i - 1] <= 0 || prices[i] <= 0) continue;
+                        var lr = Math.Log((double)prices[i] / (double)prices[i - 1]);
+                        logReturns.Add(lr);
+                    }
+                    if (logReturns.Any())
+                    {
+                        var avg = logReturns.Average();
+                        var var = logReturns.Sum(r => (r - avg) * (r - avg)) / logReturns.Count;
+                        var std = Math.Sqrt(var);
+                        volatilityPct = std * 100.0; // approximate percent
+                    }
+                }
+
+                // Decision rules (defaults as proposed)
+                string marketState;
+                if (Math.Abs(sessionPct) < 0.2m || volatilityPct < 0.4)
+                {
+                    marketState = "Ranging";
+                }
+                else if (sessionPct >= 0.8m && slope > 0)
+                {
+                    marketState = "Bullish";
+                }
+                else if (sessionPct <= -0.8m && slope < 0)
+                {
+                    marketState = "Bearish";
+                }
+                else
+                {
+                    marketState = "Ranging";
+                }
+
+                var slopeText = slope > 0 ? "slope positive" : slope < 0 ? "slope negative" : "slope neutral";
+                var basis = $"{sessionPct:F2}% vs start • {slopeText} • ATR~{volatilityPct:F2}%";
 
                 var html = $$"""
-            <div class="section">
-                <h2>🌊 BTC Market Context Analysis</h2>
-                
-                <!-- General Market Context (1h/4h) -->
-                <h3>📊 General Market Context (1h/4h Analysis)</h3>
-                <div class="metric-grid">
-                    <div class="metric-card">
-                        <h3>Market Regime</h3>
-                        <p class="{{GetRegimeColorClass(generalRegime.Type)}}">
-                            {{GetRegimeIcon(generalRegime.Type)}} {{generalRegime.Type}}
-                        </p>
-                        <small>Confidence: {{generalRegime.OverallConfidence}}%</small>
+                    <div class="section">
+                        <h2>📈 Session Market State</h2>
+                        <p><strong>Symbol:</strong> {{refSymbol}}</p>
+                        <p><strong>State:</strong> <span class="{{(marketState=="Bullish"?"positive": marketState=="Bearish"?"negative":"")}}">{{marketState}}</span>
+                           &nbsp;&nbsp; <small>({{sessionPct:F2}}% from {{startPrice:F2}} to {{lastPrice:F2}})</small></p>
+                        <p><strong>Basis:</strong> {{basis}}</p>
                     </div>
-                    <div class="metric-card">
-                        <h3>Strategy Performance</h3>
-                        <p class="{{(generalPerformance.TotalPnL >= 0 ? "positive" : "negative")}}">
-                            {{generalPerformance.TotalPnL.ToString("F2")}} PnL
-                        </p>
-                        <small>{{generalPerformance.WinRate.ToString("F1")}}% win rate</small>
-                    </div>
-                    <div class="metric-card">
-                        <h3>Trend Strength</h3>
-                        <p>{{generalRegime.TrendStrength}}</p>
-                        <small>{{marketContext.GeneralTrendAnalysis?.Primary1H?.PriceVs200EMA.ToString("F1") ?? "0.0"}}% vs 200EMA</small>
-                    </div>
-                </div>
+                """;
 
-                <!-- Trading-Aligned Context -->
-                <h3>🎯 Trading-Aligned Context ({{GetTradingTimeframeDescription(settings.Interval)}} Analysis)</h3>
-                <div class="metric-grid">
-                    <div class="metric-card">
-                        <h3>Market Regime</h3>
-                        <p class="{{GetRegimeColorClass(tradingRegime.Type)}}">
-                            {{GetRegimeIcon(tradingRegime.Type)}} {{tradingRegime.Type}}
-                        </p>
-                        <small>Confidence: {{tradingRegime.OverallConfidence}}%</small>
-                    </div>
-                    <div class="metric-card">
-                        <h3>Strategy Performance</h3>
-                        <p class="{{(tradingPerformance.TotalPnL >= 0 ? "positive" : "negative")}}">
-                            {{tradingPerformance.TotalPnL.ToString("F2")}} PnL
-                        </p>
-                        <small>{{tradingPerformance.WinRate.ToString("F1")}}% win rate</small>
-                    </div>
-                    <div class="metric-card">
-                        <h3>Trend Strength</h3>
-                        <p>{{tradingRegime.TrendStrength}}</p>
-                        <small>{{marketContext.TradingTrendAnalysis?.Primary1H?.PriceVs200EMA.ToString("F1") ?? "0.0"}}% vs 200EMA</small>
-                    </div>
-                </div>
-
-                <!-- Regime Comparison -->
-                {{GenerateRegimeComparison(generalRegime, tradingRegime)}}
-            </div>
-        """;
-
-                return ReportSectionResult.CreateSuccess("BTC Market Context", html);
+                return ReportSectionResult.CreateSuccess("Session Market State", html);
             }
             catch (Exception ex)
             {
-                return ReportSectionResult.CreateError("BTC Market Context", ex.Message);
+                return ReportSectionResult.CreateError("Session Market State", ex.Message);
             }
         }
 
@@ -1886,10 +1982,12 @@ namespace BinanceTestnet.Database
         {
             try
             {
+                var refSymbol = DetermineSessionReferenceSymbol(settings, allTrades);
                 var regimeSegments = await _marketAnalyzer.GetRegimeSegmentsAsync(
                     allTrades.Min(t => t.EntryTime),
                     allTrades.Max(t => t.EntryTime),
-                    settings.Interval
+                    settings.Interval,
+                    refSymbol
                 );
 
                 // Correlate trades with segments
@@ -1898,7 +1996,7 @@ namespace BinanceTestnet.Database
                 // SAVE regimeSegments for later use
                 savedRegimeSegments = regimeSegments;
 
-                var html = GenerateRegimeTimelineHtml(regimeSegments);
+                var html = GenerateRegimeTimelineHtml(regimeSegments, refSymbol);
                 return ReportSectionResult.CreateSuccess("Market Regime Timeline", html);
             }
             catch (Exception ex)
@@ -1907,28 +2005,7 @@ namespace BinanceTestnet.Database
             }
         }
 
-        private async Task<ReportSectionResult> GenerateStrategyHeatmapSafe(string sessionId, ReportSettings settings, List<Trade> allTrades)
-        {
-            try
-            {
-                var regimeTF = GetRegimeTimeframe(settings.Interval);
-                var tradingRegimes = await _marketAnalyzer.GetRegimeSegmentsAsync(
-                    allTrades.Min(t => t.EntryTime),
-                    allTrades.Max(t => t.EntryTime),
-                    regimeTF
-                );
-
-                var heatmapCalculator = new HeatmapCalculatorService();
-                var regimePerformance = heatmapCalculator.CalculateStrategyRegimePerformance(allTrades, tradingRegimes);
-
-                var html = GenerateStrategyHeatmapHtml(regimePerformance);
-                return ReportSectionResult.CreateSuccess("Strategy vs Regime Heatmap", html);
-            }
-            catch (Exception ex)
-            {
-                return ReportSectionResult.CreateError("Strategy vs Regime Heatmap", ex.Message);
-            }
-        }
+        // Strategy vs Regime heatmap removed per UX direction (was noisy/confusing).
 
         private ReportSectionResult GenerateActionableInsightsSafe(string sessionId, ReportSettings settings, List<Trade> allTrades)
         {
@@ -1991,6 +2068,7 @@ namespace BinanceTestnet.Database
             {
                 var html = new StringBuilder(); // ← FIX: Use StringBuilder instead of string
 
+
                 html.AppendLine($$"""
             <div class="section">
                 <h2>🌐 Market Session Performance - All Trades</h2>
@@ -2004,24 +2082,7 @@ namespace BinanceTestnet.Database
                     {{GetMarketSessionAnalysis(allTrades)}}
                 </table>
             </div>
-            <div class="section">
-                <h2>🌐 Market Session Performance - Realistic Limited Trades</h2>
-                <table>
-                    <tr>
-                        <th>Session</th>
-                        <th>Trades</th>
-                        <th>Avg PnL</th>
-                        <th>Win Rate</th>
-                    </tr>
         """);
-
-                // Add realistic trades simulation for comparison
-                var simulator = new StrictConcurrentTradeSimulator();
-                var simulatedTrades = simulator.Simulate(allTrades, 8);
-                var executedTrades = simulatedTrades.Where(t => t.WasExecuted).Select(t => t.OriginalTrade).ToList();
-
-                html.AppendLine(GetMarketSessionAnalysis(executedTrades));
-                html.AppendLine("</table></div>");
 
                 return ReportSectionResult.CreateSuccess("Market Session Analysis", html.ToString());
             }
@@ -2029,6 +2090,29 @@ namespace BinanceTestnet.Database
             {
                 return ReportSectionResult.CreateError("Market Session Analysis", ex.Message);
             }
+        }
+
+        // Choose a reference symbol for session-level analyses based on actual trades.
+        // Picks the most-traded symbol by count and falls back to settings.SessionReferenceSymbol.
+        private string DetermineSessionReferenceSymbol(ReportSettings settings, List<Trade> allTrades)
+        {
+            if (allTrades != null && allTrades.Any())
+            {
+                var best = allTrades
+                    .GroupBy(t => t.Symbol)
+                    .Select(g => new { Symbol = g.Key, Count = g.Count(), Notional = g.Sum(t => t.EntryPrice > 0 ? t.EntryPrice * t.Quantity : 0m) })
+                    .OrderByDescending(x => x.Count)
+                    .ThenByDescending(x => x.Notional)
+                    .FirstOrDefault();
+
+                if (best != null && !string.IsNullOrEmpty(best.Symbol))
+                    return best.Symbol;
+            }
+
+            if (!string.IsNullOrEmpty(settings?.SessionReferenceSymbol))
+                return settings.SessionReferenceSymbol;
+
+            return "BTCUSDT"; // ultimate fallback
         }
 
     }
