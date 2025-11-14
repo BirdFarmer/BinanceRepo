@@ -485,7 +485,19 @@ namespace BinanceTestnet.Trading
             // For paper/backtest, show immediately; for live, defer until after successful order
             if (_operationMode != OperationMode.LiveRealTrading)
             {
-                _onTradeEntered?.Invoke(symbol, isLong, signal, price, DateTime.UtcNow);
+                DateTime entryTime;
+                try
+                {
+                    entryTime = timestampEntry > 0
+                        ? DateTimeOffset.FromUnixTimeMilliseconds(timestampEntry).UtcDateTime
+                        : DateTime.UtcNow;
+                }
+                catch
+                {
+                    entryTime = DateTime.UtcNow;
+                }
+
+                _onTradeEntered?.Invoke(symbol, isLong, signal, price, entryTime);
             }
         
 
@@ -503,7 +515,7 @@ namespace BinanceTestnet.Trading
                 {
                     if (_wallet.PlaceTrade(trade))
                     {
-                        Console.WriteLine($"With signal: {signal}");
+                        _logger?.LogDebug($"With signal: {signal}");
                         if (trade.IsLong) longs++;
                         else shorts++;
                         noOfTrades++;
@@ -1022,7 +1034,8 @@ namespace BinanceTestnet.Trading
                     // Ignore any negative/failed paths entirely (no UI entry). Use our own entry price.
                     if (_operationMode == OperationMode.LiveRealTrading)
                     {
-                        _onTradeEntered?.Invoke(trade.Symbol, trade.IsLong, trade.Signal, trade.EntryPrice, DateTime.UtcNow);
+                        DateTime entryTime = trade.EntryTime.ToUniversalTime();
+                        _onTradeEntered?.Invoke(trade.Symbol, trade.IsLong, trade.Signal, trade.EntryPrice, entryTime);
                     }
                     
                     // Regenerate timestamp for the next request
