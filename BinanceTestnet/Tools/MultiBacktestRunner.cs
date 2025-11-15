@@ -132,6 +132,12 @@ namespace BinanceTestnet.Tools
             // No trailing config for fixed mode
             orderManager.UpdateTrailingConfig(false, null, null);
 
+            // Mute Wallet console output during bulk backtests to avoid UI freeze
+            Wallet.EnableConsoleOutput = true;
+
+            // Diagnostic: print which strategy was selected for this run
+            Console.WriteLine($"Running strategy: {selectedStrategy}");
+
             // Strategy runner (we’ll run per symbol by feeding symbol-specific klines)
             var selectedStrategies = new List<SelectedTradingStrategy> { selectedStrategy };
             var runner = new StrategyRunner(_client, _apiKey, symbols, timeframe, wallet, orderManager, selectedStrategies);

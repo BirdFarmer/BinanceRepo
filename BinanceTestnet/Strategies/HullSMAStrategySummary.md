@@ -1,76 +1,115 @@
-# HullSMAStrategy Overview
+## HullSMAStrategy — Implementation Summary
 
-The `HullSMAStrategy` class implements a trading strategy based on the Hull Moving Average (HMA) and the Relative Strength Index (RSI) indicators. It is designed for use with the Binance API, specifically for futures trading.
+This file describes what `HullSMAStrategy.cs` currently implements and provides a TradingView Pine Script v5 indicator you can paste into TradingView to visualize the same signals.
 
-## Key Features
+**Core idea**: entries are generated when a short Hull moving average (HMA) crosses a long HMA, subject to filters: an RSI "boring zone" filter, a recent-volume vs average-volume filter, and an optional short-term momentum check.
 
-- **Hull Moving Averages**: 
-  - Short Hull length set to **35**.
-  - Long Hull length set to **100**.
-  
-- **RSI Filter**: 
-  - Avoids trading when RSI is between **40 and 60** (considered a "boring" zone).
+Key parameters (current values in code):
+- Short HMA length: 35
+- Long HMA length: 100
+- RSI period: 20; RSI boring zone: 40–60 (signals blocked when RSI is inside this range)
+- Volume confirmation: enabled (`UseVolumeConfirmation = true`) with `MinVolumeRatio = 1.0m` (logic below)
+- Momentum confirmation: enabled (`UseMomentumConfirmation = true`) with `MomentumPeriod = 5`
+- Supports closed candles: true (strategy processes completed candles)
 
-- **Trade Execution**:
-  - Places long orders when the short HMA crosses above the long HMA.
-  - Places short orders when the short HMA crosses below the long HMA.
-  
-- **Asynchronous Operation**:
-  - Utilizes asynchronous methods to fetch market data and execute trades.
+Volume confirmation details
+- The strategy computes:
+  - `recentVolume` = average(volume of last 5 candles)
+  - `avgVolume` = average(volume of last 20 candles)
+- The check is `recentVolume >= avgVolume * MinVolumeRatio`.
+- With `MinVolumeRatio = 1.0`, the strategy will block trades where recent volume is below the 20-sample average (i.e., it does not allow trades on below-average volume). A value >1 requires a spike; <1 is more permissive.
 
-## Methods
+Signal and execution flow (live/backtest)
+- For each symbol the strategy:
+  1. Fetches klines (limit 210) and converts them to indicator `Quote`s.
+  2. Computes RSI and Hull (EHMA) results for short and long lengths.
+  3. Selects a signal pair (current and previous kline) per the strategy base policy.
+  4. Applies RSI and volume filters; if either blocks, the signal is ignored.
+  5. If filters pass, evaluates Hull crossover conditions:
+     - Long: short.EHMA_current > long.EHMA_current AND short.EHMA_prev <= long.EHMA_prev AND long.EHMA_current > long.EHMA_prev
+     - Short: symmetrical check for crossing down
+  6. If crossover true, optional momentum confirmation is evaluated (momentumPercent over `MomentumPeriod` >0 for long, <0 for short).
+  7. If all checks pass, places a long/short order via `OrderManager.PlaceLongOrderAsync` / `PlaceShortOrderAsync` using the signal kline close time as the trade timestamp.
 
-### RunAsync
+Diagnostics and debugging
+- The strategy maintains per-run counters (symbols processed, candidates, filters passed, trades placed) and exposes `DumpAndResetDiagnostics()` which returns a diagnostic summary string and resets counters.
+- `EnableDebugLogging` is a public static flag in the strategy that controls console debug output (set to `true` in the current code). Toggle it off to reduce console logging.
 
-- **Parameters**:
-  - `symbol`: The trading pair symbol (e.g., "BTCUSDT").
-  - `interval`: The time interval for fetching klines (e.g., "1m").
-  
-- **Functionality**:
-  - Fetches the latest klines from the Binance API.
-  - Parses the kline data into `Quote` objects.
-  - Calculates the RSI and checks if it's outside the "boring" zone.
-  - Computes the short and long HMA values.
-  - Determines if a trade should be executed based on HMA crossings.
+Order labeling and timestamps
+- Orders placed by the strategy include a label like `"Hull 35/100"` (short/long lengths).
+- For backtests, the `OrderManager` and UI use the kline close time to populate the recent trades timestamp (instead of DateTime.UtcNow).
 
-### RunOnHistoricalDataAsync
+Notes and suggestions
+- Consider making `MinVolumeRatio`, `UseVolumeConfirmation`, and `UseMomentumConfirmation` configurable via `appsettings.json` instead of `const` for faster tuning.
+- The volume method currently returns `false` if fewer than 21 klines are available; keep that in mind for low-data intervals.
 
-- **Parameters**:
-  - `historicalCandles`: A collection of historical kline data.
-  
-- **Functionality**:
-  - Processes historical data to generate trade signals.
-  - Applies the same RSI filter as in `RunAsync`.
-  - Checks for HMA crossings and places trades accordingly.
+---
 
-### CalculateEHMA
+## Pine Script v5 indicator (visualize HMAs, RSI, volume ratio, and signals)
 
-- **Parameters**:
-  - `quotes`: A list of `Quote` objects.
-  - `length`: The length for the Hull Moving Average calculation.
-  
-- **Functionality**:
-  - Calculates the Exponential Hull Moving Average (EHMA) based on the provided quotes.
+Copy the following into TradingView (Pine Script v5) -> New Indicator. This reproduces the short/long HMA, the RSI "boring zone", the recent/avg volume ratio, and plots buy/sell markers where cross + filters would allow a trade.
 
-### ParseKlines
+```pinescript
+//@version=5
+indicator("Hull SMA Strategy (visual)", overlay=true)
 
-- **Parameters**:
-  - `content`: JSON string containing kline data.
-  
-- **Functionality**:
-  - Deserializes the JSON content into a list of `Kline` objects.
+// Parameters (match the C# defaults)
+shortLen = input.int(35, "Short HMA Length")
+longLen  = input.int(100, "Long HMA Length")
+rsiLen   = input.int(20, "RSI Length")
+rsiLow   = input.int(40, "RSI Lower Bound")
+rsiHigh  = input.int(60, "RSI Upper Bound")
+momLen   = input.int(5, "Momentum Period")
+useVolume = input.bool(true, "Use Volume Confirmation")
+minVolRatio = input.float(1.0, "Min Volume Ratio", step=0.1)
 
-### Logging and Error Handling
+// HMA using built-in function
+shortH = ta.hma(close, shortLen)
+longH = ta.hma(close, longLen)
 
-- **LogError**: Logs error messages to the console.
-- **HandleErrorResponse**: Handles errors returned from the Binance API.
+plot(shortH, color=color.orange, title="HMA Short")
+plot(longH, color=color.blue, title="HMA Long")
 
-## Usage
+// RSI
+rsi = ta.rsi(close, rsiLen)
 
-To use the `HullSMAStrategy`, instantiate the class with the necessary parameters (`RestClient`, `apiKey`, `OrderManager`, `Wallet`) and call the `RunAsync` or `RunOnHistoricalDataAsync` methods with the desired parameters.
+// Volume confirmation: recent = sma(volume,5), avg = sma(volume,20)
+recentVol = ta.sma(volume, 5)
+avgVol = ta.sma(volume, 20)
+volRatio = recentVol / math.max(avgVol, 1)
 
-## Considerations
+// Signals
+isRsiOk = (rsi < rsiLow) or (rsi > rsiHigh)
+isVolOk = not useVolume or (volRatio >= minVolRatio)
 
-- Ensure that the API keys and necessary permissions are correctly configured for executing trades.
-- Review the RSI thresholds and Hull lengths to adjust for different market conditions and improve performance.
+crossUp = (shortH > longH) and (ta.change(shortH) > 0) and (ta.change(longH) >= 0) and (shortH[1] <= longH[1])
+crossDown = (shortH < longH) and (ta.change(shortH) < 0) and (ta.change(longH) <= 0) and (shortH[1] >= longH[1])
+
+// Momentum confirmation (percent over momLen)
+momPercent = 100 * (close - close[momLen]) / math.max(close[momLen], 1)
+momOkLong = momPercent > 0
+momOkShort = momPercent < 0
+
+longSignal = crossUp and isRsiOk and isVolOk and momOkLong
+shortSignal = crossDown and isRsiOk and isVolOk and momOkShort
+
+// Background highlight for signals (green for long, red for short)
+// Adjust transparency by changing the second parameter (0 = opaque, 100 = fully transparent)
+bgcolor(longSignal ? color.new(color.green, 85) : na, title="Long Background")
+bgcolor(shortSignal ? color.new(color.red, 85) : na, title="Short Background")
+
+
+// Tooltip notes
+// - The indicator attempts to mirror the C# logic: HMA crossing + RSI outside 40-60 + recent volume vs 20-sample avg + short momentum.
+// - Adjust the inputs to match your backtest parameters.
+
+```
+
+---
+
+If you want, I can also:
+- Add a CSV dump in the runner that writes per-symbol volume ratios and whether signals were blocked (helps pick `MinVolumeRatio`).
+- Make `MinVolumeRatio` and other parameters read from `appsettings.json` so you can tune without recompiling.
+
+If you'd like the Pine Script changed (for example, to use median volume or show the 4 EHMA component values), tell me what you prefer and I'll update it.
 

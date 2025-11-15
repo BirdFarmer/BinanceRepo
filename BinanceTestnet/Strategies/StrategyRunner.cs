@@ -61,11 +61,13 @@ namespace BinanceTestnet.Strategies
 
                 foreach (var strategy in strategies)
                 {
+                    // Diagnostic: announce which strategy instance is about to run
+                    Console.WriteLine($"Executing strategy object: {strategy.GetType().Name}");
                     Stopwatch timer = new Stopwatch();
                     timer.Start();
                     await strategy.RunOnHistoricalDataAsync(historicalData);
                     var elapsed = timer.Elapsed;
-                    Console.WriteLine($"----------Strategy {strategy.ToString()} lasted {elapsed} " );
+                    Console.WriteLine($"----------Strategy {strategy.GetType().Name} lasted {elapsed} ");
                     _orderManager.CloseAllActiveTradesForBacktest(closePrice, lastKline.OpenTime);
                 } 
             }

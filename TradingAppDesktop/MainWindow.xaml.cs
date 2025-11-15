@@ -483,6 +483,8 @@ namespace TradingAppDesktop
                 Log("Attempting to start trading...");
                 // Clear previous trades when starting new session
                 _recentTradesVm.Clear();
+                // Clear the main trading log textbox so the new session starts fresh
+                LogText.Clear();
         
 
                 var selectedStrategies = StrategySelector.SelectedStrategies.ToList();
