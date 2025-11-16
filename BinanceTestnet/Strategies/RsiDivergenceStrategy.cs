@@ -13,6 +13,12 @@ namespace BinanceTestnet.Strategies
 {
     public class RsiDivergenceStrategy : StrategyBase
     {
+        // Internal entry tuning (not exposed as strategy parameters)
+        private const decimal SmallValue = 0.000001m;
+        private const int EntryLookaheadBarsDefault = 6;
+        private const int VolumeLookback = 20;
+        private const decimal VolumeMultiplier = 1.0m;
+        private const decimal MinBreakPct = 0.001m; // 0.1%
         public RsiDivergenceStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
             : base(client, apiKey, orderManager, wallet)
         {
@@ -56,25 +62,46 @@ namespace BinanceTestnet.Strategies
                             var lastStochastic = stochasticResults.Last();
 
                             // Check for bullish RSI divergence and Stochastic <= 10 for LONG
-                            var (signalKline, previousKline) = SelectSignalPair(klines);
+                            var (signalKline, previousKline) = SelectSignalPair(workingKlines);
                             if (signalKline == null || previousKline == null) return;
 
                             // Evaluate divergence on the same candle set used for indicators (workingKlines)
-                            if (IsBullishDivergence(workingKlines, rsiResults, stochasticResults) && lastStochastic.K <= 10)
+                            if (IsBullishDivergence(workingKlines, rsiResults, stochasticResults))
                             {
-                                Console.WriteLine($"Bullish RSI divergence and Stochastic is below 10. Going LONG");
-                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "RSI Divergence", signalKline.OpenTime);
-                                Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, signalKline, previousKline, "Bullish divergence + Stoch<=10");
-                                LogTradeSignal("LONG", symbol, signalKline.Close);
+                                // Bullish divergence detected. In live runs we only have the current candles,
+                                // so require the most recent (signal) candle to be a qualifying "turn" candle.
+                                var latest = signalKline;
+                                var prev = previousKline;
+                                if (latest != null && prev != null && IsGoodTurnCandle(latest, prev, workingKlines, rsiResults))
+                                {
+                                    Console.WriteLine("Bullish RSI divergence + turn candle detected. Going LONG");
+                                    await OrderManager.PlaceLongOrderAsync(symbol, latest.Close, "RSI Divergence", latest.CloseTime);
+                                    Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, latest, prev, "Bullish divergence + turn candle");
+                                    LogTradeSignal("LONG", symbol, latest.Close);
+                                }
+                                else
+                                {
+                                    Console.WriteLine("Bullish divergence detected but no qualifying turn candle yet.");
+                                }
                             }
 
                             // Check for bearish RSI divergence and Stochastic >= 90 for SHORT
-                            else if (IsBearishDivergence(workingKlines, rsiResults, stochasticResults) && lastStochastic.K >= 90)
+                            else if (IsBearishDivergence(workingKlines, rsiResults, stochasticResults))
                             {
-                                Console.WriteLine($"Bearish RSI divergence and Stochastic is above 90. Going SHORT");
-                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "RSI Divergence", signalKline.OpenTime);
-                                Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, signalKline, previousKline, "Bearish divergence + Stoch>=90");
-                                LogTradeSignal("SHORT", symbol, signalKline.Close);
+                                // Bearish divergence detected. Require the latest signal candle to be a qualifying bearish turn.
+                                var latest = signalKline;
+                                var prev = previousKline;
+                                if (latest != null && prev != null && IsGoodTurnCandle(latest, prev, workingKlines, rsiResults, isBullish: false))
+                                {
+                                    Console.WriteLine("Bearish RSI divergence + turn candle detected. Going SHORT");
+                                    await OrderManager.PlaceShortOrderAsync(symbol, latest.Close, "RSI Divergence", latest.CloseTime);
+                                    Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, latest, prev, "Bearish divergence + turn candle");
+                                    LogTradeSignal("SHORT", symbol, latest.Close);
+                                }
+                                else
+                                {
+                                    Console.WriteLine("Bearish divergence detected but no qualifying turn candle yet.");
+                                }
                             }
                         }
                     }
@@ -208,21 +235,69 @@ namespace BinanceTestnet.Strategies
                     var rsiSubset = rsiResults.Take(i + 1).ToList();
                     var stochasticSubset = stochasticResults.Take(i + 1).ToList();
 
-                    // Check for Bullish Divergence and place Long order
-                    if (IsBullishDivergence(klinesSubset, rsiSubset, stochasticSubset) && stochasticK <= 10)
+                    // Check for Bullish Divergence and search ahead for a qualifying turn candle to place Long order
+                    if (IsBullishDivergence(klinesSubset, rsiSubset, stochasticSubset))
                     {
-                        if (!string.IsNullOrEmpty(kline.Symbol)) {
-                            await OrderManager.PlaceLongOrderAsync(kline.Symbol, kline.Close, "RSI Divergence", kline.CloseTime);
-                            LogTradeSignal("LONG", kline.Symbol!, kline.Close);
+                        // pivot is at current index i; search the next few bars for a turn candle
+                        int pivotIndex = i;
+                        int maxLook = Math.Min(klines.Count - 1, pivotIndex + EntryLookaheadBarsDefault);
+
+                        // compute average volume baseline
+                        decimal avgVolume = 0m;
+                        int volStart = Math.Max(0, pivotIndex - VolumeLookback);
+                        int volCount = pivotIndex - volStart + 1;
+                        if (volCount > 0)
+                        {
+                            for (int v = volStart; v <= pivotIndex; v++) avgVolume += klines[v].Volume;
+                            avgVolume = avgVolume / Math.Max(1, volCount);
                         }
+
+                        for (int j = pivotIndex + 1; j <= maxLook; j++)
+                        {
+                            var candidate = klines[j];
+                            var prevBar = klines[j - 1];
+                            if (IsGoodTurnCandle(candidate, prevBar, klines, rsiResults, true, avgVolume * VolumeMultiplier))
+                            {
+                                if (!string.IsNullOrEmpty(candidate.Symbol))
+                                {
+                                    await OrderManager.PlaceLongOrderAsync(candidate.Symbol, candidate.Close, "RSI Divergence", candidate.CloseTime);
+                                    LogTradeSignal("LONG", candidate.Symbol!, candidate.Close);
+                                }
+                                break;
+                            }
+                        }
+                        // if not placed, skip this divergence (no qualifying turn found within lookahead)
                     }
 
-                    // Check for Bearish Divergence and place Short order
-                    else if (IsBearishDivergence(klinesSubset, rsiSubset, stochasticSubset) && stochasticK >= 90)
+                    // Check for Bearish Divergence and search ahead for a qualifying bearish turn candle
+                    else if (IsBearishDivergence(klinesSubset, rsiSubset, stochasticSubset))
                     {
-                        if (!string.IsNullOrEmpty(kline.Symbol)) {
-                            await OrderManager.PlaceShortOrderAsync(kline.Symbol, kline.Close, "RSI Divergence", kline.CloseTime);
-                            LogTradeSignal("SHORT", kline.Symbol!, kline.Close);
+                        int pivotIndex = i;
+                        int maxLook = Math.Min(klines.Count - 1, pivotIndex + EntryLookaheadBarsDefault);
+
+                        // compute average volume baseline
+                        decimal avgVolume = 0m;
+                        int volStart = Math.Max(0, pivotIndex - VolumeLookback);
+                        int volCount = pivotIndex - volStart + 1;
+                        if (volCount > 0)
+                        {
+                            for (int v = volStart; v <= pivotIndex; v++) avgVolume += klines[v].Volume;
+                            avgVolume = avgVolume / Math.Max(1, volCount);
+                        }
+
+                        for (int j = pivotIndex + 1; j <= maxLook; j++)
+                        {
+                            var candidate = klines[j];
+                            var prevBar = klines[j - 1];
+                            if (IsGoodTurnCandle(candidate, prevBar, klines, rsiResults, false, avgVolume * VolumeMultiplier))
+                            {
+                                if (!string.IsNullOrEmpty(candidate.Symbol))
+                                {
+                                    await OrderManager.PlaceShortOrderAsync(candidate.Symbol, candidate.Close, "RSI Divergence", candidate.CloseTime);
+                                    LogTradeSignal("SHORT", candidate.Symbol!, candidate.Close);
+                                }
+                                break;
+                            }
                         }
                     }
                 }
@@ -244,6 +319,48 @@ namespace BinanceTestnet.Strategies
             Console.WriteLine($"****** RSI Divergence Strategy ******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
             Console.WriteLine($"************************************************");
+        }
+
+        // Determine whether a candidate bar is a good turn candle for entry.
+        // If isBullish=true, require bullish turn (lower wick >= body OR small breakout above prev high).
+        // If isBullish=false, require bearish turn (upper wick >= body OR small breakdown below prev low).
+        // Optional volume baseline (if > 0) is applied symmetrically.
+        private bool IsGoodTurnCandle(Kline bar, Kline prevBar, List<Kline> klines, List<RsiResult> rsiResults, bool isBullish = true, decimal volumeBaseline = 0m)
+        {
+            // require directional close
+            if (isBullish)
+            {
+                if (bar.Close <= bar.Open) return false;
+            }
+            else
+            {
+                if (bar.Close >= bar.Open) return false;
+            }
+
+            decimal body = Math.Abs(bar.Close - bar.Open);
+            decimal denom = Math.Max(body, SmallValue);
+
+            // Lower wick for bullish, upper wick for bearish
+            decimal lowerWick = Math.Min(bar.Open, bar.Close) - bar.Low;
+            decimal upperWick = bar.High - Math.Max(bar.Open, bar.Close);
+
+            bool wickOk = isBullish
+                ? (lowerWick / denom) >= 1.0m    // lower wick >= body
+                : (upperWick / denom) >= 1.0m;   // upper wick >= body
+
+            // small-breakout/breakdown acceptance
+            bool breakoutOk = isBullish
+                ? bar.Close >= prevBar.High * (1 + MinBreakPct)
+                : bar.Close <= prevBar.Low * (1 - MinBreakPct);
+
+            // volume check if baseline provided
+            bool volOk = true;
+            if (volumeBaseline > 0m)
+            {
+                volOk = bar.Volume >= volumeBaseline;
+            }
+
+            return volOk && (wickOk || breakoutOk);
         }
 
         private void HandleErrorResponse(string symbol, RestResponse response)

@@ -480,6 +480,9 @@ namespace TradingAppDesktop
             {
                 StartButton.IsEnabled = false;
                 StopButton.IsEnabled = true;
+                // Clear the log for a fresh session
+                LogText.Clear();
+                StatusText.Text = string.Empty;
                 Log("Attempting to start trading...");
                 // Clear previous trades when starting new session
                 _recentTradesVm.Clear();
