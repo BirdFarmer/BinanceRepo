@@ -13,6 +13,44 @@ namespace BinanceTestnet.Database
         public TradeLogger(string databasePath)
         {
             _connectionString = $"Data Source={databasePath};";
+            // Ensure the Trades table has the expected columns (backfill missing columns for older DBs)
+            try
+            {
+                EnsureTradesColumns();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: failed to ensure Trades table columns: {ex.Message}");
+            }
+        }
+
+        // Adds missing columns to the Trades table if they don't exist (safe ALTER TABLE ADD COLUMN)
+        private void EnsureTradesColumns()
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var cmd = new SqliteCommand("PRAGMA table_info('Trades');", conn))
+                using (var rdr = cmd.ExecuteReader())
+                {
+                    while (rdr.Read()) existing.Add(rdr.GetString(rdr.GetOrdinal("name")));
+                }
+
+                using (var alterCmd = conn.CreateCommand())
+                {
+                    if (!existing.Contains("LiquidationPrice"))
+                    {
+                        alterCmd.CommandText = "ALTER TABLE Trades ADD COLUMN LiquidationPrice REAL DEFAULT 0;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                    if (!existing.Contains("MaintenanceMarginRate"))
+                    {
+                        alterCmd.CommandText = "ALTER TABLE Trades ADD COLUMN MaintenanceMarginRate REAL DEFAULT 0;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+            }
         }
 
         public int LogOpenTrade(Trade trade, string sessionId)
@@ -504,6 +542,8 @@ namespace BinanceTestnet.Database
 
             return totalLoss == 0 ? 1 : totalProfit / totalLoss; // Return 1 if totalLoss is 0
         }
+
+        
 
         /// <summary>
         /// Fetches session overview (start time, end time, total duration).
