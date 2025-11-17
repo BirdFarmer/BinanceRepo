@@ -158,7 +158,8 @@ namespace BinanceTestnet.Strategies
             var adx = CalculateADX(klines);
             if (adx == null || adx < _minAdxValue)
             {
-                Console.WriteLine($"Too weak trend (ADX: {adx}) - skipping signal checks for {symbol} - at {lastClosedKline.CloseTime.ToDateTime()}");
+                var closeDt = DateTimeOffset.FromUnixTimeMilliseconds(lastClosedKline.CloseTime).UtcDateTime;
+                Console.WriteLine($"Too weak trend (ADX: {adx}) - skipping signal checks for {symbol} - at {closeDt}");
                 return;
             }
                 

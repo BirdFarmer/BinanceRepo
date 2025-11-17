@@ -1038,6 +1038,7 @@ namespace BinanceTestnet.Trading
                         _onTradeEntered?.Invoke(trade.Symbol, trade.IsLong, trade.Signal, trade.EntryPrice, entryTime);
                     }
                     
+                    
                     // Regenerate timestamp for the next request
                     serverTime = await GetServerTimeAsync(5005);
                     await DelayAsync(200); // Small delay after timestamp refresh
@@ -1073,6 +1074,10 @@ namespace BinanceTestnet.Trading
                     else
                     {
                         Console.WriteLine($"Failed to place Stop Loss for {trade.Symbol}. Error: {stopLossResponse.ErrorMessage}");
+                        if (!string.IsNullOrEmpty(stopLossResponse.Content))
+                        {
+                            Console.WriteLine($"Stop loss response content: {stopLossResponse.Content}");
+                        }
                     }
 
                     // Step 3: Either place Take Profit (default) or Trailing Stop (if enabled)
@@ -1124,12 +1129,20 @@ namespace BinanceTestnet.Trading
                         else
                         {
                             Console.WriteLine($"Failed to place Take Profit for {trade.Symbol}. Error: {takeProfitResponse.ErrorMessage}");
+                            if (!string.IsNullOrEmpty(takeProfitResponse.Content))
+                            {
+                                Console.WriteLine($"Take profit response content: {takeProfitResponse.Content}");
+                            }
                         }
                     }
                 }
                 else
                 {
                     Console.WriteLine($"Failed to place {orderType} Order for {trade.Symbol}. Error: {response.ErrorMessage}");
+                    if (!string.IsNullOrEmpty(response.Content))
+                    {
+                        Console.WriteLine($"Market order response content: {response.Content}");
+                    }
                 }
             }
         }
@@ -1243,21 +1256,36 @@ namespace BinanceTestnet.Trading
             request.AddHeader("X-MBX-APIKEY", apiKey);
 
             var response = await _client.ExecuteAsync(request);
+
             if (!response.IsSuccessful)
             {
                 Log.Error($"Failed to fetch open positions: {response.StatusCode}, {response.ErrorMessage}");
+                if (!string.IsNullOrEmpty(response.Content))
+                {
+                    Log.Error($"Response content: {response.Content}");
+                }
                 return false;
             }
 
             try
             {
+                if (string.IsNullOrWhiteSpace(response.Content))
+                {
+                    return false;
+                }
+
                 var openPositions = JsonConvert.DeserializeObject<List<PositionRisk>>(response.Content);
+                if (openPositions == null) return false;
                 var openPosition = openPositions.FirstOrDefault(pos => pos.Symbol == symbol && pos.PositionAmt != 0);
                 return openPosition != null;
             }
             catch (Exception ex)
             {
-                Log.Error($"Error checking open position: {ex.Message}, Response: {response.Content}");
+                Log.Error($"Error checking open position: {ex.Message}");
+                if (!string.IsNullOrEmpty(response.Content))
+                {
+                    Log.Error($"Response content: {response.Content}");
+                }
                 return false;
             }
         }

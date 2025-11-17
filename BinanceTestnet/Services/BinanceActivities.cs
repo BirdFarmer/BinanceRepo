@@ -1,6 +1,7 @@
 using System;
 using BinanceTestnet.Trading;
 using RestSharp;
+using Newtonsoft.Json;
 using System.Security.Cryptography;
 using System.Text;
 using BinanceTestnet.Models;
@@ -96,10 +97,11 @@ public class BinanceActivities
             string? apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
             string? secretKey = Environment.GetEnvironmentVariable("BINANCE_API_SECRET");   
 
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            
+            // Use exchange server time to avoid recvWindow / timestamp skew errors
+            var serverTime = await GetServerTimeAsync();
+
             // Step 1: Create query parameters
-            var queryString = $"timestamp={timestamp}";
+            var queryString = $"timestamp={serverTime}";
             
             // Step 2: Generate signature for the request (assuming you have a generateSignature function)
             var signature = GenerateSignature(queryString);
@@ -113,18 +115,40 @@ public class BinanceActivities
 
             // Add API key to the request header
             request.AddHeader("X-MBX-APIKEY", apiKey);
-            // Send the request
-            var response = await _client.ExecuteAsync<List<PositionRisk>>(request);
-            
-            // Check if the response was successful
-            if (response.IsSuccessful && response.Data != null)
+            // Send the request (use non-generic execute to inspect raw content on error)
+            var response = await _client.ExecuteAsync(request);
+
+            if (!response.IsSuccessful)
             {
-                // Filter out trades with zero position amount, as they aren't active
-                positions = response.Data.Where(pos => pos.PositionAmt != 0).ToList();
+                Console.WriteLine($"Failed to fetch active trades: {response.StatusCode}, {response.ErrorMessage}");
+                if (!string.IsNullOrEmpty(response.Content))
+                {
+                    Console.WriteLine($"Response content: {response.Content}");
+                }
             }
             else
             {
-                Console.WriteLine($"Failed to fetch active trades: {response.ErrorMessage}");
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(response.Content))
+                    {
+                        // No content - return empty list
+                        return positions;
+                    }
+
+                    // Attempt to deserialize into the expected list
+                    var data = JsonConvert.DeserializeObject<List<PositionRisk>>(response.Content);
+                    if (data != null)
+                    {
+                        positions = data.Where(pos => pos.PositionAmt != 0).ToList();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // The response was not the expected array (could be an error object). Log for debugging.
+                    Console.WriteLine($"Failed to parse active trades JSON: {ex.Message}");
+                    Console.WriteLine($"Response content: {response.Content}");
+                }
             }
         }
         catch (Exception ex)
@@ -135,7 +159,7 @@ public class BinanceActivities
         return positions;
     }
     
-    public async Task<List<OpenOrder>> GetOpenOrdersFromBinance(string symbol = null)
+    public async Task<List<OpenOrder>> GetOpenOrdersFromBinance(string? symbol = null)
     {
         var openOrders = new List<OpenOrder>();
 
@@ -144,10 +168,11 @@ public class BinanceActivities
             string? apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
             string? secretKey = Environment.GetEnvironmentVariable("BINANCE_API_SECRET");
 
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            
+            // Use exchange server time to avoid recvWindow / timestamp skew errors
+            var serverTime = await GetServerTimeAsync();
+
             // Step 1: Create query parameters
-            var queryString = $"timestamp={timestamp}";
+            var queryString = $"timestamp={serverTime}";
             if (!string.IsNullOrEmpty(symbol))
             {
                 queryString += $"&symbol={symbol}";
@@ -166,17 +191,37 @@ public class BinanceActivities
             // Add API key to the request header
             request.AddHeader("X-MBX-APIKEY", apiKey);
             
-            // Send the request
-            var response = await _client.ExecuteAsync<List<OpenOrder>>(request);
+            // Send the request (use non-generic execute so we can inspect raw content when parsing fails)
+            var response = await _client.ExecuteAsync(request);
 
-            // Check if the response was successful
-            if (response.IsSuccessful && response.Data != null)
+            if (!response.IsSuccessful)
             {
-                openOrders = response.Data;
+                Console.WriteLine($"Failed to fetch open orders: {response.StatusCode}, {response.ErrorMessage}");
+                if (!string.IsNullOrEmpty(response.Content))
+                {
+                    Console.WriteLine($"Response content: {response.Content}");
+                }
             }
             else
             {
-                Console.WriteLine($"Failed to fetch open orders: {response.ErrorMessage}");
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(response.Content))
+                    {
+                        return openOrders;
+                    }
+
+                    var data = JsonConvert.DeserializeObject<List<OpenOrder>>(response.Content);
+                    if (data != null)
+                    {
+                        openOrders = data;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to parse open orders JSON: {ex.Message}");
+                    Console.WriteLine($"Response content: {response.Content}");
+                }
             }
         }
         catch (Exception ex)
@@ -232,6 +277,39 @@ public class BinanceActivities
         {
             Console.WriteLine($"Error updating stop-loss and take-profit: {ex.Message}");
         }
+    }
+
+    private async Task<long> GetServerTimeAsync()
+    {
+        var request = new RestRequest("/fapi/v1/time", Method.Get);
+        var response = await _client.ExecuteAsync(request);
+
+        if (!response.IsSuccessful)
+        {
+            throw new Exception($"Failed to fetch server time: {response.StatusCode} {response.ErrorMessage}");
+        }
+
+        if (string.IsNullOrWhiteSpace(response.Content))
+        {
+            throw new Exception("Empty server time response");
+        }
+
+        try
+        {
+            var serverTimeData = JsonConvert.DeserializeObject<ServerTimeResponse>(response.Content);
+            if (serverTimeData == null) throw new Exception("Invalid server time payload");
+            return serverTimeData.ServerTime;
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Failed to parse server time: {ex.Message}");
+        }
+    }
+
+    private class ServerTimeResponse
+    {
+        [JsonProperty("serverTime")]
+        public long ServerTime { get; set; }
     }
 
     public async Task UpdateStopLossOrder(string symbol, decimal stopLossPrice)
@@ -308,6 +386,10 @@ public class BinanceActivities
     private string GenerateSignature(string queryString)
     {
         string? apiSecret = Environment.GetEnvironmentVariable("BINANCE_API_SECRET");
+        if (string.IsNullOrEmpty(apiSecret))
+        {
+            throw new Exception("BINANCE_API_SECRET is not set in the environment");
+        }
         var keyBytes = Encoding.UTF8.GetBytes(apiSecret);
         var queryBytes = Encoding.UTF8.GetBytes(queryString);
 
