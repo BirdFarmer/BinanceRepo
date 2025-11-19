@@ -15,5 +15,6 @@ public enum SelectedTradingStrategy
     SMAExpansion = 12,
     BollingerSqueeze = 13,
     SupportResistance = 14,
-    SimpleSMA375 = 15
+    SimpleSMA375 = 15,
+    DEMASuperTrend = 16
 }

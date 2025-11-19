@@ -1,5 +1,5 @@
 {
-  "Strategy": "BollingerSqueeze",
+  "Strategy": "DEMASuperTrend",
   "Timeframes": ["5m"],
   "SymbolSets": {
     "tier_1_10": ["SOLUSDT", "ETHUSDT", "BTCUSDT", "ZECUSDT", "XRPUSDT", "UNIUSDT", "DOGEUSDT", "BNBUSDT", "GIGGLEUSDT", "FILUSDT"], "tier_100_110": ["TURBOUSDT", "XPINUSDT", "FLOWUSDT", "FORMUSDT", "TRUSTUSDT", "AIXBTUSDT", "WUSDT", "REEFUSDT", "KAVAUSDT", "SANDUSDT"], "tier_290_300": ["HEMIUSDT", "BALUSDT", "YALAUSDT", "BROCCOLI714USDT", "HANAUSDT", "ZRXUSDT", "STMXUSDT", "BARDUSDT", "WALUSDT", "EGLDUSDT"]
@@ -8,8 +8,8 @@
     {
       "Name": "fixed",
       "RiskProfiles": [
-        { "Name": "rr_2.5_to_2", "TpMultiplier": 7, "SlMultiplier": 3 },
-        { "Name": "rr_1_5_to_1", "TpMultiplier": 2, "SlMultiplier": 1 }, { "Name": "rr_7_to_1", "TpMultiplier": 3, "SlMultiplier": 1 }
+        { "Name": "rr_2.5_to_2", "TpMultiplier": 6, "SlMultiplier": 1 },
+        { "Name": "rr_1_5_to_1", "TpMultiplier": 1, "SlMultiplier": 1 }, { "Name": "rr_7_to_1", "TpMultiplier": 4, "SlMultiplier": 1 }
       ]
     }
   ],
