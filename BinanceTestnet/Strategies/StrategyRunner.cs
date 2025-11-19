@@ -130,6 +130,9 @@ namespace BinanceTestnet.Strategies
                         break;              
                     case SelectedTradingStrategy.SimpleSMA375:
                         strategies.Add(new SimpleSMA375Strategy(_client, _apiKey, _orderManager, _wallet));
+                        break;                        
+                    case SelectedTradingStrategy.DEMASuperTrend:
+                        strategies.Add(new DemaSupertrendStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;             
                                                                         
                 }
