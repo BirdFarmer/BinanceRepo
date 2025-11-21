@@ -2,6 +2,7 @@ using BinanceTestnet.Models;
 using BinanceTestnet.Trading;
 using Newtonsoft.Json;
 using RestSharp;
+using Skender.Stock.Indicators;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -14,7 +15,10 @@ public class FVGStrategy : StrategyBase
 {
     protected override bool SupportsClosedCandles => true;
     private readonly int _fvgLookbackPeriod = 36; // Number of periods to look back for FVGs
-    private readonly int _orderBookDepthLevels = 1000; // Number of levels to fetch from order book
+    private readonly int _emaPeriod = 50; // EMA length for trend alignment
+    private readonly int _adxPeriod = 14; // ADX period
+    private readonly decimal _adxThreshold = 20m; // Minimum ADX required to consider trend
+    
 
     public FVGStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
         : base(client, apiKey, orderManager, wallet)
@@ -42,29 +46,40 @@ public class FVGStrategy : StrategyBase
 
                     if (lastFVG.Type == secondLastFVG.Type)
                     {
-                        var orderBook = await FetchOrderBookAsync(symbol);
+                        // Build indicator quotes respecting closed-candle policy
+                        var indicatorQuotes = ToIndicatorQuotes(closedKlines);
+                        var emaTrend = Indicator.GetEma(indicatorQuotes, _emaPeriod).ToList();
+                        var adxResults = indicatorQuotes.GetAdx(_adxPeriod).ToList();
 
-                        if (ValidateFVGWithOrderBook(lastFVG, orderBook))
+                        var (signalKline, previousKline) = SelectSignalPair(klines);
+                        if (signalKline == null || previousKline == null) return;
+                        var currentKline = signalKline;
+
+                        // Map latest EMA/ADX values
+                        var lastEma = emaTrend.Count == indicatorQuotes.Count ? emaTrend.Last().Ema : null;
+                        var lastAdx = adxResults.Count == indicatorQuotes.Count ? adxResults.Last().Adx : null;
+
+                        bool trendFilterLong = lastEma == null || currentKline.Close > (decimal)lastEma;
+                        bool trendFilterShort = lastEma == null || currentKline.Close < (decimal)lastEma;
+                        bool adxFilter = lastAdx != null && lastAdx >= (double)_adxThreshold;
+
+                        // Require ADX threshold to ensure meaningful trend and EMA alignment for direction
+                        if (!adxFilter) return;
+
+                        if (lastFVG.Type == FVGType.Bullish)
                         {
-                            var (signalKline, previousKline) = SelectSignalPair(klines);
-                            if (signalKline == null || previousKline == null) return;
-                            var currentKline = signalKline;
-
-                            if (lastFVG.Type == FVGType.Bullish)
+                            if (currentKline.Low > lastFVG.UpperBound && trendFilterLong)
                             {
-                                if (currentKline.Low > lastFVG.UpperBound)
-                                {                                    
-                                    Console.WriteLine($"Low {currentKline.Low} is entering closest FVG between {lastFVG.LowerBound} and {lastFVG.UpperBound}.");
-                                    await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "FVG", currentKline.CloseTime);
-                                }
+                                Console.WriteLine($"Low {currentKline.Low} is entering closest FVG between {lastFVG.LowerBound} and {lastFVG.UpperBound}.");
+                                await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "FVG", currentKline.CloseTime);
                             }
-                            else if (lastFVG.Type == FVGType.Bearish)
+                        }
+                        else if (lastFVG.Type == FVGType.Bearish)
+                        {
+                            if (currentKline.High < lastFVG.LowerBound && trendFilterShort)
                             {
-                                if (currentKline.High < lastFVG.LowerBound)
-                                {
-                                    Console.WriteLine($"High {currentKline.High} is entering closest FVG between {lastFVG.UpperBound} and {lastFVG.LowerBound}.");
-                                    await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "FVG", currentKline.CloseTime);
-                                }
+                                Console.WriteLine($"High {currentKline.High} is entering closest FVG between {lastFVG.UpperBound} and {lastFVG.LowerBound}.");
+                                await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "FVG", currentKline.CloseTime);
                             }
                         }
                     }
@@ -77,7 +92,7 @@ public class FVGStrategy : StrategyBase
         }
     }
     
-    private List<Kline> ConvertQuotesToKlines(List<Quote> quotes)
+    private List<Kline> ConvertQuotesToKlines(List<BinanceTestnet.Models.Quote> quotes)
     {
         return quotes.Select(q => new Kline
         {
@@ -94,7 +109,7 @@ public class FVGStrategy : StrategyBase
 
     public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
     {
-        var quotes = historicalData.Select(k => new Quote
+        var quotes = historicalData.Select(k => new BinanceTestnet.Models.Quote
         {
             Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
             High = k.High,
@@ -121,12 +136,25 @@ public class FVGStrategy : StrategyBase
 
                     if (lastFVG.Type == secondLastFVG.Type)
                     {
-                        if (lastFVG.Type == FVGType.Bullish)
+                        // Build indicator arrays for historical series
+                        var emaTrend = Indicator.GetEma(quotes, _emaPeriod).ToList();
+                        var adxResults = quotes.GetAdx(_adxPeriod).ToList();
+
+                        var emaVal = emaTrend.Count > i + 1 ? emaTrend[i + 1].Ema : null;
+                        var adxVal = adxResults.Count > i + 1 ? adxResults[i + 1].Adx : null;
+
+                        bool trendFilterLong = emaVal == null || currentQuote.Close > (decimal)emaVal;
+                        bool trendFilterShort = emaVal == null || currentQuote.Close < (decimal)emaVal;
+                        bool adxFilter = adxVal != null && adxVal >= (double)_adxThreshold;
+
+                        if (!adxFilter) { /* skip if trend strength insufficient */ }
+                        else if (lastFVG.Type == FVGType.Bullish)
                         {
-                            // Long entry condition
+                            // Long entry condition with trend filters
                             if (previousQuote.Low >= lastFVG.LowerBound &&
                                 previousQuote.Low <= lastFVG.UpperBound &&
-                                currentQuote.Low > lastFVG.UpperBound)
+                                currentQuote.Low > lastFVG.UpperBound &&
+                                trendFilterLong)
                             {
                                 await OrderManager.PlaceLongOrderAsync(
                                     historicalData.ElementAt(i + 1).Symbol!,
@@ -138,10 +166,11 @@ public class FVGStrategy : StrategyBase
                         }
                         else if (lastFVG.Type == FVGType.Bearish)
                         {
-                            // Short entry condition
+                            // Short entry condition with trend filters
                             if (previousQuote.High <= lastFVG.UpperBound &&
                                 previousQuote.High >= lastFVG.LowerBound &&
-                                currentQuote.High < lastFVG.LowerBound)
+                                currentQuote.High < lastFVG.LowerBound &&
+                                trendFilterShort)
                             {
                                 await OrderManager.PlaceShortOrderAsync(
                                     historicalData.ElementAt(i + 1).Symbol!,
@@ -152,7 +181,7 @@ public class FVGStrategy : StrategyBase
                             }
                         }
                     }
-                }            
+                }
 
                 // Check for open trade closing conditions
                 var currentPrices = new Dictionary<string, decimal> { { historicalData.ElementAt(i).Symbol!, currentQuote.Close } };
@@ -212,16 +241,17 @@ public class FVGStrategy : StrategyBase
             {
                 if (fvg.Type == FVGType.Bullish)
                 {
-                    // Invalidate bullish FVG if price closes below its lower boundary
+                    // Invalidate bullish FVG if a later candle closes below its lower boundary (hard fill)
                     if (kline.Low < fvg.LowerBound)
                     {
+                        // hard fill: remove the bullish FVG
                         isFulfilled = true;
                         break;
                     }
                 }
                 else if (fvg.Type == FVGType.Bearish)
                 {
-                    // Invalidate bearish FVG if price closes above its upper boundary
+                    // Invalidate bearish FVG if a later candle closes above its upper boundary (hard fill)
                     if (kline.High > fvg.UpperBound)
                     {
                         isFulfilled = true;
@@ -239,108 +269,6 @@ public class FVGStrategy : StrategyBase
     }
 
     // Bucket and rounding provided by StrategyUtils
-
-    
-    private async Task<Dictionary<string, Dictionary<decimal, decimal>>?> FetchOrderBookAsync(string symbol)
-    {
-        var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/depth", new Dictionary<string,string>
-        {
-            {"symbol", symbol},
-            {"limit", _orderBookDepthLevels.ToString()}
-        });
-
-        var response = await Client.ExecuteGetAsync(request);
-        if (response.IsSuccessful && response.Content != null)
-        {
-            var orderBook = JsonConvert.DeserializeObject<OrderBook>(response.Content);
-            if (orderBook == null)
-            {
-                Console.WriteLine($"Failed to deserialize order book for {symbol}");
-                return null;
-            }
-
-            var bucketedBids = Helpers.StrategyUtils.BucketOrders(orderBook.Bids);
-            var bucketedAsks = Helpers.StrategyUtils.BucketOrders(orderBook.Asks);
-
-            return new Dictionary<string, Dictionary<decimal, decimal>>
-            {
-                { "Bids", bucketedBids },
-                { "Asks", bucketedAsks }
-            };
-        }
-        else
-        {
-            Console.WriteLine($"Failed to fetch order book for {symbol}: {response.ErrorMessage}");
-            return null;
-        }
-    }
-
- 
-    private Dictionary<string, decimal> AnalyzeOrderBook(OrderBook orderBook)
-    {
-        decimal buyVolume = 0;
-        decimal sellVolume = 0;
-
-        foreach (var bid in orderBook.Bids)
-        {
-            buyVolume += bid[0] * bid[1]; // Price * Quantity
-        }
-
-        foreach (var ask in orderBook.Asks)
-        {
-            sellVolume += ask[0] * ask[1]; // Price * Quantity
-        }
-
-        return new Dictionary<string, decimal>
-        {
-            { "BuyVolume", buyVolume },
-            { "SellVolume", sellVolume },
-            { "Imbalance", buyVolume - sellVolume }
-        };
-    }
-
-    private bool ValidateFVGWithOrderBook(FVGZone fvgZone, Dictionary<string, Dictionary<decimal, decimal>>? orderBookData)
-    {
-        if (orderBookData == null)
-            return false;
-
-        if (!orderBookData.TryGetValue("Bids", out var bids) || !orderBookData.TryGetValue("Asks", out var asks))
-            return false;
-
-        decimal totalBidVolume = bids.Values.Sum();
-        decimal totalAskVolume = asks.Values.Sum();
-        decimal totalVolume = totalBidVolume + totalAskVolume;
-
-        if (totalVolume == 0) return false; // Prevent division by zero
-
-        var imbalance = totalBidVolume - totalAskVolume;
-        var imbalancePercentage = Math.Abs(imbalance) / totalVolume * 100;
-
-        // Define a significance threshold (e.g., 5% of the total volume)
-        const decimal significanceThreshold = 5.0m;
-
-        //Console.WriteLine($"Imbalance: {imbalance}, Total Volume: {totalVolume}, Imbalance %: {imbalancePercentage}");
-
-        var isBullish = fvgZone.Type == FVGType.Bullish;
-
-        // Validate only if imbalance exceeds the significance threshold
-        if (imbalancePercentage >= significanceThreshold)
-        {
-            if (isBullish && imbalance > 0)
-            {
-                Console.WriteLine("Significant bullish imbalance supports bullish FVG.");
-                return true;
-            }
-            else if (!isBullish && imbalance < 0)
-            {
-                Console.WriteLine("Significant bearish imbalance supports bearish FVG.");
-                return true;
-            }
-        }
-
-        //Console.WriteLine("Imbalance not significant enough to validate FVG signal.");
-        return false;
-    }
 
 
     
@@ -374,6 +302,8 @@ public class FVGZone
     public decimal UpperBound { get; set; }
     public FVGType Type { get; set; } // Indicates if the FVG is bullish or bearish
     public DateTime CreationTime { get; set; } // New property to track when the FVG was created
+    // Optional diagnostics
+    public decimal GapSize => UpperBound - LowerBound;
 }
 
 
@@ -384,18 +314,5 @@ public enum FVGType
 }
 
 
-public class OrderBook
-{
-    [JsonProperty("bids")]
-    public List<List<decimal>> Bids { get; set; } = new();
 
-    [JsonProperty("asks")]
-    public List<List<decimal>> Asks { get; set; } = new();
-}
-
-public class OrderBookEntry
-{
-    public decimal Price { get; set; }
-    public decimal Quantity { get; set; }
-}
 }

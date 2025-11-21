@@ -1,59 +1,120 @@
 # FVG Strategy Summary
 
-The **FVG (Fair Value Gap) Strategy** seeks to capitalize on price imbalances by detecting "Fair Value Gaps" (FVGs) likely to be filled as the price reverts to mean levels. This strategy assumes an active market with continuous data updates to identify and exploit FVG zones effectively.
+This is a concise summary of the updated FVG (Fair Value Gap) strategy implementation. The strategy now removes any dependency on order-book validation (so backtests match live/paper modes) and uses lightweight trend filters to improve signal quality.
 
-## Core Concepts
+## What's Changed
+- Removed order-book fetching and imbalance checks — entries are now entirely price-action + indicator based so they are reproducible in historical backtests.
+- Added trend alignment filters:
+  - **EMA(50)**: only take longs when price > EMA50 and shorts when price < EMA50.
+  - **ADX(14)**: require ADX >= configurable threshold (default 20) to ensure a meaningful trend.
+- Volume logic: intentionally unchanged for now (no volume filters added).
 
-- **Fair Value Gap (FVG)**: An FVG is a price gap within a sequence of three consecutive candles, often created when the market makes a sharp move. This strategy assumes these gaps are revisited, providing entry points for reversals or trend continuations.
-  - **Bullish FVG**: Defined by three consecutive bullish candles, with the gap between the **high of the first candle** and the **low of the third candle**.
-  - **Bearish FVG**: Defined by three consecutive bearish candles, with the gap between the **high of the third candle** and the **low of the first candle**.
+## Key Entry Rules (summary)
+- Detect FVG zones using the canonical 3-candle rule (compare first and third candle highs/lows).
+- Require two most-recent FVGs of the same type (bullish or bearish) before considering an entry.
+- Long entry: previous candle retests the bullish FVG (previous low inside the gap) and the current candle moves above the FVG upper bound; current price must be above EMA(50) and ADX >= threshold.
+- Short entry: previous candle retests the bearish FVG (previous high inside the gap) and the current candle moves below the FVG lower bound; current price must be below EMA(50) and ADX >= threshold.
 
-## Strategy Workflow
+## Backtesting Notes
+- Risk-reward baseline: strict 1:1 to evaluate raw signal quality.
+- Timeframes to test: 5m, 15m, 1h, 4h.
+- Markets: BTC, ETH, and major alts across multiple market regimes (trending, ranging, volatile).
+- Primary objective: achieve >55% win rate at 1:1 RR; secondary targets: profit factor >1.5, max drawdown <15%.
 
-1. **Detecting FVGs**:
-   - Identifies gaps based on the high and low values of a sequence of three consecutive bullish or bearish candles.
-   - Flags these zones as potential reversal or continuation areas, where prices may revisit to "fill" the gap.
+## TradingView Pine Script (v5)
+The script below replicates the strategy's entry visualization. It scans recent bars for FVG zones, requires two consecutive same-type FVGs, applies EMA(50) and ADX filters, and paints a green background on long entry candles and red background on short entry candles.
 
-2. **Entry Signals**:
-   - **Long Entry**: Price revisits a bullish FVG (gap between the high of the first and the low of the third candle in three consecutive bullish candles).
-   - **Short Entry**: Price revisits a bearish FVG (gap between the low of the first and the high of the third candle in three consecutive bearish candles).
+Paste this into TradingView's Pine editor (version 5). The script is background-only and intends only to visualize entries — it does not place orders.
 
-3. **Exit Criteria**:
-   - Trades are exited once the FVG is filled or at predefined profit/loss thresholds to manage risk.
+```pinescript
+//@version=5
+indicator("FVG Entries (EMA50 + ADX)", overlay=true)
 
-## Technical Indicators
+// User inputs
+lookback = input.int(36, "FVG Lookback", minval=6)
+emaLen = input.int(50, "EMA Length", minval=1)
+adxLen = input.int(14, "ADX Length", minval=1)
+adxThresh = input.float(20.0, "ADX Threshold", minval=0.0)
 
-- **RSI (Relative Strength Index)**: Adds an extra layer of confirmation to avoid entering trades against overextended trends.
-- **Volume Filter**: Prioritizes FVG signals on high-volume moves, filtering out low-volume setups that may indicate weak price action.
+// Helper containers for zones
+var float[] lower = array.new_float()
+var float[] upper = array.new_float()
+var int[] types = array.new_int() // 1 = bullish, -1 = bearish
 
-## Strategy Implementation Details
+array.clear(lower)
+array.clear(upper)
+array.clear(types)
 
-### `RunAsync(string symbol, string interval)`
+// Scan recent bars to detect FVGs (3-bar rule: compare bar i-2 and i)
+// We'll collect all FVGs found within the lookback window
+for offset = 0 to lookback - 3
+    firstHigh = high[offset + 2]
+    firstLow = low[offset + 2]
+    thirdHigh = high[offset]
+    thirdLow = low[offset]
 
-1. **Data Fetching**: Requests recent price and volume data for the specified symbol and interval from the exchange.
-2. **FVG Detection**: Analyzes price gaps based on historical candle data using the updated logic:
-   - Bullish FVG: Between the high of the first candle and the low of the third in a sequence of three bullish candles.
-   - Bearish FVG: Between the low of the first candle and the high of the third in a sequence of three bearish candles.
-3. **Entry Conditions**:
-   - **Long Signal**: Price revisits a bullish FVG zone, with RSI confirming oversold conditions.
-   - **Short Signal**: Price revisits a bearish FVG zone, with RSI indicating overbought conditions.
-4. **Order Execution**: Places limit or market orders based on the FVG proximity.
+    if firstHigh < thirdLow
+        array.push(lower, firstHigh)
+        array.push(upper, thirdLow)
+        array.push(types, 1)
+    else if firstLow > thirdHigh
+        // bearish gap: upper bound = firstLow, lower bound = thirdHigh
+        array.push(lower, thirdHigh)
+        array.push(upper, firstLow)
+        array.push(types, -1)
 
-### `RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)`
+// Find last two FVGs (if any)
+fvgCount = array.size(types)
+hasTwo = fvgCount >= 2
+longEntry = false
+shortEntry = false
 
-1. **Simulated Trade Execution**: Runs through historical data to apply the updated FVG detection logic and simulate trades.
-2. **Performance Evaluation**: Measures profitability and trade frequency to assess viability and tune parameters.
+ema = ta.ema(close, emaLen)
+[dip, din, adx] = ta.dmi(adxLen, adxLen)
 
-## Key Considerations
+if hasTwo
+    lastIdx = fvgCount - 1
+    secondLastIdx = fvgCount - 2
+    lastType = array.get(types, lastIdx)
+    secondType = array.get(types, secondLastIdx)
+    if lastType == secondType
+        lastLower = array.get(lower, lastIdx)
+        lastUpper = array.get(upper, lastIdx)
 
-1. **Active Market Requirement**: This strategy is most effective in markets with consistent price data updates to detect and act on FVGs before price shifts.
-2. **Coin Pair Selection**: Operates across a rotating list of the 80 most active coin pairs, split evenly between those with the highest trading volume and the largest price changes. The list is updated every 20 cycles (5-minute intervals) to keep the strategy focused on high-activity markets.
-3. **Over-Triggering**: Due to the prevalence of FVGs in active markets, this strategy can trigger frequently, sometimes across multiple coin pairs. To address this:
-   - Consider increasing FVG thresholds or minimum gap sizes.
-   - Apply additional filters such as minimum volume, volatility bands, or a higher RSI sensitivity.
+        // previous candle retest and current candle clearing the zone
+        prevLow = low[1]
+        prevHigh = high[1]
+        curLow = low
+        curHigh = high
+
+        trendLong = close > ema
+        trendShort = close < ema
+        adxOk = adx >= adxThresh
+
+        if lastType == 1
+            // bullish: previous low inside gap and current low > upper bound
+            if prevLow >= lastLower and prevLow <= lastUpper and curLow > lastUpper and trendLong and adxOk
+                longEntry := true
+        else
+            // bearish: previous high inside gap and current high < lower bound
+            if prevHigh <= lastUpper and prevHigh >= lastLower and curHigh < lastLower and trendShort and adxOk
+                shortEntry := true
+
+// Paint backgrounds on entry candles
+bgcolor(longEntry ? color.new(color.green, 80) : na)
+bgcolor(shortEntry ? color.new(color.red, 80) : na)
+
+// Optional: plot EMA for visual aid
+plot(ema, color=color.yellow, linewidth=2)
+```
 
 ---
 
-**Note**: This strategy’s profitability in backtesting may differ in live trading due to the high trigger frequency and market variability. Fine-tuning FVG detection thresholds, using more stringent filters, or limiting trade count per cycle could help mitigate excessive entries and improve performance.
+If you want I can:
+- expose `EMA` and `ADX` parameters in a runtime config so they're editable without changing code,
+- run a quick backtest across a symbol/timeframe and report signal counts (I can run locally and share results), or
+- update the project docs to reflect these changes in `docs/strategies/detail/fvg-strategy.md`.
+
+Which of those would you like next?
 
 ---
