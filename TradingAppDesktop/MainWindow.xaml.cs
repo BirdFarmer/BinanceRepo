@@ -911,6 +911,20 @@ namespace TradingAppDesktop
             Log($"Candle policy: {(_useClosedCandles ? "Closed-only" : "Forming allowed")}");
         }
 
+        private void PreFlightButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var win = new PreFlightMarketCheckWindow();
+                win.Owner = this;
+                win.Show();
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to open Pre-Flight window: {ex.Message}");
+            }
+        }
+
         
 
         // Helper to find parent controls

@@ -127,12 +127,22 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Border Grid.Row="0" Background="{StaticResource AccentColor}" Padding="15">
-            <TextBlock Text="CRYPTO TRADING SUITE" 
-                    Foreground="White" 
-                    FontSize="18" 
-                    FontWeight="Bold"
-                    HorizontalAlignment="Center"/>
+        <Border Grid.Row="0" Background="{StaticResource AccentColor}" Padding="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="CRYPTO TRADING SUITE" 
+                        Foreground="White" 
+                        FontSize="18" 
+                        FontWeight="Bold"
+                        VerticalAlignment="Center"
+                        Margin="8,0"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0">
+                    <Button x:Name="PreFlightButton" Content="Pre-Flight Market Check" Click="PreFlightButton_Click"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
     <!-- Content Area -->
