@@ -17,4 +17,6 @@ public enum SelectedTradingStrategy
     SupportResistance = 14,
     SimpleSMA375 = 15,
     DEMASuperTrend = 16
+    ,
+    CDVReversalWithEMA = 17
 }
