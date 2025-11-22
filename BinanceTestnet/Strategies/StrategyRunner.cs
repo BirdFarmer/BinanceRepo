@@ -134,6 +134,9 @@ namespace BinanceTestnet.Strategies
                     case SelectedTradingStrategy.DEMASuperTrend:
                         strategies.Add(new DemaSupertrendStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;             
+                    case SelectedTradingStrategy.CDVReversalWithEMA:
+                        strategies.Add(new CDVReversalWithEMAStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
                                                                         
                 }
             }
