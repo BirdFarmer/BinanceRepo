@@ -136,6 +136,23 @@ namespace TradingAppDesktop.Views
                 }
 
                 var tasks = coins.Select(symbol => AnalyzeSymbolAsync(symbol)).ToArray();
+
+                List<Kline> btcKlines = null;
+                if (coins.Any(c => c != "BTCUSDT"))
+                {
+                    try
+                    {
+                        var btcTask = AnalyzeSymbolAsync("BTCUSDT");
+                        var btcResult = await btcTask;
+                        btcKlines = btcResult.klines;
+                    }
+                    catch (Exception btcEx)
+                    {
+                        // Log but don't fail the whole analysis
+                        Console.WriteLine($"BTC correlation data fetch failed: {btcEx.Message}");
+                    }
+                }
+
                 var results = await Task.WhenAll(tasks);
 
                 foreach (var (symbol, ctx, primary, klines, error) in results)
@@ -178,7 +195,12 @@ namespace TradingAppDesktop.Views
                         efficiency = sumAbs == 0 ? 0m : (decimal)(netMove / sumAbs);
                     }
 
-                    // BTC correlation removed
+                    // BTC correlation 
+                    decimal? btcCorrelation = null;
+                    if (symbol != "BTCUSDT" && btcKlines != null && klines != null)
+                    {
+                        btcCorrelation = ComputeSimpleBTCCorrelation(klines, btcKlines);
+                    }
 
                     // Right now metrics
                     var ema50 = primary?.EMA50 ?? 0m;
@@ -245,7 +267,10 @@ namespace TradingAppDesktop.Views
                     sp.Children.Add(new TextBlock { Text = $"Trend Strength Score: {regime.TrendConfidence / 100.0m:F2} (0-1)" });
                     sp.Children.Add(new TextBlock { Text = $"Direction & Change: {trend} {priceChangePct:F2}%" });
                     sp.Children.Add(new TextBlock { Text = $"Trend Quality (efficiency): {efficiency:F2}" });
-                    // BTC Correlation display removed
+                    if (btcCorrelation.HasValue)
+                    {
+                        sp.Children.Add(new TextBlock { Text = $"BTC Correlation: {btcCorrelation.Value:F2}" });
+                    }
                     sp.Children.Add(new TextBlock { Text = $"Candles analyzed: {candlesCount}" });
 
                     sp.Children.Add(new TextBlock { Text = "-- Right Now --", FontWeight = FontWeights.SemiBold });
@@ -479,7 +504,78 @@ namespace TradingAppDesktop.Views
                 MessageBox.Show(this, "Unable to show help: " + ex.Message, "Help error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-        
+
+        private static decimal? ComputeSimpleBTCCorrelation(List<Kline> currentCoinKlines, List<Kline> btcKlines)
+        {
+            if (currentCoinKlines == null || btcKlines == null || currentCoinKlines.Count < 50 || btcKlines.Count < 50)
+                return null;
+
+            try
+            {
+                // Simple approach: Use the last 200 candles and align by close time
+                var coinSlice = currentCoinKlines.TakeLast(200).ToList();
+                var btcSlice = btcKlines.TakeLast(200).ToList();
+                
+                // Build dictionaries for quick lookup by close time
+                var btcByTime = btcSlice.ToDictionary(k => k.CloseTime, k => k.Close);
+                
+                var coinReturns = new List<decimal>();
+                var btcReturns = new List<decimal>();
+                
+                // Calculate returns for matching timestamps
+                for (int i = 1; i < coinSlice.Count; i++)
+                {
+                    var currentCandle = coinSlice[i];
+                    var prevCandle = coinSlice[i - 1];
+                    
+                    if (btcByTime.TryGetValue(currentCandle.CloseTime, out decimal btcClose) &&
+                        btcByTime.TryGetValue(prevCandle.CloseTime, out decimal btcPrevClose))
+                    {
+                        // Calculate returns (percentage change)
+                        decimal coinReturn = (currentCandle.Close - prevCandle.Close) / prevCandle.Close;
+                        decimal btcReturn = (btcClose - btcPrevClose) / btcPrevClose;
+                        
+                        coinReturns.Add(coinReturn);
+                        btcReturns.Add(btcReturn);
+                    }
+                }
+                
+                if (coinReturns.Count < 30) return null; // Need minimum data
+                
+                // Calculate correlation
+                return CalculateCorrelation(coinReturns, btcReturns);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static decimal CalculateCorrelation(List<decimal> x, List<decimal> y)
+        {
+            if (x.Count != y.Count) return 0;
+            
+            decimal meanX = x.Average();
+            decimal meanY = y.Average();
+            
+            decimal numerator = 0;
+            decimal denomX = 0;
+            decimal denomY = 0;
+            
+            for (int i = 0; i < x.Count; i++)
+            {
+                decimal diffX = x[i] - meanX;
+                decimal diffY = y[i] - meanY;
+                
+                numerator += diffX * diffY;
+                denomX += diffX * diffX;
+                denomY += diffY * diffY;
+            }
+            
+            if (denomX == 0 || denomY == 0) return 0;
+            
+            return numerator / (decimal)(Math.Sqrt((double)(denomX * denomY)));
+        }
 
         private static List<Kline> ParseKlinesFromContent(string content)
         {
