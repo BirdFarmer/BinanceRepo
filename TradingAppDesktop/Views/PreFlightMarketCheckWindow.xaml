@@ -1,8 +1,8 @@
 <Window x:Class="TradingAppDesktop.Views.PreFlightMarketCheckWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Pre-Flight Market Check" Height="600" Width="900"
-        WindowStartupLocation="CenterOwner">
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Pre-Flight Market Check" Height="700" Width="1200"
+    WindowStartupLocation="CenterOwner">
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -48,7 +48,8 @@
         </StackPanel>
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-            <StackPanel x:Name="ResultsPanel" Orientation="Vertical" />
+            <!-- Use a 2x2 grid for up to four cards so they appear side-by-side -->
+            <UniformGrid x:Name="ResultsPanel" Columns="2" Rows="2" />
         </ScrollViewer>
     </Grid>
 </Window>

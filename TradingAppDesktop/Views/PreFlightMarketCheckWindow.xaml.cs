@@ -238,22 +238,43 @@ namespace TradingAppDesktop.Views
                     else recommendation = "❌ AVOID";
 
                     // Add copy-card button now that all local variables exist
-                    var copyCardBtn2 = new Button { Content = "Copy Card", Width = 80, Margin = new Thickness(8, 0, 0, 0) };
+                    var copyCardBtn2 = new Button { Content = "Copy Card", Width = 100, Margin = new Thickness(8, 0, 0, 0) };
                     copyCardBtn2.Click += (s, ev) =>
                     {
                         try
                         {
                             var sb = new System.Text.StringBuilder();
-                            sb.AppendLine(symbol);
+                            sb.AppendLine("==== Pre-Flight Card ====");
+                            sb.AppendLine(symbol + "    " + timeframe + "    " + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'"));
                             sb.AppendLine($"Regime: {trend} ({trendStrength})");
                             sb.AppendLine($"Confidence: {conf}% (Trend {regime?.TrendConfidence ?? 0} / Vol {regime?.VolatilityConfidence ?? 0})");
-                            // BTC Correlation removed from card
+                            sb.AppendLine("-- Historical Context --");
                             sb.AppendLine($"Candles analyzed: {candlesCount}");
-                            sb.AppendLine($"Trend Stage: {trendStage} ({stagePct:P0})");
-                            sb.AppendLine($"RSI(14): {(primary?.RSI ?? 0):F0}");
+                            sb.AppendLine($"First close: {firstClose:F8}");
+                            sb.AppendLine($"Last close: {lastClose:F8}");
+                            sb.AppendLine($"Direction & Change: {trend} {priceChangePct:F2}%");
+                            sb.AppendLine($"Trend Strength Score: {(regime?.TrendConfidence / 100.0m):F2} (0-1)");
+                            sb.AppendLine($"Trend Quality (efficiency): {efficiency:F2}");
+                            if (btcCorrelation.HasValue)
+                            {
+                                sb.AppendLine($"BTC Correlation: {btcCorrelation.Value:P2}");
+                            }
+
+                            sb.AppendLine("-- Right Now --");
+                            sb.AppendLine($"Price: {(primary?.Price ?? 0m):F8}");
+                            sb.AppendLine($"EMA50: {ema50:F8}  EMA200: {ema200:F8}");
+                            sb.AppendLine($"ATR: {(primary?.ATR ?? 0m):F8}");
                             sb.AppendLine($"Expansion (ATRs): {expansionInATR:F2}");
-                            sb.AppendLine($"Volume ratio: {volRatio:F2}x");
+                            sb.AppendLine($"Trend Stage: {trendStage} ({stagePct:P0})");
+                            sb.AppendLine($"RSI(14): {(primary?.RSI ?? 0):F0} {(primary != null ? (primary.RSI > 70 ? "(Overbought)" : primary.RSI < 30 ? "(Oversold)" : "(Neutral)") : "")}");
+                            // volume: report last, avg, multiplier and percent diff
+                            var lastVol = (klines != null && klines.Any()) ? klines.Last().Volume : 0m;
+                            var avgVolDisplay = avgVol;
+                            var volPctDiff = avgVolDisplay == 0 ? 0m : (lastVol - avgVolDisplay) / avgVolDisplay * 100m;
+                            sb.AppendLine($"Volume (last): {lastVol:F2}  Avg: {avgVolDisplay:F2}  Ratio: {volRatio:F2}x ({volPctDiff:F1}%)");
+
                             sb.AppendLine($"Recommendation: {recommendation}");
+                            sb.AppendLine("=========================");
                             Clipboard.SetText(sb.ToString());
                         }
                         catch { }
