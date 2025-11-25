@@ -201,6 +201,13 @@ namespace TradingAppDesktop.Views
                     // Compute quote-volume (USDT) for UI comparisons: prefer quote volume if available, otherwise baseVolume * closePrice
                     decimal GetQuoteVolume(Kline k) => (k == null) ? 0m : (k.Volume * k.Close);
                     var avgVol = klines != null && klines.Any() ? klines.Average(k => GetQuoteVolume(k)) : 0m; // avg quote-volume (USDT)
+                    // long-run volume baseline (200 bars) for context
+                    decimal ma200Vol = 0m;
+                    if (klines != null && klines.Any())
+                    {
+                        int maN = Math.Min(200, klines.Count);
+                        ma200Vol = klines.Skip(Math.Max(0, klines.Count - maN)).Average(k => GetQuoteVolume(k));
+                    }
                     // Use the previous closed candle for "last" volume to avoid including an in-progress bar
                     Kline lastClosedKline = null;
                     if (klines != null && klines.Count > 1) lastClosedKline = klines[klines.Count - 2];
@@ -432,31 +439,38 @@ namespace TradingAppDesktop.Views
                         sb.AppendLine("==== Pre-Flight Card ====");
                         sb.AppendLine(symbol + "    " + timeframe + "    " + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'"));
                         sb.AppendLine($"Regime: {localRegime.Type} ({localRegime.TrendStrength})");
-                        sb.AppendLine($"Confidence: {localRegime.OverallConfidence}% (Trend {localRegime.TrendConfidence} / Vol {localRegime.VolatilityConfidence})");
+                        sb.AppendLine($"Confidence: {localRegime.OverallConfidence}% (Trend {localRegime.TrendConfidence}% / Vol {localRegime.VolatilityConfidence}%)");
                         sb.AppendLine("-- Historical Context --");
                         sb.AppendLine($"Candles analyzed: {candlesCount}");
                         sb.AppendLine($"First close: {firstClose:F8}");
                         sb.AppendLine($"Last close: {lastClose:F8}");
                         sb.AppendLine($"Direction & Change: {localRegime.Type} {priceChangePct:F2}%");
-                        sb.AppendLine($"Trend Strength Score: {(localRegime.TrendConfidence / 100.0m):F2} (0-1)");
-                        sb.AppendLine($"Trend Quality (efficiency): {efficiency:F2}");
+                        sb.AppendLine($"Trend Strength Score: {localRegime.TrendConfidence}%");
+                        sb.AppendLine($"Trend Quality (efficiency): {(efficiency * 100m):F1}%");
                         if (btcCorrelation.HasValue)
                         {
-                            sb.AppendLine($"BTC Correlation: {btcCorrelation.Value:P2}");
+                            sb.AppendLine($"BTC Correlation: {btcCorrelation.Value:P1}");
                         }
 
                         sb.AppendLine("-- Right Now --");
                         sb.AppendLine($"Price: {(primary?.Price ?? 0m):F8}");
                         sb.AppendLine($"EMA50: {ema50:F8}  EMA200: {ema200:F8}");
-                        sb.AppendLine($"ATR: {(primary?.ATR ?? 0m):F8}");
-                        sb.AppendLine($"Expansion (ATRs): {expansionInATR:F2}");
+                        var atrVal = (primary?.ATR ?? 0m);
+                        var priceVal = (primary?.Price ?? 1m);
+                        var atrPct = priceVal != 0m ? (atrVal / priceVal) * 100m : 0m;
+                        sb.AppendLine($"ATR: {atrVal:F2} ({atrPct:F2}%)");
+                        // compute expansion percent relative to EMA50/EMA200 reference for human-friendly context
+                        var reference = ema50 != 0m ? ema50 : ema200;
+                        var expansionPct = reference != 0m ? ((primary?.Price ?? 0m) - reference) / reference * 100m : 0m;
+                        sb.AppendLine($"Expansion (ATRs): {expansionInATR:F2} ATRs (≈ {expansionPct:F2}%)");
                         sb.AppendLine($"Trend Stage: {trendStage} ({stagePct:P0})");
                         sb.AppendLine($"RSI(14): {(primary?.RSI ?? 0):F0} {(primary != null ? (primary.RSI > 70 ? "(Overbought)" : primary.RSI < 30 ? "(Oversold)" : "(Neutral)") : "")}");
                         // volume: report percent diff only (user preference)
                         var lastVol = lastQuoteVol;
                         var avgVolDisplay = avgVol; // already quote-volume
                         var volPctDiff = avgVolDisplay == 0 ? 0m : (lastVol - avgVolDisplay) / avgVolDisplay * 100m;
-                        sb.AppendLine($"Volume change: {volPctDiff:F1}%");
+                            sb.AppendLine($"Volume (vs short-term avg): {volPctDiff:F1}%");
+                            sb.AppendLine($"Volume (vs 200-bar MA): {(ma200Vol == 0m ? 0m : (lastVol - ma200Vol) / ma200Vol * 100m):F1}%");
 
                         // Volume warning summary (if any)
                         if (volWarningLevel > 0)
@@ -468,7 +482,11 @@ namespace TradingAppDesktop.Views
                         // Choppy note
                         if (PreFlightUtils.IsChoppy(efficiency, candlesCount)) sb.AppendLine("Market flagged as CHOPPY (low efficiency)");
 
+                        sb.AppendLine();
                         sb.AppendLine($"Recommendation: {recommendation}");
+                        sb.AppendLine();
+                        sb.AppendLine("-- Local Scores --");
+                        sb.AppendLine($"Trend: {trendConfLocal:F0}%  Vol: {volConfLocal:F0}%  Overall: {Math.Round(overallLocal):F0}%");
                         sb.AppendLine("=========================");
                         return sb.ToString();
                     };
@@ -489,38 +507,52 @@ namespace TradingAppDesktop.Views
                     // store the initial payload on the border so Copy All can aggregate without individual clicks
                     try { border.Tag = BuildCardPayload(); } catch { }
 
+                    // compute ui percent volume change early for banner and UI
+                    var uiVolPctDiff = avgVol == 0 ? 0m : (lastQuoteVol - avgVol) / avgVol * 100m;
                     // show volume warning banner if needed
                     if (volWarningLevel > 0)
                     {
-                        var warnText = volWarningLevel == 2 ? "CRITICAL: Volume far below typical — low liquidity" : "Low volume vs recent average — exercise caution";
+                        var warnText = volWarningLevel == 2
+                            ? $"CRITICAL: Volume far below typical (change {uiVolPctDiff:F1}%) — low liquidity"
+                            : $"LOW: volume below typical (change {uiVolPctDiff:F1}%)";
                         var warnBlock = new TextBlock { Text = warnText, Foreground = Brushes.White, Padding = new Thickness(6), Margin = new Thickness(0,6,0,6) };
                         warnBlock.Background = volWarningLevel == 2 ? Brushes.DarkRed : Brushes.Orange;
                         sp.Children.Insert(1, warnBlock); // just under header
                     }
 
                     sp.Children.Add(new TextBlock { Text = $"Regime: {localRegime.Type} ({localRegime.TrendStrength})" });
-                    sp.Children.Add(new TextBlock { Text = $"Confidence: {localRegime.OverallConfidence}% (Trend {localRegime.TrendConfidence} / Vol {localRegime.VolatilityConfidence})" });
+                    sp.Children.Add(new TextBlock { Text = $"Confidence: {localRegime.OverallConfidence}% (Trend {localRegime.TrendConfidence}% / Vol {localRegime.VolatilityConfidence}%)" });
 
                     sp.Children.Add(new TextBlock { Text = "-- Historical Context (last 1000) --", FontWeight = FontWeights.SemiBold });
-                    sp.Children.Add(new TextBlock { Text = $"Trend Strength Score: {localRegime.TrendConfidence / 100.0m:F2} (0-1)" });
+                    sp.Children.Add(new TextBlock { Text = $"Trend Strength Score: {localRegime.TrendConfidence}%" });
                     sp.Children.Add(new TextBlock { Text = $"Direction & Change: {localRegime.Type} {priceChangePct:F2}%" });
-                    sp.Children.Add(new TextBlock { Text = $"Trend Quality (efficiency): {efficiency:F2}" });
+                    sp.Children.Add(new TextBlock { Text = $"Trend Quality (efficiency): {(efficiency * 100m):F1}%" });
                     if (btcCorrelation.HasValue)
                     {
-                        sp.Children.Add(new TextBlock { Text = $"BTC Correlation: {btcCorrelation.Value:F2}" });
+                        sp.Children.Add(new TextBlock { Text = $"BTC Correlation: {btcCorrelation.Value:P1}" });
                     }
                     sp.Children.Add(new TextBlock { Text = $"Candles analyzed: {candlesCount}" });
 
                     sp.Children.Add(new TextBlock { Text = "-- Right Now --", FontWeight = FontWeights.SemiBold });
                     sp.Children.Add(new TextBlock { Text = $"Trend Stage: {trendStage} ({stagePct:P0})" });
                     sp.Children.Add(new TextBlock { Text = $"RSI(14): {primary.RSI:F0} ({(primary.RSI > 70 ? "Overbought" : primary.RSI < 30 ? "Oversold" : "Neutral")})" });
-                    sp.Children.Add(new TextBlock { Text = $"Expansion: {expansionInATR:F2} ATRs" });
-                    // show only percent diff for quick readability (user preference)
-                    var uiVolPctDiff = avgVol == 0 ? 0m : (lastQuoteVol - avgVol) / avgVol * 100m;
-                    sp.Children.Add(new TextBlock { Text = $"Volume change: {uiVolPctDiff:F1}%" });
+                    var atrValUi = (primary?.ATR ?? 0m);
+                    var atrPctUi = (primary?.Price ?? 1m) != 0m ? (atrValUi / (primary?.Price ?? 1m)) * 100m : 0m;
+                    sp.Children.Add(new TextBlock { Text = $"ATR: {atrValUi:F2} ({atrPctUi:F2}%)" });
+                    // Expansion with percent context
+                    var referenceUi = ema50 != 0m ? ema50 : ema200;
+                    var expansionPctUi = referenceUi != 0m ? ((primary?.Price ?? 0m) - referenceUi) / referenceUi * 100m : 0m;
+                    sp.Children.Add(new TextBlock { Text = $"Expansion: {expansionInATR:F2} ATRs (≈ {expansionPctUi:F2}%)" });
+                    sp.Children.Add(new TextBlock { Text = $"Volume (vs short-term avg): {uiVolPctDiff:F1}%" });
+                    // show last vs 200-bar volume moving average for long-term liquidity context
+                    var lastVs200PctUi = ma200Vol == 0m ? 0m : (lastQuoteVol - ma200Vol) / ma200Vol * 100m;
+                    sp.Children.Add(new TextBlock { Text = $"Volume (vs 200-bar MA): {lastVs200PctUi:F1}%" });
 
+                    // small visual gap before the recommendation to separate from 'Right Now' section
+                    sp.Children.Add(new TextBlock { Text = "", Height = 6 });
                     sp.Children.Add(new TextBlock { Text = $"Recommendation: {recommendation}", FontWeight = FontWeights.Bold });
-                    sp.Children.Add(new TextBlock { Text = $"Local Scores — Trend: {trendConfLocal}  Vol: {volConfLocal}  Overall: {overallLocal:F0}", FontStyle = FontStyles.Italic, Foreground = Brushes.DarkSlateGray });
+                    sp.Children.Add(new TextBlock { Text = "", Height = 4 });
+                    sp.Children.Add(new TextBlock { Text = $"Local Scores — Trend: {trendConfLocal:F0}%  Vol: {volConfLocal:F0}%  Overall: {overallLocal:F0}%", FontStyle = FontStyles.Italic, Foreground = Brushes.DarkSlateGray });
 
                     // Color-code card based on recommendation
                     border.Background = recommendation.StartsWith("✅") ? Brushes.LightGreen
@@ -557,181 +589,8 @@ namespace TradingAppDesktop.Views
             };
         }
 
-        // Compute timestamp-aligned Pearson correlation on log-returns with tolerant matching.
-        // We match timestamps allowing nearest-key matches within one interval to tolerate small alignment gaps.
-        private static (double? corr, int matched) ComputeTimestampAlignedCorrelation(List<Kline> a, List<Kline> b, int minMatches = 50)
-        {
-            if (a == null || b == null) return (null, 0);
-
-            // Build returns keyed by CloseTime (log-returns)
-            var returnsA = new Dictionary<long, double>();
-            for (int i = 1; i < a.Count; i++)
-            {
-                var prev = a[i - 1];
-                var cur = a[i];
-                if (prev.Close <= 0 || cur.Close <= 0) continue;
-                returnsA[cur.CloseTime] = Math.Log((double)cur.Close / (double)prev.Close);
-            }
-
-            var returnsB = new Dictionary<long, double>();
-            for (int i = 1; i < b.Count; i++)
-            {
-                var prev = b[i - 1];
-                var cur = b[i];
-                if (prev.Close <= 0 || cur.Close <= 0) continue;
-                returnsB[cur.CloseTime] = Math.Log((double)cur.Close / (double)prev.Close);
-            }
-
-            if (returnsA.Count == 0 || returnsB.Count == 0) return (null, 0);
-
-            // Prepare sorted keys for B for nearest lookup
-            var keysB = returnsB.Keys.OrderBy(k => k).ToArray();
-
-            // Estimate typical interval (use median diff from B if available else A)
-            long intervalMs = EstimateMedianInterval(keysB);
-            if (intervalMs <= 0)
-            {
-                var keysA = returnsA.Keys.OrderBy(k => k).ToArray();
-                intervalMs = EstimateMedianInterval(keysA);
-            }
-            if (intervalMs <= 0) intervalMs = 60 * 1000; // fallback 1m
-
-            // Relax tolerance to two intervals to improve match rate when series are nearly aligned
-            long tolerance = intervalMs * 2; // allow nearest within two candle intervals
-            Console.WriteLine($"ComputeTimestampAlignedCorrelation: returnsA={returnsA.Count}, returnsB={returnsB.Count}, intervalMs={intervalMs}, toleranceMs={tolerance}");
-
-            var matchedPairs = new List<(double a, double b)>();
-
-            var sortedKeysA = returnsA.Keys.OrderBy(k => k).ToArray();
-            foreach (var kA in sortedKeysA)
-            {
-                // try exact match first
-                if (returnsB.TryGetValue(kA, out var rb))
-                {
-                    matchedPairs.Add((returnsA[kA], rb));
-                    continue;
-                }
-
-                // binary search nearest in keysB
-                int idx = Array.BinarySearch(keysB, kA);
-                if (idx < 0) idx = ~idx;
-                long nearestKey = -1;
-                long bestDiff = long.MaxValue;
-                if (idx < keysB.Length)
-                {
-                    var diff = Math.Abs(keysB[idx] - kA);
-                    if (diff < bestDiff) { bestDiff = diff; nearestKey = keysB[idx]; }
-                }
-                if (idx - 1 >= 0)
-                {
-                    var diff = Math.Abs(keysB[idx - 1] - kA);
-                    if (diff < bestDiff) { bestDiff = diff; nearestKey = keysB[idx - 1]; }
-                }
-
-                if (nearestKey >= 0 && bestDiff <= tolerance)
-                {
-                    matchedPairs.Add((returnsA[kA], returnsB[nearestKey]));
-                }
-            }
-
-            int n = matchedPairs.Count;
-            if (n < minMatches) return (null, n);
-
-            // compute Pearson on matched pairs
-            double sumA = matchedPairs.Sum(p => p.a);
-            double sumB = matchedPairs.Sum(p => p.b);
-            double meanA = sumA / n;
-            double meanB = sumB / n;
-            double cov = 0, varA = 0, varB = 0;
-            foreach (var p in matchedPairs)
-            {
-                var da = p.a - meanA;
-                var db = p.b - meanB;
-                cov += da * db;
-                varA += da * da;
-                varB += db * db;
-            }
-            var denom = Math.Sqrt(varA * varB);
-            if (denom <= double.Epsilon) return (null, n);
-            var corr = cov / denom;
-            return (corr, n);
-        }
-
-        private static long EstimateMedianInterval(long[] keys)
-        {
-            if (keys == null || keys.Length < 2) return 0;
-            var diffs = new List<long>();
-            for (int i = 1; i < keys.Length; i++) diffs.Add(keys[i] - keys[i - 1]);
-            diffs.Sort();
-            return diffs[diffs.Count / 2];
-        }
-
-        private static string UnixMsToUtc(long ms)
-        {
-            try
-            {
-                return DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime.ToString("yyyy-MM-dd HH:mm");
-            }
-            catch
-            {
-                return ms.ToString();
-            }
-        }
-
-        // Index-aligned correlation fallback: align last N bars by index and compute Pearson on log-returns.
-        private static (double? corr, int matched) ComputeIndexAlignedCorrelation(List<Kline> a, List<Kline> b, int targetMatches = 950)
-        {
-            if (a == null || b == null) return (null, 0);
-
-            // Determine how many bars to use so that returns length is targetMatches if possible
-            int maxBars = Math.Min(a.Count, b.Count);
-            int desiredBars = Math.Min(maxBars, targetMatches + 1); // need bars = matches+1
-            if (desiredBars < 2) return (null, 0);
-
-            // take last desiredBars from each
-            var sliceA = a.Skip(a.Count - desiredBars).ToList();
-            var sliceB = b.Skip(b.Count - desiredBars).ToList();
-
-            var returnsA = new List<double>();
-            for (int i = 1; i < sliceA.Count; i++)
-            {
-                var prev = sliceA[i - 1];
-                var cur = sliceA[i];
-                if (prev.Close <= 0 || cur.Close <= 0) continue;
-                returnsA.Add(Math.Log((double)cur.Close / (double)prev.Close));
-            }
-
-            var returnsB = new List<double>();
-            for (int i = 1; i < sliceB.Count; i++)
-            {
-                var prev = sliceB[i - 1];
-                var cur = sliceB[i];
-                if (prev.Close <= 0 || cur.Close <= 0) continue;
-                returnsB.Add(Math.Log((double)cur.Close / (double)prev.Close));
-            }
-
-            int n = Math.Min(returnsA.Count, returnsB.Count);
-            if (n < 2) return (null, n);
-
-            // align by last n
-            var ra = returnsA.Skip(returnsA.Count - n).ToArray();
-            var rb = returnsB.Skip(returnsB.Count - n).ToArray();
-
-            double meanA = ra.Average();
-            double meanB = rb.Average();
-            double cov = 0, varA = 0, varB = 0;
-            for (int i = 0; i < n; i++)
-            {
-                var da = ra[i] - meanA;
-                var db = rb[i] - meanB;
-                cov += da * db;
-                varA += da * da;
-                varB += db * db;
-            }
-            var denom = Math.Sqrt(varA * varB);
-            if (denom <= double.Epsilon) return (null, n);
-            return (cov / denom, n);
-        }
+        // Helper methods (timestamp/index correlation, parsing, etc.) were extracted to a
+        // partial helper file to keep the codebehind focused and readable.
 
         private void InfoButton_Click(object sender, RoutedEventArgs e)
         {
@@ -776,122 +635,6 @@ namespace TradingAppDesktop.Views
             }
         }
 
-        private static decimal? ComputeSimpleBTCCorrelation(List<Kline> currentCoinKlines, List<Kline> btcKlines)
-        {
-            if (currentCoinKlines == null || btcKlines == null || currentCoinKlines.Count < 50 || btcKlines.Count < 50)
-                return null;
-
-            try
-            {
-                // Simple approach: Use the last 200 candles and align by close time
-                var coinSlice = currentCoinKlines.TakeLast(200).ToList();
-                var btcSlice = btcKlines.TakeLast(200).ToList();
-                
-                // Build dictionaries for quick lookup by close time
-                var btcByTime = btcSlice.ToDictionary(k => k.CloseTime, k => k.Close);
-                
-                var coinReturns = new List<decimal>();
-                var btcReturns = new List<decimal>();
-                
-                // Calculate returns for matching timestamps
-                for (int i = 1; i < coinSlice.Count; i++)
-                {
-                    var currentCandle = coinSlice[i];
-                    var prevCandle = coinSlice[i - 1];
-                    
-                    if (btcByTime.TryGetValue(currentCandle.CloseTime, out decimal btcClose) &&
-                        btcByTime.TryGetValue(prevCandle.CloseTime, out decimal btcPrevClose))
-                    {
-                        // Calculate returns (percentage change)
-                        decimal coinReturn = (currentCandle.Close - prevCandle.Close) / prevCandle.Close;
-                        decimal btcReturn = (btcClose - btcPrevClose) / btcPrevClose;
-                        
-                        coinReturns.Add(coinReturn);
-                        btcReturns.Add(btcReturn);
-                    }
-                }
-                
-                if (coinReturns.Count < 30) return null; // Need minimum data
-                
-                // Calculate correlation
-                return CalculateCorrelation(coinReturns, btcReturns);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static decimal CalculateCorrelation(List<decimal> x, List<decimal> y)
-        {
-            if (x.Count != y.Count) return 0;
-            
-            decimal meanX = x.Average();
-            decimal meanY = y.Average();
-            
-            decimal numerator = 0;
-            decimal denomX = 0;
-            decimal denomY = 0;
-            
-            for (int i = 0; i < x.Count; i++)
-            {
-                decimal diffX = x[i] - meanX;
-                decimal diffY = y[i] - meanY;
-                
-                numerator += diffX * diffY;
-                denomX += diffX * diffX;
-                denomY += diffY * diffY;
-            }
-            
-            if (denomX == 0 || denomY == 0) return 0;
-            
-            return numerator / (decimal)(Math.Sqrt((double)(denomX * denomY)));
-        }
-
-        private static List<Kline> ParseKlinesFromContent(string content)
-        {
-            var result = new List<Kline>();
-            try
-            {
-                var klineData = JsonConvert.DeserializeObject<List<List<object>>>(content);
-                if (klineData == null) return result;
-
-                foreach (var kline in klineData)
-                {
-                    long openTime = kline.Count > 0 && kline[0] != null ? Convert.ToInt64(kline[0], CultureInfo.InvariantCulture) : 0L;
-                    string s1 = kline.Count > 1 ? kline[1]?.ToString() ?? "0" : "0";
-                    string s2 = kline.Count > 2 ? kline[2]?.ToString() ?? "0" : "0";
-                    string s3 = kline.Count > 3 ? kline[3]?.ToString() ?? "0" : "0";
-                    string s4 = kline.Count > 4 ? kline[4]?.ToString() ?? "0" : "0";
-                    string s5 = kline.Count > 5 ? kline[5]?.ToString() ?? "0" : "0";
-                    long closeTime = kline.Count > 6 && kline[6] != null ? Convert.ToInt64(kline[6], CultureInfo.InvariantCulture) : 0L;
-                    string tradesStr = kline.Count > 8 ? kline[8]?.ToString() ?? "0" : "0";
-
-                    decimal open = decimal.TryParse(s1, NumberStyles.Any, CultureInfo.InvariantCulture, out var _open) ? _open : 0m;
-                    decimal high = decimal.TryParse(s2, NumberStyles.Any, CultureInfo.InvariantCulture, out var _high) ? _high : 0m;
-                    decimal low = decimal.TryParse(s3, NumberStyles.Any, CultureInfo.InvariantCulture, out var _low) ? _low : 0m;
-                    decimal close = decimal.TryParse(s4, NumberStyles.Any, CultureInfo.InvariantCulture, out var _close) ? _close : 0m;
-                    decimal vol = decimal.TryParse(s5, NumberStyles.Any, CultureInfo.InvariantCulture, out var _vol) ? _vol : 0m;
-                    int trades = int.TryParse(tradesStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var _trades) ? _trades : 0;
-
-                    result.Add(new Kline
-                    {
-                        OpenTime = openTime,
-                        Open = open,
-                        High = high,
-                        Low = low,
-                        Close = close,
-                        Volume = vol,
-                        CloseTime = closeTime,
-                        NumberOfTrades = trades
-                    });
-                }
-            }
-            catch
-            {
-                // swallow parsing errors - caller will handle empty list
-            }
-            return result;
-        }
+        
     }
 }

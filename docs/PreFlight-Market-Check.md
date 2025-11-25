@@ -29,50 +29,66 @@
   - Interpretation:
     - >= 75%: strong signal (this is the analyzer's guideline; Pre‑Flight uses a local, timeframe-specific score for recommendations — see below)
     - 50–74%: medium
-    - <50%: weak
+    **Overview**:
+    - **Purpose**: Quick, one-shot market-regime summary used before trading live. The Pre‑Flight tool evaluates up to 4 coin symbols in parallel and presents: historical context (≈1000 candles when available), right‑now metrics, BTC correlation, candles analyzed, and a simple recommendation (GO / CAUTION / AVOID).
     - Note (2025-11-23): The Pre‑Flight UI computes a timeframe‑local confidence (shown as `Local Scores`) and uses that local score to drive recommendations. The local score is symmetric for bullish/bearish signals and is computed from two components:
       - `TrendConfidenceLocal` (0–100): EMA alignment, EMA spread strength, RSI momentum, efficiency (net/smoothness), and recent-bar confirmation.
-      - `VolatilityConfidenceLocal` (0–100): ATR stability vs a recent ATR MA, ATR relative to price, volume sanity (quote-volume), and volatility stability (stddev of returns).
-    - `OverallConfidenceLocal` = average(TrendConfidenceLocal, VolatilityConfidenceLocal). The UI recommendation mapping uses this local overall score by default (the analyzer's confidences are still shown for comparison).
+    **Trend Strength Score**:
+    - A normalized 0–1 score derived from trend-alignment heuristics (higher is stronger trend).
+    - Use to compare trend clarity across symbols.
     - Local recommendation thresholds (UI default):
       - `✅ GO` — `OverallConfidenceLocal >= 70` and local regime is directional (Bullish or Bearish)
-      - `⚠️ CAUTION` — `OverallConfidenceLocal >= 50` but < 70
+    **Right-Now metrics**:
+      - **Trend Stage (ATR‑based)**: buckets computed from the current price distance measured in ATR units relative to a long-term reference (EMA200 / long-term baseline):
+        - **Early** — price within 0–1 ATR from the baseline (quiet / early move)
+        - **Mid** — price between 1–2 ATRs from the baseline (established trend)
+        - **Extended (High Risk)** — price > 2 ATRs from the baseline (extended; higher pullback risk)
+        - The UI falls back to a safe heuristic if ATR = 0 (e.g., uses EMA-distance percent). The label `Late` has been replaced with `Extended (High Risk)` to emphasize elevated risk.
       - `❌ AVOID` — `OverallConfidenceLocal < 50`
-
-- **Trend Strength Score**:
-  - A normalized 0–1 score derived from trend-alignment heuristics (higher is stronger trend).
-  - Use to compare trend clarity across symbols.
-
+      - **Volume (last vs avg)**: displayed as percent difference from the short-term average (percent-first formatting). All volume metrics in the Pre‑Flight UI are reported in the quote currency (USDT) for cross-symbol comparability. Details:
+        - Prefer `quoteVolume` when present in the kline; otherwise compute `quoteVolume = baseVolume * closePrice`.
+        - The UI reports the **previous closed candle** (second‑to‑last) as the `last` closed volume to avoid counting an in-progress bar.
+        - The card shows two volume comparisons: `Volume (vs short-term avg)` (percent diff) and `Volume (vs 200-bar MA)` (percent diff vs a long-term 200-bar moving average of quote-volume).
+        - The UI normalizes and presents volumes as percent (e.g., `-39.9%`) to keep cards compact and consistent.
+        - Pre‑Flight applies a volume-warning heuristic:
+          - **Red / High Alert** — last vs short-term avg < 0.30 (i.e. last volume < 30% of avg) — liquidity concerns.
+          - **Orange / Caution** — 0.30 ≤ ratio < 0.70 — reduced participation.
+          - Warnings appear as a banner on the card and are included in the clipboard payload. Optionally the UI will surface an absolute USDT minimum liquidity alert when average USDT volume is very small.
 - **Direction & Change (%)**:
-  - Percentage price change from the first to the last candle in the historical sample.
-  - Use to gauge how much the instrument has moved over the sampled window.
-
-- **Trend Quality (Efficiency)**:
+     - **Recommendation mapping (UI)**:
+       - `✅ GO` — shown when the UI's `OverallConfidenceLocal >= 70` and the local regime is directional (Bullish or Bearish).
+       - `⚠️ CAUTION` — shown when `OverallConfidenceLocal >= 50` but below the `GO` threshold.
+       - `❌ AVOID` — shown when `OverallConfidenceLocal < 50`.
+       - **Choppy override**: when `Efficiency < 0.10` (10%) and `Candles analyzed >= 100`, Pre‑Flight will override a directional label and mark the card as `RangingMarket (Choppy)` to avoid false directional signals while preserving diagnostics for inspection.
   - Computed as net change divided by sum of absolute moves. Range 0–1 where values closer to 1 indicate smoother directional movement (less choppy).
 
-- **BTC Correlation**:
-  - Simple Pearson-like correlation computed on returns between the target and `BTCUSDT` across overlapping samples. Shown as a percent (e.g., `+85%` means strong positive correlation).
-  - If `--` shown: symbol is `BTCUSDT` itself or insufficient overlap.
-  - Interpretation: High positive correlation means the coin tends to move with BTC; negative means inverse movement.
-
-- **Right-Now metrics**:
-  - **Trend Stage**: heuristic bucket (Early / Mid / Late) computed from current price relative to EMA50/EMA200 distance. Helps gauge where we might be inside a trending move.
-  - **RSI(14)**: momentum indicator (numeric). Common thresholds: >70 = overbought, <30 = oversold.
-  - **Expansion (in ATRs)**: distance from EMA200 measured in ATR units (how far price is extended relative to recent volatility). Large values imply the price is stretched.
-  - **Volume (last vs avg)**: ratio of the last candle's volume to the historical average (e.g., `1.8x` means last candle had 80% more volume than average).
-   - **Volume (last vs avg)**: all volume metrics in the Pre‑Flight UI are reported in the quote currency (USDT) to make cross-symbol comparison meaningful. Quote-volume is computed locally as:
-    - Prefer `quoteVolume` when the kline model includes it; otherwise compute `quoteVolume = baseVolume * closePrice`.
-    - The UI uses the **previous closed candle** (the second‑to‑last candle in the fetched series) as the `last` closed volume to avoid counting a partially-filled, in-progress bar.
-    - The card shows `Volume (last): <value> USDT  Avg: <value> USDT  Ratio: <x>x (<+/-y%>)`.
-
-- **Recommendation mapping (UI)**:
-  - `✅ GO` — shown when the UI's `OverallConfidenceLocal >= 70` and the local regime is directional (Bullish or Bearish).
-  - `⚠️ CAUTION` — shown when `OverallConfidenceLocal >= 50` but below the `GO` threshold.
-  - `❌ AVOID` — shown when `OverallConfidenceLocal < 50`.
-  - Color-coding: `GO` = light green card, `CAUTION` = light yellow, `AVOID` = light coral.
-
-**How to reproduce the analysis programmatically**:
-- Use `FetchHistoricalDataPublic(client, symbol, timeframe, start, end)` to get `List<Kline>`.
+    ==== Pre-Flight Card ====
+    BTCUSDT    5m    2025-11-23 12:34 UTC
+    Regime: BullishTrend (Strong)
+    Confidence: 78% (Trend 82 / Vol 74)
+    -- Historical Context --
+    Candles analyzed: 1000
+    First close: 27000.12
+    Last close: 27250.99
+    Direction & Change: BullishTrend 0.93%
+    Trend Strength Score: 0.82
+    Trend Quality (efficiency): 57%
+    -- Right Now --
+    Price: 27250.99
+    ATR: 150.23
+    Expansion (ATRs): 0.67
+    Trend Stage: Mid
+    RSI(14): 64
+    Volume (vs short-term avg): +20.0%
+    Volume (vs 200-bar MA): +12.3%
+    Volume Warning: None
+    Recommendation: ✅ GO
+    -- Local Scores --
+    Trend: 82  Vol: 74  Overall: 78
+    -- Diagnostics (included when enabled) --
+    Candles used: 1000  BTC corr: +82% (n=1000)
+    Parse notes: used latest-N fallback after startTime returned partial data
+    =========================
 - Compute the indicator set with `BTCTrendCalculator` helpers (EMA50/100/200, RSI(14), ATR).
 - For parity with reports you can use `MarketContextAnalyzer.AnalyzeCurrentRegime(...)` (this is the shared analyzer used in reports). Note: Pre‑Flight itself constructs its own local `MarketRegime` and recommendation using the timeframe-only indicators and local scoring; it does not call the shared analyzer when producing its UI recommendation.
 - Read `MarketRegime` fields for `TrendConfidence`, `VolatilityConfidence`, `OverallConfidence`, `TrendStrength`, `PriceVs200EMA`, `RSI`, `ATRRatio`, etc., if using the shared analyzer.
