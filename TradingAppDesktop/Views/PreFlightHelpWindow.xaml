@@ -1,0 +1,20 @@
+<Window x:Class="TradingAppDesktop.Views.PreFlightHelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Pre-Flight Help" Height="560" Width="700" WindowStartupLocation="CenterOwner">
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Pre-Flight Market Check — Help" FontSize="14" FontWeight="Bold" />
+
+        <TextBox x:Name="HelpTextBox" Grid.Row="1" Margin="0,8,0,8" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AcceptsReturn="True" FontFamily="Consolas"/>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Close" Width="80" Margin="0,4,0,0" Click="CloseButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

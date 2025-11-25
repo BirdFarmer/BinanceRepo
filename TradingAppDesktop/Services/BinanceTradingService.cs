@@ -431,9 +431,12 @@ namespace TradingAppDesktop.Services
                 var closes = new List<decimal>();
                 foreach (var k in arr)
                 {
-                    highs.Add(Convert.ToDecimal((string)k[2], CultureInfo.InvariantCulture));
-                    lows.Add(Convert.ToDecimal((string)k[3], CultureInfo.InvariantCulture));
-                    closes.Add(Convert.ToDecimal((string)k[4], CultureInfo.InvariantCulture));
+                    var sH = k[2]?.ToString() ?? "0";
+                    var sL = k[3]?.ToString() ?? "0";
+                    var sC = k[4]?.ToString() ?? "0";
+                    highs.Add(Convert.ToDecimal(sH, CultureInfo.InvariantCulture));
+                    lows.Add(Convert.ToDecimal(sL, CultureInfo.InvariantCulture));
+                    closes.Add(Convert.ToDecimal(sC, CultureInfo.InvariantCulture));
                 }
 
                 // Compute TR and ATR(14) approximated with Wilder's smoothing
@@ -1623,6 +1626,12 @@ namespace TradingAppDesktop.Services
                 Console.WriteLine($"Failed to fetch historical data for {symbol}: {response.ErrorMessage}");
             }
             return historicalData;
+        }
+
+        // Public wrapper so other UI components can reuse the same historical fetch logic
+        public static Task<List<Kline>> FetchHistoricalDataPublic(RestClient client, string symbol, string interval, DateTime startDate, DateTime endDate)
+        {
+            return FetchHistoricalData(client, symbol, interval, startDate, endDate);
         }
 
         public static string GenerateSessionId()

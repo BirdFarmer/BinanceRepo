@@ -31,9 +31,10 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Background="{TemplateBinding Background}" 
-                                CornerRadius="4">
-                            <ContentPresenter HorizontalAlignment="Center" 
-                                            VerticalAlignment="Center"/>
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>
@@ -127,12 +128,22 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Border Grid.Row="0" Background="{StaticResource AccentColor}" Padding="15">
-            <TextBlock Text="CRYPTO TRADING SUITE" 
-                    Foreground="White" 
-                    FontSize="18" 
-                    FontWeight="Bold"
-                    HorizontalAlignment="Center"/>
+        <Border Grid.Row="0" Background="{StaticResource AccentColor}" Padding="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="CRYPTO TRADING SUITE" 
+                        Foreground="White" 
+                        FontSize="18" 
+                        FontWeight="Bold"
+                        VerticalAlignment="Center"
+                        Margin="8,0"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0">
+                    <!-- PreFlight button moved to footer for easier access -->
+                </StackPanel>
+            </Grid>
         </Border>
 
     <!-- Content Area -->
@@ -450,13 +461,14 @@
                         HorizontalAlignment="Left"/>
                 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="CoinSelectionButton" Content="MANAGE COINS" Click="CoinSelectionButton_Click" Background="#9b59b6" Foreground="White" Margin="5"/>
-                    <Button x:Name="MultiTesterButton" Content="MULTI TESTER" Click="MultiTesterButton_Click" Background="#6C5CE7" Foreground="White" Margin="5"/>
-                    <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click"/>
+                    <Button x:Name="PreFlightButton" Content="PRE-FLIGHT MARKET CHECK" Click="PreFlightButton_Click" Background="{StaticResource AccentColor}" Foreground="White"/>
+                    <Button x:Name="CoinSelectionButton" Content="MANAGE COINS" Click="CoinSelectionButton_Click" Background="{StaticResource AccentColor}" Foreground="White"/>
+                    <Button x:Name="MultiTesterButton" Content="MULTI TESTER" Click="MultiTesterButton_Click" Background="{StaticResource AccentColor}" Foreground="White"/>
+                    <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click" Background="{StaticResource AccentColor}" Foreground="White"/>
                     <Button x:Name="StartButton" Content="START TRADING" 
-                            Background="{StaticResource SuccessColor}" Click="StartButton_Click"/>
+                        Background="{StaticResource SuccessColor}" Click="StartButton_Click"/>
                     <Button x:Name="StopButton" Content="STOP TRADING" 
-                            Background="{StaticResource DangerColor}" Click="StopButton_Click"/>
+                        Background="{StaticResource DangerColor}" Click="StopButton_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
