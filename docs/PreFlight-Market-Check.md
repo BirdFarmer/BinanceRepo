@@ -4,7 +4,7 @@
 **Where the code lives**:
 - **UI / orchestrator**: `TradingAppDesktop/Views/PreFlightMarketCheckWindow.xaml.cs`
 - **Kline fetch helper used by UI**: `TradingAppDesktop/Services/BinanceTradingService.cs` (method: `FetchHistoricalDataPublic`)
-- **Regime analysis**: `BinanceTestnet/MarketAnalysis/MarketContextAnalyzer.cs`
+- **Regime analysis**: Pre‑Flight now builds a timeframe-local `MarketRegime` using the klines it fetches for each symbol. It does NOT call the shared `MarketContextAnalyzer` when producing the UI recommendation; the shared analyzer remains available and is still used elsewhere (reports), but Pre‑Flight shows its own local scores for transparency.
 - **Kline model**: `BinanceTestnet/Models/Kline.cs`
 - **Indicator helpers**: `BTCTrendCalculator` (indicator calculations used by the UI and analyzer)
 
@@ -27,9 +27,17 @@
   - **TrendConfidence**: measures multi-timeframe alignment, EMA spreads, and RSI momentum. Higher means the trend signal is stronger and cleaner.
   - **VolatilityConfidence**: measures volatility regime suitability (ATR, dispersion). High volatility confidence indicates predictable/consistent volatility for the regime.
   - Interpretation:
-    - >= 75%: strong signal (used by the UI mapping for `GO` when regime is directional)
-    - 50–74%: medium (UI shows `CAUTION`)
-    - <50%: weak (UI shows `AVOID`)
+    - >= 75%: strong signal (this is the analyzer's guideline; Pre‑Flight uses a local, timeframe-specific score for recommendations — see below)
+    - 50–74%: medium
+    - <50%: weak
+    - Note (2025-11-23): The Pre‑Flight UI computes a timeframe‑local confidence (shown as `Local Scores`) and uses that local score to drive recommendations. The local score is symmetric for bullish/bearish signals and is computed from two components:
+      - `TrendConfidenceLocal` (0–100): EMA alignment, EMA spread strength, RSI momentum, efficiency (net/smoothness), and recent-bar confirmation.
+      - `VolatilityConfidenceLocal` (0–100): ATR stability vs a recent ATR MA, ATR relative to price, volume sanity (quote-volume), and volatility stability (stddev of returns).
+    - `OverallConfidenceLocal` = average(TrendConfidenceLocal, VolatilityConfidenceLocal). The UI recommendation mapping uses this local overall score by default (the analyzer's confidences are still shown for comparison).
+    - Local recommendation thresholds (UI default):
+      - `✅ GO` — `OverallConfidenceLocal >= 70` and local regime is directional (Bullish or Bearish)
+      - `⚠️ CAUTION` — `OverallConfidenceLocal >= 50` but < 70
+      - `❌ AVOID` — `OverallConfidenceLocal < 50`
 
 - **Trend Strength Score**:
   - A normalized 0–1 score derived from trend-alignment heuristics (higher is stronger trend).
@@ -52,18 +60,22 @@
   - **RSI(14)**: momentum indicator (numeric). Common thresholds: >70 = overbought, <30 = oversold.
   - **Expansion (in ATRs)**: distance from EMA200 measured in ATR units (how far price is extended relative to recent volatility). Large values imply the price is stretched.
   - **Volume (last vs avg)**: ratio of the last candle's volume to the historical average (e.g., `1.8x` means last candle had 80% more volume than average).
+   - **Volume (last vs avg)**: all volume metrics in the Pre‑Flight UI are reported in the quote currency (USDT) to make cross-symbol comparison meaningful. Quote-volume is computed locally as:
+    - Prefer `quoteVolume` when the kline model includes it; otherwise compute `quoteVolume = baseVolume * closePrice`.
+    - The UI uses the **previous closed candle** (the second‑to‑last candle in the fetched series) as the `last` closed volume to avoid counting a partially-filled, in-progress bar.
+    - The card shows `Volume (last): <value> USDT  Avg: <value> USDT  Ratio: <x>x (<+/-y%>)`.
 
 - **Recommendation mapping (UI)**:
-  - `✅ GO` — shown when `OverallConfidence >= 75` and regime is directional (Bullish or Bearish).
-  - `⚠️ CAUTION` — shown when `OverallConfidence >= 50` but below the `GO` threshold.
-  - `❌ AVOID` — shown when `OverallConfidence < 50`.
+  - `✅ GO` — shown when the UI's `OverallConfidenceLocal >= 70` and the local regime is directional (Bullish or Bearish).
+  - `⚠️ CAUTION` — shown when `OverallConfidenceLocal >= 50` but below the `GO` threshold.
+  - `❌ AVOID` — shown when `OverallConfidenceLocal < 50`.
   - Color-coding: `GO` = light green card, `CAUTION` = light yellow, `AVOID` = light coral.
 
 **How to reproduce the analysis programmatically**:
 - Use `FetchHistoricalDataPublic(client, symbol, timeframe, start, end)` to get `List<Kline>`.
 - Compute the indicator set with `BTCTrendCalculator` helpers (EMA50/100/200, RSI(14), ATR).
-- Create a `BTCTrendAnalysis` with the primary indicator set, pass it and the klines to `MarketContextAnalyzer.AnalyzeCurrentRegime(...)`.
-- Read `MarketRegime` fields for `TrendConfidence`, `VolatilityConfidence`, `OverallConfidence`, `TrendStrength`, `PriceVs200EMA`, `RSI`, `ATRRatio`, etc.
+- For parity with reports you can use `MarketContextAnalyzer.AnalyzeCurrentRegime(...)` (this is the shared analyzer used in reports). Note: Pre‑Flight itself constructs its own local `MarketRegime` and recommendation using the timeframe-only indicators and local scoring; it does not call the shared analyzer when producing its UI recommendation.
+- Read `MarketRegime` fields for `TrendConfidence`, `VolatilityConfidence`, `OverallConfidence`, `TrendStrength`, `PriceVs200EMA`, `RSI`, `ATRRatio`, etc., if using the shared analyzer.
 
 **Troubleshooting**:
 - "No kline data returned" or very small `Candles analyzed`:
@@ -73,6 +85,33 @@
   - Verify `candles analyzed` — low N will reduce reliability.
   - Check `Confidence` breakdown (Trend vs Vol) to see which side is low.
 - To debug the raw response, open `TradingAppDesktop/Views/PreFlightMarketCheckWindow.xaml.cs` and inspect the diagnostic message returned when klines are missing (it includes HTTP status and a short content length).
+
+**Example Copy-Card (what you get in the clipboard)**
+```
+==== Pre-Flight Card ====
+BTCUSDT    5m    2025-11-23 12:34 UTC
+Regime: BullishTrend (Strong)
+Confidence: 78% (Trend 82 / Vol 74)
+-- Historical Context --
+Candles analyzed: 1000
+First close: 27000.12345678
+Last close: 27250.98765432
+Direction & Change: BullishTrend 0.93%
+Trend Strength Score: 0.82 (0-1)
+Trend Quality (efficiency): 0.57
+-- Right Now --
+Price: 27250.98765432
+EMA50: 27100.1234  EMA200: 26000.5678
+ATR: 150.2345
+Expansion (ATRs): 0.67
+Trend Stage: Mid (50%)
+RSI(14): 64 (Neutral)
+Volume (last): 1200000.00 USDT  Avg: 1000000.00 USDT  Ratio: 1.20x (20.0%)
+Recommendation: ✅ GO
+-- Local Scores --
+Trend: 82  Vol: 74  Overall: 78
+=========================
+```
 
 **Build & run (quick)**
 - From the repo root:

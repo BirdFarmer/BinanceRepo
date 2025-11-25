@@ -23,6 +23,13 @@ What you see
   - ⚠️ CAUTION — mixed or medium confidence
   - ❌ AVOID — weak or unclear signal
 
+
+Important user notes
+- Each card shows `Local Scores` (Trend / Volatility / Overall) and a colored recommendation: `✅ GO` (green), `⚠️ CAUTION` (yellow), or `❌ AVOID` (red). Use the recommendation as a quick filter, not a trade instruction.
+- Volumes are shown in the quote currency (USDT). When necessary the UI computes quote-volume as `baseVolume * closePrice`.
+- The "last" volume reported uses the previous closed candle (second‑to‑last) to avoid counting an in-progress bar.
+- BTC correlation is shown as a diagnostic only and may be blank if BTC data is unavailable.
+
 How to interpret
 - Use the recommendation as a quick filter, not a trade instruction. Check candles analyzed and confidence first.
 - If `Candles analyzed` is low, the historical context is unreliable — prefer CAUTION.
@@ -63,7 +70,10 @@ This guide is intentionally brief — click the help (ℹ) icon anytime for this
   - Use RSI together with trend and ATR: an overbought reading inside a strong uptrend is different from overbought in a ranging market.
 
 - **Volume ratio:** last candle volume ÷ average volume (on the analyzed range).
-  - > 1 — higher-than-average volume on the last bar (can confirm strength of a move).
+ - **Volume ratio:** last candle volume ÷ average volume (on the analyzed range).
+  - Note: Pre‑Flight reports all volume metrics in the quote currency (USDT). Quote-volume is obtained from the kline's `quoteVolume` when available; otherwise the UI computes `quoteVolume = baseVolume * closePrice`.
+  - The UI uses the **previous closed candle** (second‑to‑last candle) as the `last` closed volume to avoid counting an in-progress bar.
+  - > 1 — higher-than-average volume on the last closed bar (can confirm strength of a move).
   - < 1 — lower-than-average volume (move may be weak or illiquid).
 
 - **Candles analyzed:** number of bars used for the analysis. The tool attempts ~1000 bars when available.
@@ -78,6 +88,19 @@ This guide is intentionally brief — click the help (ℹ) icon anytime for this
   - **Trend Confidence** — how clean and strong the trend signals are (EMA alignment, directional momentum).
   - **Volatility Confidence** — whether volatility and price action are behaving in ways that make trend signals reliable.
   - The combined Confidence is meant as a quick filter: high confidence strengthens the recommendation; low confidence downgrades it.
+ - **Confidence and its components:** the displayed Confidence is a combined percent derived from two sub-scores:
+ - **Trend Confidence** — how clean and strong the trend signals are (EMA alignment, directional momentum).
+ - **Volatility Confidence** — whether volatility and price action are behaving in ways that make trend signals reliable.
+ - The combined Confidence is meant as a quick filter: high confidence strengthens the recommendation; low confidence downgrades it.
+ - **Local Pre‑Flight confidence (new):** the UI also computes a timeframe‑specific local confidence used for recommendations. It is composed of:
+   - `TrendConfidenceLocal` — EMA alignment, EMA spread, RSI, efficiency, and recent-bar confirmation (0–100).
+   - `VolatilityConfidenceLocal` — ATR ratio vs ATR MA, ATR relative to price, volume sanity (USDT), and returns stability (0–100).
+   - `OverallConfidenceLocal = (TrendConfidenceLocal + VolatilityConfidenceLocal) / 2`.
+   - Default UI mapping (used by Pre‑Flight recommendations):
+     - `✅ GO` — `OverallConfidenceLocal >= 70` and regime is directional (Bullish/Bearish)
+     - `⚠️ CAUTION` — `OverallConfidenceLocal >= 50` but < 70
+     - `❌ AVOID` — `OverallConfidenceLocal < 50`
+   - The UI shows both analyzer confidences and the local scores (labelled `Local Scores`) so you can compare.
 
 How to use these numbers together
 - Start by checking `Candles analyzed` and `Confidence`. If either is low, default to `CAUTION`.

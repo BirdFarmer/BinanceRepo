@@ -1,14 +1,14 @@
 {
-  "Strategy": "CDVReversalWithEMA",
-  "Timeframes": ["5m", "15m"],
+  "Strategy": "FVG",
+  "Timeframes": ["30m"],
   "SymbolSets": {
-    "tier_1_10": ["SOLUSDT", "ETHUSDT", "BTCUSDT", "ZECUSDT", "XRPUSDT", "UNIUSDT", "DOGEUSDT", "BNBUSDT", "GIGGLEUSDT", "FILUSDT"], "tier_100_110": ["TURBOUSDT", "XPINUSDT", "FLOWUSDT", "FORMUSDT", "TRUSTUSDT", "AIXBTUSDT", "WUSDT", "REEFUSDT", "KAVAUSDT", "SANDUSDT"], "tier_290_300": ["HEMIUSDT", "BALUSDT", "YALAUSDT", "BROCCOLI714USDT", "HANAUSDT", "ZRXUSDT", "STMXUSDT", "BARDUSDT", "WALUSDT", "EGLDUSDT"]
+    "tier_1_10": ["SOLUSDT", "ETHUSDT", "BTCUSDT", "ZECUSDT", "XRPUSDT", "UNIUSDT", "DOGEUSDT", "BNBUSDT", "GIGGLEUSDT", "FILUSDT"]
   },
   "ExitModes": [
     {
       "Name": "fixed",
       "RiskProfiles": [ 
-        { "Name": "rr_1_5_to_1", "TpMultiplier": 2, "SlMultiplier": 2 }, { "Name": "rr_7_to_1", "TpMultiplier": 2, "SlMultiplier": 1 }, { "Name": "rr_6_to_1", "TpMultiplier": 2, "SlMultiplier": 3 }
+        { "Name": "rr_1_5_to_1", "TpMultiplier": 4, "SlMultiplier":  1}, { "Name": "rr_7_to_1", "TpMultiplier": 2, "SlMultiplier": 1 }, { "Name": "rr_6_to_1", "TpMultiplier": 6, "SlMultiplier": 1 }
       ]
     }
   ],
@@ -17,7 +17,7 @@
     "Format": "csv"
   },
   "Historical": {
-    "StartUtc": "2025-11-13T00:00:00Z",
+    "StartUtc": "2025-10-13T00:00:00Z",
     "BatchSize": 1000,
     "MaxCandles": 3000
   }
