@@ -3,5 +3,69 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
+        <!-- Shared theme resources -->
+        <ResourceDictionary>
+            <!-- Core colors -->
+            <SolidColorBrush x:Key="DarkBackground" Color="#1E1E2D"/>
+            <SolidColorBrush x:Key="CardBackground" Color="#2D2D44"/>
+            <SolidColorBrush x:Key="AccentColor" Color="#6C5CE7"/>
+            <SolidColorBrush x:Key="SuccessColor" Color="#00B894"/>
+            <SolidColorBrush x:Key="WarningColor" Color="#FDCB6E"/>
+            <SolidColorBrush x:Key="DangerColor" Color="#FF7675"/>
+            <SolidColorBrush x:Key="PrimaryForeground" Color="White"/>
+            <SolidColorBrush x:Key="SecondaryForeground" Color="#666666"/>
+            <SolidColorBrush x:Key="LightBorderBrush" Color="#DDDDDD"/>
+
+            <!-- Text field overrides per request: white background, black text -->
+            <SolidColorBrush x:Key="TextBoxBackground" Color="White"/>
+            <SolidColorBrush x:Key="TextBoxForeground" Color="Black"/>
+
+            <!-- Implicit control styles -->
+            <Style TargetType="TextBox">
+                <Setter Property="Background" Value="{StaticResource TextBoxBackground}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBoxForeground}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="Margin" Value="0 5"/>
+            </Style>
+
+            <!-- Implicit ComboBox style: white background, black text, subtle grey selected item -->
+            <Style TargetType="ComboBox">
+                <Setter Property="Background" Value="{StaticResource TextBoxBackground}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBoxForeground}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="Margin" Value="0,0,0,10"/>
+                <Setter Property="Padding" Value="6,2"/>
+                <Setter Property="ItemContainerStyle">
+                    <Setter.Value>
+                        <Style TargetType="ComboBoxItem">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextBoxForeground}"/>
+                            <Setter Property="Padding" Value="6,2"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#E6E6E6"/>
+                                    <Setter Property="Foreground" Value="{StaticResource TextBoxForeground}"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#F2F2F2"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style TargetType="Label">
+                <Setter Property="Foreground" Value="{StaticResource PrimaryForeground}"/>
+                <Setter Property="Margin" Value="0 5 0 0"/>
+            </Style>
+
+            <Style TargetType="Button">
+                <Setter Property="Background" Value="{StaticResource AccentColor}"/>
+                <Setter Property="Foreground" Value="White"/>
+            </Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>
