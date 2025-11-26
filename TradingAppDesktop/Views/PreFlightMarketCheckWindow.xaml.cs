@@ -554,10 +554,44 @@ namespace TradingAppDesktop.Views
                     sp.Children.Add(new TextBlock { Text = "", Height = 4 });
                     sp.Children.Add(new TextBlock { Text = $"Local Scores — Trend: {trendConfLocal:F0}%  Vol: {volConfLocal:F0}%  Overall: {overallLocal:F0}%", FontStyle = FontStyles.Italic, Foreground = Brushes.DarkSlateGray });
 
-                    // Color-code card based on recommendation
-                    border.Background = recommendation.StartsWith("✅") ? Brushes.LightGreen
-                        : recommendation.StartsWith("⚠️") ? Brushes.LightYellow
-                        : Brushes.LightCoral;
+                    // Color-code card based on recommendation - prefer theme brushes when available
+                    try
+                    {
+                        var app = System.Windows.Application.Current;
+                        if (app != null)
+                        {
+                            if (recommendation.StartsWith("✅") && app.Resources.Contains("SuccessColor"))
+                            {
+                                border.Background = app.Resources["SuccessColor"] as Brush ?? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F9D58"));
+                            }
+                            else if (recommendation.StartsWith("⚠️") && app.Resources.Contains("WarningColor"))
+                            {
+                                border.Background = app.Resources["WarningColor"] as Brush ?? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"));
+                            }
+                            else if (app.Resources.Contains("DangerColor"))
+                            {
+                                border.Background = app.Resources["DangerColor"] as Brush ?? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B91C1C"));
+                            }
+                            else
+                            {
+                                border.Background = recommendation.StartsWith("✅") ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F9D58"))
+                                    : recommendation.StartsWith("⚠️") ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"))
+                                    : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B91C1C"));
+                            }
+                        }
+                        else
+                        {
+                            border.Background = recommendation.StartsWith("✅") ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F9D58"))
+                                : recommendation.StartsWith("⚠️") ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"))
+                                : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B91C1C"));
+                        }
+                    }
+                    catch
+                    {
+                        border.Background = recommendation.StartsWith("✅") ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F9D58"))
+                            : recommendation.StartsWith("⚠️") ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"))
+                            : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B91C1C"));
+                    }
 
                     ResultsPanel.Children.Add(border);
                 }

@@ -78,7 +78,29 @@ namespace TradingAppDesktop
                     // Propagate to runtime config for strategies
                     BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.UseClosedCandles = _useClosedCandles;
                 }
+
+                // Apply persisted theme if present
+                try
+                {
+                    var themeKey = _userSettings?.Theme;
+                    if (!string.IsNullOrEmpty(themeKey))
+                        ThemeManager.ApplyTheme(themeKey);
+                }
+                catch { }
             };
+        }
+
+        private void SettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var win = new Views.SettingsWindow { Owner = this };
+                win.ShowDialog();
+            }
+            catch (System.Exception ex)
+            {
+                Log($"Failed to open Settings: {ex.Message}");
+            }
         }
 
         private void InitializeComboBoxes()

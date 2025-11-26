@@ -3,5 +3,75 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
+        <!-- Load theme ResourceDictionary files. The first merged dictionary is the default active theme. -->
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/dark.purple.xaml" />
+                <!-- Other themes are available in the Themes folder: dark.blue.xaml, light.gray.xaml -->
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Shared control styles reference theme brushes (brushes are defined in the active theme file) -->
+            <Style TargetType="TextBox">
+                <Setter Property="Background" Value="{DynamicResource TextBoxBackground}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextBoxForeground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource LightBorderBrush}"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="Margin" Value="0 5"/>
+            </Style>
+
+            <Style TargetType="ComboBox">
+                <Setter Property="Background" Value="{DynamicResource TextBoxBackground}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextBoxForeground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource LightBorderBrush}"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="Margin" Value="0,0,0,10"/>
+                <Setter Property="Padding" Value="6,2"/>
+                <Setter Property="ItemContainerStyle">
+                    <Setter.Value>
+                        <Style TargetType="ComboBoxItem">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="{DynamicResource TextBoxForeground}"/>
+                            <Setter Property="Padding" Value="6,2"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#E6E6E6"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextBoxForeground}"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#F2F2F2"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style TargetType="Label">
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryForeground}"/>
+                <Setter Property="Margin" Value="0 5 0 0"/>
+            </Style>
+
+            <Style TargetType="Button">
+                <Setter Property="Background" Value="{DynamicResource AccentColor}"/>
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryForeground}"/>
+            </Style>
+
+            <!-- Card and header styles used across windows to create consistent panels/cards -->
+            <Style x:Key="CardPanel" TargetType="Border">
+                <Setter Property="Background" Value="{DynamicResource CardBackground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource LightBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="Padding" Value="10"/>
+                <Setter Property="Margin" Value="5"/>
+            </Style>
+
+            <Style x:Key="CardHeader" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource AccentColor}"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="Margin" Value="0,0,0,8"/>
+            </Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>
