@@ -66,6 +66,23 @@
                 <Setter Property="Background" Value="{StaticResource AccentColor}"/>
                 <Setter Property="Foreground" Value="White"/>
             </Style>
+
+            <!-- Card and header styles used across windows to create consistent panels/cards -->
+            <Style x:Key="CardPanel" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="Padding" Value="10"/>
+                <Setter Property="Margin" Value="5"/>
+            </Style>
+
+            <Style x:Key="CardHeader" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="Margin" Value="0,0,0,8"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

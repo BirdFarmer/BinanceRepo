@@ -10,47 +10,53 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="Pre-Flight Market Check" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentColor}"/>
+        <TextBlock Text="Pre-Flight Market Check" Grid.Row="0" Style="{StaticResource CardHeader}"/>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,8" VerticalAlignment="Center">
-            <StackPanel Orientation="Vertical" Margin="0,0,12,0">
-                <TextBlock Text="Coin 1"/>
-                <TextBox x:Name="Coin1TextBox" Width="140" Text="BTCUSDT"/>
-            </StackPanel>
-            <StackPanel Orientation="Vertical" Margin="0,0,12,0">
-                <TextBlock Text="Coin 2"/>
-                <TextBox x:Name="Coin2TextBox" Width="140" />
-            </StackPanel>
-            <StackPanel Orientation="Vertical" Margin="0,0,12,0">
-                <TextBlock Text="Coin 3"/>
-                <TextBox x:Name="Coin3TextBox" Width="140" />
-            </StackPanel>
-            <StackPanel Orientation="Vertical" Margin="0,0,12,0">
-                <TextBlock Text="Coin 4"/>
-                <TextBox x:Name="Coin4TextBox" Width="140" />
-            </StackPanel>
+        <!-- Input card -->
+        <Border Grid.Row="1" Style="{StaticResource CardPanel}" Padding="12" Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel Orientation="Vertical" Margin="0,0,12,0">
+                    <TextBlock Text="Coin 1" Foreground="{StaticResource SecondaryForeground}"/>
+                    <TextBox x:Name="Coin1TextBox" Width="140" Text="BTCUSDT"/>
+                </StackPanel>
+                <StackPanel Orientation="Vertical" Margin="0,0,12,0">
+                    <TextBlock Text="Coin 2" Foreground="{StaticResource SecondaryForeground}"/>
+                    <TextBox x:Name="Coin2TextBox" Width="140" />
+                </StackPanel>
+                <StackPanel Orientation="Vertical" Margin="0,0,12,0">
+                    <TextBlock Text="Coin 3" Foreground="{StaticResource SecondaryForeground}"/>
+                    <TextBox x:Name="Coin3TextBox" Width="140" />
+                </StackPanel>
+                <StackPanel Orientation="Vertical" Margin="0,0,12,0">
+                    <TextBlock Text="Coin 4" Foreground="{StaticResource SecondaryForeground}"/>
+                    <TextBox x:Name="Coin4TextBox" Width="140" />
+                </StackPanel>
 
-            <StackPanel Orientation="Vertical" Margin="8,0,12,0">
-                <TextBlock Text="Timeframe"/>
-                <ComboBox x:Name="TimeFrameComboBox" Width="100">
-                    <ComboBoxItem Content="1m"/>
-                    <ComboBoxItem Content="5m" IsSelected="True"/>
-                    <ComboBoxItem Content="15m"/>
-                    <ComboBoxItem Content="30m"/>
-                    <ComboBoxItem Content="1h"/>
-                    <ComboBoxItem Content="4h"/>
-                </ComboBox>
+                <StackPanel Orientation="Vertical" Margin="8,0,12,0">
+                    <TextBlock Text="Timeframe" Foreground="{StaticResource SecondaryForeground}"/>
+                    <ComboBox x:Name="TimeFrameComboBox" Width="100">
+                        <ComboBoxItem Content="1m"/>
+                        <ComboBoxItem Content="5m" IsSelected="True"/>
+                        <ComboBoxItem Content="15m"/>
+                        <ComboBoxItem Content="30m"/>
+                        <ComboBoxItem Content="1h"/>
+                        <ComboBoxItem Content="4h"/>
+                    </ComboBox>
+                </StackPanel>
+
+                <Button x:Name="RunButton" Content="Run Analysis" Width="120" Margin="12,16,0,0" Click="RunButton_Click"/>
+                <Button x:Name="CopyAllButton" Content="Copy All" Width="80" Margin="8,16,0,0" Click="CopyAllButton_Click" ToolTip="Copy all visible cards to clipboard" />
+                <Button x:Name="InfoButton" Content="ℹ" Width="32" Height="28" Margin="8,16,0,0" ToolTip="Pre-Flight help" Click="InfoButton_Click"/>
+                <TextBlock x:Name="ProgressText" Margin="12,20,0,0" VerticalAlignment="Center" Foreground="{StaticResource SecondaryForeground}"/>
             </StackPanel>
+        </Border>
 
-            <Button x:Name="RunButton" Content="Run Analysis" Width="120" Margin="12,16,0,0" Click="RunButton_Click"/>
-            <Button x:Name="CopyAllButton" Content="Copy All" Width="80" Margin="8,16,0,0" Click="CopyAllButton_Click" ToolTip="Copy all visible cards to clipboard" />
-            <Button x:Name="InfoButton" Content="ℹ" Width="32" Height="28" Margin="8,16,0,0" ToolTip="Pre-Flight help" Click="InfoButton_Click"/>
-            <TextBlock x:Name="ProgressText" Margin="12,20,0,0" VerticalAlignment="Center" Foreground="{StaticResource SecondaryForeground}"/>
-        </StackPanel>
-
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-            <!-- Use a 2x2 grid for up to four cards so they appear side-by-side -->
-            <UniformGrid x:Name="ResultsPanel" Columns="2" Rows="2" />
-        </ScrollViewer>
+        <!-- Results card -->
+        <Border Grid.Row="2" Style="{StaticResource CardPanel}" Padding="8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <!-- Use a 2x2 grid for up to four cards so they appear side-by-side -->
+                <UniformGrid x:Name="ResultsPanel" Columns="2" Rows="2" />
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>

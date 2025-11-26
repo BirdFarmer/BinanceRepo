@@ -1,8 +1,8 @@
 <Window x:Class="TradingAppDesktop.Views.MultiTesterWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Multi Backtest Harness" Height="600" Width="900"
-        WindowStartupLocation="CenterOwner" FontFamily="Segoe UI">
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Multi Backtest Harness" Height="800" Width="1100"
+    WindowStartupLocation="CenterOwner" FontFamily="Segoe UI">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
     <Grid Background="{StaticResource DarkBackground}" Margin="8">
         <Grid.RowDefinitions>
@@ -67,7 +67,7 @@
                         <StackPanel>
                             <TextBlock Text="Latest Run Summary" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
                             <!-- Use a read-only TextBox so users can select and copy summary text -->
-                            <TextBox x:Name="SummaryTextBox" Text="No summary available." Foreground="{StaticResource SecondaryForeground}" FontSize="13" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent" x:FieldModifier="protected" AcceptsReturn="True"/>
+                            <TextBox x:Name="SummaryTextBox" Text="No summary available." Foreground="{StaticResource SecondaryForeground}" FontSize="13" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent" x:FieldModifier="protected" AcceptsReturn="True" MinHeight="480"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
                                 <Button Content="Copy Insights" Click="CopySummary_Click" Background="{StaticResource AccentColor}" Foreground="White" Padding="6,4"/>
                             </StackPanel>
