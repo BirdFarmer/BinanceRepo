@@ -21,4 +21,8 @@
   <ItemGroup>
     <Content Include="appsettings.json" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Ensure theme XAML files are copied to output so ThemeManager can load them at runtime -->
+    <Content Include="Themes\**\*.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

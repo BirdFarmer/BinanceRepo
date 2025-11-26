@@ -4,23 +4,23 @@
     Title="Multi Backtest Harness" Height="800" Width="1100"
     WindowStartupLocation="CenterOwner" FontFamily="Segoe UI">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-    <Grid Background="{StaticResource DarkBackground}" Margin="8">
+    <Grid Background="{DynamicResource DarkBackground}" Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock Text="MULTI BACKTEST HARNESS" FontSize="18" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="4"/>
+        <TextBlock Text="MULTI BACKTEST HARNESS" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource AccentColor}" Margin="4"/>
         <Grid Grid.Row="1" Margin="0,10,0,10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="300"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <!-- Left config panel -->
-            <Border Grid.Column="0" Background="{StaticResource CardBackground}" CornerRadius="6" Padding="10" Margin="0,0,8,0">
+            <Border Grid.Column="0" Background="{DynamicResource CardBackground}" CornerRadius="6" Padding="10" Margin="0,0,8,0">
                 <StackPanel>
                     <TextBlock Text="Configuration" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="0,0,0,8"/>
-                    <TextBlock Text="Config File (JSON)" Foreground="{StaticResource PrimaryForeground}"/>
+                    <TextBlock Text="Config File (JSON)" Foreground="{DynamicResource PrimaryForeground}"/>
                     <DockPanel>
                         <TextBox x:Name="ConfigPathTextBox" MinWidth="200" Text="multi_backtest.sample.json" Margin="0,5,5,5" x:FieldModifier="protected"/>
                         <Button Content="Browse" Click="BrowseConfig_Click"/>
@@ -31,45 +31,45 @@
                         <Button Content="Browse" Click="BrowseDb_Click"/>
                     </DockPanel>
                     <Separator Margin="0,10"/>
-                    <Button x:Name="RunButton" Content="Run Backtests" Click="RunButton_Click" Background="{StaticResource SuccessColor}" x:FieldModifier="protected"/>
-                    <Button x:Name="CancelButton" Content="Cancel" Click="CancelButton_Click" Background="{StaticResource DangerColor}" IsEnabled="False" x:FieldModifier="protected"/>
-                    <TextBlock x:Name="StatusText" Text="Idle" Foreground="{StaticResource WarningColor}" Margin="0,10,0,0" x:FieldModifier="protected"/>
-                    <TextBlock Text="Output: results/multi/multi_results.csv" Foreground="{StaticResource SecondaryForeground}" FontSize="11" Margin="0,4,0,0"/>
+                    <Button x:Name="RunButton" Content="Run Backtests" Click="RunButton_Click" Background="{DynamicResource SuccessColor}" x:FieldModifier="protected"/>
+                    <Button x:Name="CancelButton" Content="Cancel" Click="CancelButton_Click" Background="{DynamicResource DangerColor}" IsEnabled="False" x:FieldModifier="protected"/>
+                    <TextBlock x:Name="StatusText" Text="Idle" Foreground="{DynamicResource WarningColor}" Margin="0,10,0,0" x:FieldModifier="protected"/>
+                    <TextBlock Text="Output: results/multi/multi_results.csv" Foreground="{DynamicResource SecondaryForeground}" FontSize="11" Margin="0,4,0,0"/>
                     <Button Content="Open Results Folder" Click="OpenResults_Click" Margin="0,8,0,0"/>
                     <Separator Margin="10,10,10,10"/>
                     <Separator Margin="10,10,10,10"/>
                     <!-- JSON Config Editor Section -->
-                    <Border Background="{StaticResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                    <Border Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,8,0,0">
                         <StackPanel>
                             <TextBlock Text="Edit JSON Config" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
-                            <TextBox x:Name="JsonConfigEditor" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" MinHeight="120" MaxHeight="220" TextWrapping="Wrap" Background="{StaticResource TextBoxBackground}" Foreground="{StaticResource TextBoxForeground}" x:FieldModifier="protected"/>
+                            <TextBox x:Name="JsonConfigEditor" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" MinHeight="120" MaxHeight="220" TextWrapping="Wrap" Background="{DynamicResource TextBoxBackground}" Foreground="{DynamicResource TextBoxForeground}" x:FieldModifier="protected"/>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                <Button Content="Reload" Click="ReloadJsonConfig_Click" Background="{StaticResource AccentColor}" Foreground="White" Margin="0,0,8,0"/>
-                                <Button Content="Validate" Click="ValidateJsonConfig_Click" Background="{StaticResource SuccessColor}" Foreground="White" Margin="0,0,8,0"/>
-                                <Button Content="Save" Click="SaveJsonConfig_Click" Background="{StaticResource WarningColor}" Foreground="Black"/>
+                                <Button Content="Reload" Click="ReloadJsonConfig_Click" Background="{DynamicResource AccentColor}" Foreground="White" Margin="0,0,8,0"/>
+                                <Button Content="Validate" Click="ValidateJsonConfig_Click" Background="{DynamicResource SuccessColor}" Foreground="White" Margin="0,0,8,0"/>
+                                <Button Content="Save" Click="SaveJsonConfig_Click" Background="{DynamicResource WarningColor}" Foreground="Black"/>
                             </StackPanel>
-                            <TextBlock x:Name="JsonConfigStatus" Text="" Foreground="{StaticResource WarningColor}" FontSize="12" Margin="0,6,0,0" x:FieldModifier="protected"/>
+                            <TextBlock x:Name="JsonConfigStatus" Text="" Foreground="{DynamicResource WarningColor}" FontSize="12" Margin="0,6,0,0" x:FieldModifier="protected"/>
                         </StackPanel>
                     </Border>
                 </StackPanel>
             </Border>
             <!-- Right progress panel -->
-                    <Border Grid.Column="1" Background="{StaticResource CardBackground}" CornerRadius="6" Padding="10">
+                    <Border Grid.Column="1" Background="{DynamicResource CardBackground}" CornerRadius="6" Padding="10">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="Progress" Foreground="{StaticResource AccentColor}" FontWeight="Bold"/>
+                    <TextBlock Grid.Row="0" Text="Progress" Foreground="{DynamicResource AccentColor}" FontWeight="Bold"/>
                     <!-- Moved summary here so it appears to the right of the config panel -->
-                    <Border Grid.Row="1" Background="{StaticResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,8,0,8">
+                    <Border Grid.Row="1" Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,8,0,8">
                         <StackPanel>
-                            <TextBlock Text="Latest Run Summary" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
+                            <TextBlock Text="Latest Run Summary" FontWeight="Bold" Foreground="{DynamicResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
                             <!-- Use a read-only TextBox so users can select and copy summary text -->
-                            <TextBox x:Name="SummaryTextBox" Text="No summary available." Foreground="{StaticResource SecondaryForeground}" FontSize="13" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent" x:FieldModifier="protected" AcceptsReturn="True" MinHeight="480"/>
+                            <TextBox x:Name="SummaryTextBox" Text="No summary available." Foreground="{DynamicResource SecondaryForeground}" FontSize="13" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent" x:FieldModifier="protected" AcceptsReturn="True" MinHeight="480"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
-                                <Button Content="Copy Insights" Click="CopySummary_Click" Background="{StaticResource AccentColor}" Foreground="White" Padding="6,4"/>
+                                <Button Content="Copy Insights" Click="CopySummary_Click" Background="{DynamicResource AccentColor}" Foreground="White" Padding="6,4"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -80,7 +80,7 @@
                              <!-- Use read-only TextBox per progress line so users can select/copy entries -->
                              <!-- Bind OneWay to the item (string). TextBox.Text defaults to TwoWay on some setups and binding to the whole object triggers
                                  "Two way binding requires path or xpath" — make it explicitly OneWay to avoid modal binding errors. -->
-                             <TextBox Text="{Binding Mode=OneWay}" Foreground="{StaticResource SecondaryForeground}" FontFamily="Consolas" FontSize="12" Margin="0,2" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
+                             <TextBox Text="{Binding Mode=OneWay}" Foreground="{DynamicResource SecondaryForeground}" FontFamily="Consolas" FontSize="12" Margin="0,2" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -88,8 +88,8 @@
                 </Grid>
             </Border>
         </Grid>
-        <Border Grid.Row="2" Background="{StaticResource CardBackground}" Padding="6" CornerRadius="4">
-            <TextBlock Text="Multi Tester runs strategy combinations defined in JSON and appends rows to CSV." Foreground="{StaticResource SecondaryForeground}" FontSize="12"/>
+        <Border Grid.Row="2" Background="{DynamicResource CardBackground}" Padding="6" CornerRadius="4">
+            <TextBlock Text="Multi Tester runs strategy combinations defined in JSON and appends rows to CSV." Foreground="{DynamicResource SecondaryForeground}" FontSize="12"/>
         </Border>
     </Grid>
     </ScrollViewer>

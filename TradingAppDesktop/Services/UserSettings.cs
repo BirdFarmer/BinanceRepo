@@ -6,6 +6,9 @@ namespace TradingAppDesktop.Services
 {
     public class UserSettings
     {
+        // Current UI theme name (matches theme file name without extension, e.g. "dark.purple")
+        public string Theme { get; set; } = "dark.purple";
+
         public string ExitMode { get; set; } = "TakeProfit"; // TakeProfit | TrailingStop
         public decimal TpAtrMultiplier { get; set; } = 2.5m;
         public decimal TrailingActivationAtrMultiplier { get; set; } = 3.0m;

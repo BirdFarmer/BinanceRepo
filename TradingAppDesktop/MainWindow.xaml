@@ -11,7 +11,7 @@
     <Window.Resources>
         <!-- Control templates and converters; color tokens moved to App.xaml -->
         <Style TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource AccentColor}"/>
+            <Setter Property="Background" Value="{DynamicResource AccentColor}"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="15 8"/>
@@ -37,16 +37,16 @@
 
         <!-- DatePicker remains styled but uses app tokens -->
         <Style TargetType="DatePicker">
-            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
-            <Setter Property="Foreground" Value="{StaticResource PrimaryForeground}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryForeground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource LightBorderBrush}"/>
             <Setter Property="Margin" Value="0 5"/>
             <!-- DatePicker uses default template; custom template removed -->
         </Style>
 
         <Style x:Key="ParameterSlider" TargetType="Slider">
-            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
-            <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
+            <Setter Property="Background" Value="{DynamicResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentColor}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Height" Value="25"/>
             <Setter Property="Margin" Value="0 5"/>
@@ -62,7 +62,7 @@
     </Window.Resources>    
 
     <!-- Main Grid with Dark Theme -->  
-    <Grid Background="{StaticResource DarkBackground}">
+    <Grid Background="{DynamicResource DarkBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -70,7 +70,7 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Border Grid.Row="0" Background="{StaticResource AccentColor}" Padding="8">
+        <Border Grid.Row="0" Background="{DynamicResource AccentColor}" Padding="8">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -83,6 +83,11 @@
                         VerticalAlignment="Center"
                         Margin="8,0"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0">
+                    <!-- Settings button (top-right) - cog icon using Segoe MDL2 Assets -->
+                    <Button x:Name="SettingsButton" Width="36" Height="28" Click="SettingsButton_Click" ToolTip="Settings"
+                            Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,6,0">
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center">&#xE713;</TextBlock>
+                    </Button>
                     <!-- PreFlight button moved to footer for easier access -->
                 </StackPanel>
             </Grid>
@@ -99,9 +104,9 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Left Panel - Parameters -->
-            <Border Grid.Column="0" 
-                    Background="{StaticResource CardBackground}" 
+                <!-- Left Panel - Parameters -->
+                <Border Grid.Column="0" 
+                    Background="{DynamicResource CardBackground}" 
                     CornerRadius="8"
                     Margin="5">
                 <Grid x:Name="ParamsGrid" Margin="8">
@@ -133,7 +138,7 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="TRADING PARAMETERS" 
-                                   Foreground="{StaticResource AccentColor}"
+                                   Foreground="{DynamicResource AccentColor}"
                                    FontWeight="Bold"
                                    Margin="2 4 0 10"/>
                     </Grid>
@@ -190,13 +195,13 @@
             <TextBlock Grid.Row="8" Grid.Column="2" x:Name="AtrMultiplierText" 
                    Text="2.8 (TP: +2.8 ATR)"
                    VerticalAlignment="Center"
-                   Foreground="{StaticResource SecondaryForeground}"/>
+                   Foreground="{DynamicResource SecondaryForeground}"/>
 
                     <!-- Callback % (visible only for Trailing Stop) -->
             <Label Grid.Row="9" Grid.Column="0" x:Name="CallbackLabel" Content="Callback %:" Visibility="Collapsed"/>
             <Slider Grid.Row="9" Grid.Column="1" x:Name="CallbackSlider" Minimum="0.1" Maximum="5.0" TickFrequency="0.1" IsSnapToTickEnabled="True"
                 Width="180" Margin="0 0 10 0" ValueChanged="CallbackSlider_ValueChanged" Visibility="Collapsed"/>
-            <TextBlock Grid.Row="9" Grid.Column="2" x:Name="CallbackText" Text="1.0%" VerticalAlignment="Center" Foreground="{StaticResource SecondaryForeground}" Visibility="Collapsed"/>
+            <TextBlock Grid.Row="9" Grid.Column="2" x:Name="CallbackText" Text="1.0%" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForeground}" Visibility="Collapsed"/>
 
                     <!-- Risk-Reward Ratio -->
             <Label Grid.Row="10" Grid.Column="0" Content="Risk-Reward Ratio:"/>
@@ -208,11 +213,11 @@
             <TextBlock Grid.Row="10" Grid.Column="2" x:Name="RiskRewardText" 
                    Text="1:3.0"
                    VerticalAlignment="Center"
-                   Foreground="{StaticResource SecondaryForeground}"/>
+                   Foreground="{DynamicResource SecondaryForeground}"/>
 
                     <!-- Closed Candle Mode Toggle -->
                     <CheckBox Grid.Row="11" Grid.Column="0" Grid.ColumnSpan="3" x:Name="UseClosedCandlesCheckBox" Margin="0 8 0 0"
-                              Foreground="{StaticResource SecondaryForeground}" Content="Use Closed Candles (ignore forming candle)"
+                              Foreground="{DynamicResource SecondaryForeground}" Content="Use Closed Candles (ignore forming candle)"
                               ToolTip="When enabled, strategies use the last fully closed candle for signals instead of the forming candle"
                               Checked="UseClosedCandlesCheckBox_Changed" Unchecked="UseClosedCandlesCheckBox_Changed"/>
 
@@ -224,14 +229,14 @@
                                    Margin="0 0 0 5"/>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="Start:" Width="60" VerticalAlignment="Center"
-                                       Foreground="{StaticResource SecondaryForeground}"/>
+                                       Foreground="{DynamicResource SecondaryForeground}"/>
                 <TextBox x:Name="StartDateTextBox" Width="120" Margin="0 0 10 0"
                     ToolTip="Leave empty for automatic 1 week before current date"
                     LostFocus="StartDateTextBox_LostFocus"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0 5 0 0">
                             <TextBlock Text="End:" Width="60" VerticalAlignment="Center"
-                                       Foreground="{StaticResource SecondaryForeground}"/>
+                                       Foreground="{DynamicResource SecondaryForeground}"/>
                 <TextBox x:Name="EndDateTextBox" Width="120"
                     ToolTip="Leave empty for automatic 900 candles after start"
                     LostFocus="EndDateTextBox_LostFocus"/>
@@ -241,8 +246,8 @@
             </Border>
 
             <!-- Right Panel - Log -->
-            <Border Grid.Column="1" 
-                    Background="{StaticResource CardBackground}"
+                <Border Grid.Column="1" 
+                    Background="{DynamicResource CardBackground}"
                     CornerRadius="8"
                     Margin="0 5 5 5">
                 <Grid>
@@ -252,8 +257,8 @@
                     </Grid.RowDefinitions>
                     
                     <!-- Log Header -->
-                    <TextBlock Text="TRADING LOG"
-                            Foreground="{StaticResource AccentColor}"
+                            <TextBlock Text="TRADING LOG"
+                            Foreground="{DynamicResource AccentColor}"
                             FontWeight="Bold"
                             Margin="10,5"/>
 
@@ -272,7 +277,7 @@
                             <TextBox x:Name="LogText" 
                                      IsReadOnly="True"
                                      Background="Transparent"
-                                     Foreground="{StaticResource SecondaryForeground}"
+                                     Foreground="{DynamicResource SecondaryForeground}"
                                      BorderThickness="0"
                                      TextWrapping="Wrap"
                                      FontFamily="Consolas"
@@ -287,10 +292,10 @@
                         <!-- Sidebar: Paper Wallet on top, Recent Trades below -->
                         <StackPanel Grid.Column="1" Margin="10" VerticalAlignment="Top">
                             <!-- Paper Wallet Card -->
-                            <Border x:Name="PaperWalletPanel"
+                                <Border x:Name="PaperWalletPanel"
                                     Width="400"
                                     Padding="10"
-                                    Background="{StaticResource CardBackground}"
+                                    Background="{DynamicResource CardBackground}"
                                     BorderBrush="#404040"
                                     BorderThickness="1"
                                     CornerRadius="6"
@@ -301,8 +306,8 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="Paper Wallet" Foreground="{StaticResource AccentColor}" FontWeight="Bold"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding SessionStartText}" Foreground="{StaticResource SecondaryForeground}" FontSize="11" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="Paper Wallet" Foreground="{DynamicResource AccentColor}" FontWeight="Bold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding SessionStartText}" Foreground="{DynamicResource SecondaryForeground}" FontSize="11" HorizontalAlignment="Right"/>
                                     </Grid>
                                     <TextBlock Text="{Binding Equity, StringFormat=Equity {0:F2} USDT}" Foreground="White" FontSize="14"/>
                                     <StackPanel Orientation="Horizontal">
@@ -317,10 +322,10 @@
                                             </TextBlock.Foreground>
                                         </TextBlock>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding UsedMargin, StringFormat=Used {0:F0}}" Foreground="{StaticResource SecondaryForeground}"/>
+                                    <TextBlock Text="{Binding UsedMargin, StringFormat=Used {0:F0}}" Foreground="{DynamicResource SecondaryForeground}"/>
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding Free, StringFormat=Free {0:F0}}" Foreground="{StaticResource SecondaryForeground}" Margin="0,0,10,0"/>
-                                        <TextBlock Text="{Binding ActiveTrades, StringFormat=Active {0}}" Foreground="{StaticResource SecondaryForeground}"/>
+                                        <TextBlock Text="{Binding Free, StringFormat=Free {0:F0}}" Foreground="{DynamicResource SecondaryForeground}" Margin="0,0,10,0"/>
+                                        <TextBlock Text="{Binding ActiveTrades, StringFormat=Active {0}}" Foreground="{DynamicResource SecondaryForeground}"/>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -335,14 +340,14 @@
                                       BorderBrush="#404040"
                                       BorderThickness="2">
                                 <Expander.Header>
-                                    <Border Background="{StaticResource CardBackground}" Padding="4" CornerRadius="4,0,0,0">
+                                    <Border Background="{DynamicResource CardBackground}" Padding="4" CornerRadius="4,0,0,0">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="RECENT TRADE ENTRIES"
-                                                       Foreground="{StaticResource AccentColor}"
+                                                       Foreground="{DynamicResource AccentColor}"
                                                        FontWeight="Bold"
                                                        FontSize="12"
                                                        VerticalAlignment="Center"/>
@@ -360,7 +365,7 @@
                                         </Grid>
                                     </Border>
                                 </Expander.Header>
-                                <Border Background="{StaticResource CardBackground}" CornerRadius="0,0,0,4">
+                                <Border Background="{DynamicResource CardBackground}" CornerRadius="0,0,0,4">
                                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                                   MaxHeight="400"
                                                   HorizontalScrollBarVisibility="Disabled"
@@ -368,8 +373,8 @@
                                                   Padding="5"
                                                   Background="{StaticResource CardBackground}">
                                         <ItemsControl x:Name="RecentTradesList"
-                                                      ItemsSource="{Binding RecentTrades}"
-                                                      Background="{StaticResource CardBackground}">
+                                                              ItemsSource="{Binding RecentTrades}"
+                                                              Background="{DynamicResource CardBackground}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <TextBlock Text="{Binding DisplayText}"
@@ -394,19 +399,19 @@
         </Grid>
         </ScrollViewer>
         <!-- Footer -->
-        <Border Grid.Row="2" Background="{StaticResource CardBackground}" >
+        <Border Grid.Row="2" Background="{DynamicResource CardBackground}" >
             <Grid>
                 <TextBlock x:Name="StatusText" 
-                        Foreground="{StaticResource SecondaryForeground}"
+                        Foreground="{DynamicResource SecondaryForeground}"
                         FontStyle="Italic"
                         Text="Ready"
                         HorizontalAlignment="Left"/>
                 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="PreFlightButton" Content="PRE-FLIGHT MARKET CHECK" Click="PreFlightButton_Click" Background="{StaticResource AccentColor}" Foreground="White"/>
-                    <Button x:Name="CoinSelectionButton" Content="MANAGE COINS" Click="CoinSelectionButton_Click" Background="{StaticResource AccentColor}" Foreground="White"/>
-                    <Button x:Name="MultiTesterButton" Content="MULTI TESTER" Click="MultiTesterButton_Click" Background="{StaticResource AccentColor}" Foreground="White"/>
-                    <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click" Background="{StaticResource AccentColor}" Foreground="White"/>
+                    <Button x:Name="PreFlightButton" Content="PRE-FLIGHT MARKET CHECK" Click="PreFlightButton_Click" Background="{DynamicResource AccentColor}" Foreground="White"/>
+                    <Button x:Name="CoinSelectionButton" Content="MANAGE COINS" Click="CoinSelectionButton_Click" Background="{DynamicResource AccentColor}" Foreground="White"/>
+                    <Button x:Name="MultiTesterButton" Content="MULTI TESTER" Click="MultiTesterButton_Click" Background="{DynamicResource AccentColor}" Foreground="White"/>
+                    <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click" Background="{DynamicResource AccentColor}" Foreground="White"/>
                     <Button x:Name="StartButton" Content="START TRADING" 
                         Background="{StaticResource SuccessColor}" Click="StartButton_Click"/>
                     <Button x:Name="StopButton" Content="STOP TRADING" 
