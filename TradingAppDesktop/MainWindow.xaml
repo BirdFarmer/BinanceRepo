@@ -77,7 +77,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="CRYPTO TRADING SUITE" 
-                        Foreground="White" 
+                    Foreground="{DynamicResource PrimaryForeground}"
                         FontSize="18" 
                         FontWeight="Bold"
                         VerticalAlignment="Center"
@@ -86,7 +86,7 @@
                     <!-- Settings button (top-right) - cog icon using Segoe MDL2 Assets -->
                     <Button x:Name="SettingsButton" Width="36" Height="28" Click="SettingsButton_Click" ToolTip="Settings"
                             Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,6,0">
-                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center">&#xE713;</TextBlock>
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="{DynamicResource PrimaryForeground}" HorizontalAlignment="Center" VerticalAlignment="Center">&#xE713;</TextBlock>
                     </Button>
                     <!-- PreFlight button moved to footer for easier access -->
                 </StackPanel>
@@ -309,7 +309,7 @@
                                         <TextBlock Text="Paper Wallet" Foreground="{DynamicResource AccentColor}" FontWeight="Bold"/>
                                         <TextBlock Grid.Column="1" Text="{Binding SessionStartText}" Foreground="{DynamicResource SecondaryForeground}" FontSize="11" HorizontalAlignment="Right"/>
                                     </Grid>
-                                    <TextBlock Text="{Binding Equity, StringFormat=Equity {0:F2} USDT}" Foreground="White" FontSize="14"/>
+                                    <TextBlock Text="{Binding Equity, StringFormat=Equity {0:F2} USDT}" Foreground="{DynamicResource PrimaryForeground}" FontSize="14"/>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding RealizedPnl, StringFormat=Realized {0:+0.00;-0.00;0.00}}" Margin="0,0,10,0">
                                             <TextBlock.Foreground>
@@ -336,7 +336,7 @@
                                       IsExpanded="True"
                                       Width="400"
                                       Margin="0,8,0,0"
-                                      Background="{StaticResource CardBackground}"
+                                      Background="{DynamicResource CardBackground}"
                                       BorderBrush="#404040"
                                       BorderThickness="2">
                                 <Expander.Header>
@@ -365,13 +365,13 @@
                                         </Grid>
                                     </Border>
                                 </Expander.Header>
-                                <Border Background="{DynamicResource CardBackground}" CornerRadius="0,0,0,4">
+                                    <Border Background="{DynamicResource CardBackground}" CornerRadius="0,0,0,4">
                                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                                   MaxHeight="400"
                                                   HorizontalScrollBarVisibility="Disabled"
                                                   PanningMode="VerticalOnly"
                                                   Padding="5"
-                                                  Background="{StaticResource CardBackground}">
+                                                  Background="{DynamicResource CardBackground}">
                                         <ItemsControl x:Name="RecentTradesList"
                                                               ItemsSource="{Binding RecentTrades}"
                                                               Background="{DynamicResource CardBackground}">
@@ -381,7 +381,7 @@
                                                                FontFamily="Consolas"
                                                                FontSize="10"
                                                                Margin="0,1"
-                                                               Background="{StaticResource CardBackground}">
+                                                               Background="{DynamicResource CardBackground}">
                                                         <TextBlock.Foreground>
                                                             <Binding Converter="{StaticResource TradeColorConverter}"/>
                                                         </TextBlock.Foreground>
@@ -408,10 +408,10 @@
                         HorizontalAlignment="Left"/>
                 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="PreFlightButton" Content="PRE-FLIGHT MARKET CHECK" Click="PreFlightButton_Click" Background="{DynamicResource AccentColor}" Foreground="White"/>
-                    <Button x:Name="CoinSelectionButton" Content="MANAGE COINS" Click="CoinSelectionButton_Click" Background="{DynamicResource AccentColor}" Foreground="White"/>
-                    <Button x:Name="MultiTesterButton" Content="MULTI TESTER" Click="MultiTesterButton_Click" Background="{DynamicResource AccentColor}" Foreground="White"/>
-                    <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click" Background="{DynamicResource AccentColor}" Foreground="White"/>
+                    <Button x:Name="PreFlightButton" Content="PRE-FLIGHT MARKET CHECK" Click="PreFlightButton_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}"/>
+                    <Button x:Name="CoinSelectionButton" Content="MANAGE COINS" Click="CoinSelectionButton_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}"/>
+                    <Button x:Name="MultiTesterButton" Content="MULTI TESTER" Click="MultiTesterButton_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}"/>
+                    <Button x:Name="TestConnectionButton" Content="TEST CONNECTION" Click="TestConnectionButton_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}"/>
                     <Button x:Name="StartButton" Content="START TRADING" 
                         Background="{StaticResource SuccessColor}" Click="StartButton_Click"/>
                     <Button x:Name="StopButton" Content="STOP TRADING" 

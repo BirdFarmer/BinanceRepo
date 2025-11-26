@@ -17,7 +17,7 @@
             <TextBlock Text="Coin Selection Management" 
                    FontSize="18" FontWeight="Bold" VerticalAlignment="Center" Style="{StaticResource CardHeader}"/>
                 <Button x:Name="RefreshButton" Content="🔄 Refresh" Click="RefreshButton_Click"
-                    Margin="15,0,0,0" Padding="10,5" Background="{DynamicResource AccentColor}" Foreground="White"/>
+                    Margin="15,0,0,0" Padding="10,5" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}"/>
         </StackPanel>
 
         <!-- Main Content Area -->
@@ -56,7 +56,7 @@
                                                      VerticalAlignment="Center" Margin="0,0,10,0"/>
                                                 <Button x:Name="GenerateAutoButton" Content="Generate Selection" 
                                                     Click="GenerateAutoButton_Click" 
-                                                    Background="{DynamicResource SuccessColor}" Foreground="White" 
+                                                    Background="{DynamicResource SuccessColor}" Foreground="{DynamicResource PrimaryForeground}" 
                                                     Padding="10,5"/>
                                         </StackPanel>
                                         
@@ -90,7 +90,7 @@
 
                                         <Button x:Name="ApplyManualButton" Content="Apply Manual Selection" 
                                             Click="ApplyManualButton_Click" Margin="0,10,0,0"
-                                            Background="{DynamicResource WarningColor}" Foreground="White" 
+                                            Background="{DynamicResource WarningColor}" Foreground="{DynamicResource PrimaryForeground}" 
                                             Padding="10,5"/>
                                     </StackPanel>
                                 </GroupBox>
@@ -120,10 +120,10 @@
                                         <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                                 <Button x:Name="LoadSavedListButton" Content="Load Selected" 
                                                     Click="LoadSavedListButton_Click" Margin="0,0,5,0"
-                                                    Padding="10,5" Background="{DynamicResource AccentColor}" Foreground="White"/>
+                                                    Padding="10,5" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}"/>
                                                 <Button x:Name="DeleteSavedListButton" Content="Delete" 
                                                     Click="DeleteSavedListButton_Click"
-                                                    Background="{DynamicResource DangerColor}" Foreground="White" 
+                                                    Background="{DynamicResource DangerColor}" Foreground="{DynamicResource PrimaryForeground}" 
                                                     Padding="10,5"/>
                                         </StackPanel>
                                     </StackPanel>
@@ -183,7 +183,7 @@
                         <StackPanel>
                             <Button Content="Apply to Trading" x:Name="ApplyButton" 
                                 Click="ApplyButton_Click"
-                                Background="{DynamicResource SuccessColor}" Foreground="White" 
+                                Background="{DynamicResource SuccessColor}" Foreground="{DynamicResource PrimaryForeground}" 
                                 Height="35" FontWeight="Bold" Margin="0,0,0,5"/>
                             
                             <TextBlock Text="List name (optional)" Style="{StaticResource CardHeader}" Margin="0,4,0,2"/>
@@ -191,12 +191,12 @@
 
                             <Button Content="Save Current List" x:Name="SaveListButton"
                                 Click="SaveListButton_Click"
-                                Background="{DynamicResource AccentColor}" Foreground="White" 
+                                Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}" 
                                 Height="30" Margin="0,0,0,5"/>
                         
                             <Button Content="Clear Selection" x:Name="ResetButton"
                                 Click="ResetButton_Click"
-                                Background="{DynamicResource DangerColor}" Foreground="White" 
+                                Background="{DynamicResource DangerColor}" Foreground="{DynamicResource PrimaryForeground}" 
                                 Height="30" Margin="0,0,0,5"/>
                         </StackPanel>
                     </GroupBox>

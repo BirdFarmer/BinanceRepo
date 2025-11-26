@@ -13,14 +13,57 @@ namespace TradingAppDesktop.Services
         // Returns available theme keys and relative resource URIs
         public static IEnumerable<(string Key, string Source)> GetAvailableThemes()
         {
-            if (!Directory.Exists(ThemesFolder)) yield break;
+            var results = new List<(string Key, string Source)>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var f in Directory.GetFiles(ThemesFolder, "*.xaml"))
+            // 1) Prefer themes in the app output folder (runtime)
+            if (Directory.Exists(ThemesFolder))
             {
-                var fileName = Path.GetFileName(f);
-                var key = Path.GetFileNameWithoutExtension(f);
-                yield return (key, $"Themes/{fileName}");
+                foreach (var f in Directory.GetFiles(ThemesFolder, "*.xaml"))
+                {
+                    var fileName = Path.GetFileName(f);
+                    var key = Path.GetFileNameWithoutExtension(f);
+                    if (seen.Add(key)) results.Add((key, $"Themes/{fileName}"));
+                }
             }
+
+            // 2) Also look upwards from the base directory to find a source Themes folder (useful when running from IDE without publish)
+            try
+            {
+                var cur = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+                for (int i = 0; i < 8 && cur != null; i++)
+                {
+                    var candidate = Path.Combine(cur.FullName, "TradingAppDesktop", "Themes");
+                    if (Directory.Exists(candidate))
+                    {
+                        foreach (var f in Directory.GetFiles(candidate, "*.xaml"))
+                        {
+                            var fileName = Path.GetFileName(f);
+                            var key = Path.GetFileNameWithoutExtension(f);
+                            if (seen.Add(key)) results.Add((key, $"Themes/{fileName}"));
+                        }
+                        break;
+                    }
+
+                    // fallback: any Themes folder at this level
+                    var anyThemes = Directory.GetDirectories(cur.FullName, "Themes", SearchOption.TopDirectoryOnly).FirstOrDefault();
+                    if (!string.IsNullOrEmpty(anyThemes))
+                    {
+                        foreach (var f in Directory.GetFiles(anyThemes, "*.xaml"))
+                        {
+                            var fileName = Path.GetFileName(f);
+                            var key = Path.GetFileNameWithoutExtension(f);
+                            if (seen.Add(key)) results.Add((key, $"Themes/{fileName}"));
+                        }
+                        break;
+                    }
+
+                    cur = cur.Parent;
+                }
+            }
+            catch { /* non-fatal */ }
+
+            return results;
         }
 
         // Apply theme by key (file name without extension). Returns true on success.

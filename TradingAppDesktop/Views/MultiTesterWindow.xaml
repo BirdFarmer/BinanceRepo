@@ -25,7 +25,7 @@
                         <TextBox x:Name="ConfigPathTextBox" MinWidth="200" Text="multi_backtest.sample.json" Margin="0,5,5,5" x:FieldModifier="protected"/>
                         <Button Content="Browse" Click="BrowseConfig_Click"/>
                     </DockPanel>
-                    <TextBlock Text="Database Path" Foreground="White"/>
+                    <TextBlock Text="Database Path" Foreground="{DynamicResource PrimaryForeground}"/>
                     <DockPanel>
                         <TextBox x:Name="DatabasePathTextBox" MinWidth="200" Text="TradingData.db" Margin="0,5,5,5" x:FieldModifier="protected"/>
                         <Button Content="Browse" Click="BrowseDb_Click"/>
@@ -44,8 +44,8 @@
                             <TextBlock Text="Edit JSON Config" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
                             <TextBox x:Name="JsonConfigEditor" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" MinHeight="120" MaxHeight="220" TextWrapping="Wrap" Background="{DynamicResource TextBoxBackground}" Foreground="{DynamicResource TextBoxForeground}" x:FieldModifier="protected"/>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                <Button Content="Reload" Click="ReloadJsonConfig_Click" Background="{DynamicResource AccentColor}" Foreground="White" Margin="0,0,8,0"/>
-                                <Button Content="Validate" Click="ValidateJsonConfig_Click" Background="{DynamicResource SuccessColor}" Foreground="White" Margin="0,0,8,0"/>
+                                <Button Content="Reload" Click="ReloadJsonConfig_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}" Margin="0,0,8,0"/>
+                                <Button Content="Validate" Click="ValidateJsonConfig_Click" Background="{DynamicResource SuccessColor}" Foreground="{DynamicResource PrimaryForeground}" Margin="0,0,8,0"/>
                                 <Button Content="Save" Click="SaveJsonConfig_Click" Background="{DynamicResource WarningColor}" Foreground="Black"/>
                             </StackPanel>
                             <TextBlock x:Name="JsonConfigStatus" Text="" Foreground="{DynamicResource WarningColor}" FontSize="12" Margin="0,6,0,0" x:FieldModifier="protected"/>
@@ -69,7 +69,7 @@
                             <!-- Use a read-only TextBox so users can select and copy summary text -->
                             <TextBox x:Name="SummaryTextBox" Text="No summary available." Foreground="{DynamicResource SecondaryForeground}" FontSize="13" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent" x:FieldModifier="protected" AcceptsReturn="True" MinHeight="480"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
-                                <Button Content="Copy Insights" Click="CopySummary_Click" Background="{DynamicResource AccentColor}" Foreground="White" Padding="6,4"/>
+                                <Button Content="Copy Insights" Click="CopySummary_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}" Padding="6,4"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
