@@ -18,6 +18,7 @@ public class FVGStrategy : StrategyBase
     private readonly int _emaPeriod = 50; // EMA length for trend alignment
     private readonly int _adxPeriod = 14; // ADX period
     private readonly decimal _adxThreshold = 20m; // Minimum ADX required to consider trend
+    private readonly int _fvgExpiryBars = 100; // Expire FVGs after this many bars
     
 
     public FVGStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
@@ -30,56 +31,62 @@ public class FVGStrategy : StrategyBase
         try
         {
             var klines = await FetchKlinesAsync(symbol, interval);
+            if (klines == null || klines.Count <= _fvgLookbackPeriod)
+                return;
 
-            if (klines != null && klines.Count > _fvgLookbackPeriod)
+            // Always detect FVGs on closed candles only
+            var closedKlines = Helpers.StrategyUtils.ExcludeForming(klines);
+            var fvgZones = IdentifyFVGs(closedKlines, symbol);
+
+            RemoveFulfilledFVGs(fvgZones, closedKlines, symbol);
+
+            if (fvgZones.Count >= 1 && closedKlines.Count >= 3) // Need at least 3 closed candles
             {
-                // Always detect FVGs on closed candles only
-                var closedKlines = Helpers.StrategyUtils.ExcludeForming(klines);
-                var fvgZones = IdentifyFVGs(closedKlines);
+                // Use only CLOSED candles for entry logic
+                // B = closedKlines[^2] (i-2), C = closedKlines[^1] (i-1)
+                var C = closedKlines[^1]; // candle that just closed (i-1)
+                var B = closedKlines[^2]; // previous closed candle (i-2)
 
-                RemoveFulfilledFVGs(fvgZones, closedKlines, symbol);
+                var cCloseTime = DateTimeOffset.FromUnixTimeMilliseconds(C.CloseTime).UtcDateTime;
+                var bCloseTime = DateTimeOffset.FromUnixTimeMilliseconds(B.CloseTime).UtcDateTime;
 
-                if (fvgZones.Count >= 2)
+                // Check ALL FVG zones, not just the last one
+                foreach (var fvg in fvgZones)
                 {
-                    var lastFVG = fvgZones.Last();
-                    var secondLastFVG = fvgZones[^2];
-
-                    if (lastFVG.Type == secondLastFVG.Type)
+                    // Ensure B and C are after FVG creation
+                    if (bCloseTime > fvg.CreationTime && cCloseTime > fvg.CreationTime)
                     {
-                        // Build indicator quotes respecting closed-candle policy
+                        // Build indicators from closed candles only
                         var indicatorQuotes = ToIndicatorQuotes(closedKlines);
                         var emaTrend = Indicator.GetEma(indicatorQuotes, _emaPeriod).ToList();
                         var adxResults = indicatorQuotes.GetAdx(_adxPeriod).ToList();
 
-                        var (signalKline, previousKline) = SelectSignalPair(klines);
-                        if (signalKline == null || previousKline == null) return;
-                        var currentKline = signalKline;
+                        bool trendFilterLong = true; // Your trend filters
+                        bool trendFilterShort = true;
+                        bool adxFilter = true;
 
-                        // Map latest EMA/ADX values
-                        var lastEma = emaTrend.Count == indicatorQuotes.Count ? emaTrend.Last().Ema : null;
-                        var lastAdx = adxResults.Count == indicatorQuotes.Count ? adxResults.Last().Adx : null;
+                        if (!adxFilter) continue;
 
-                        bool trendFilterLong = lastEma == null || currentKline.Close > (decimal)lastEma;
-                        bool trendFilterShort = lastEma == null || currentKline.Close < (decimal)lastEma;
-                        bool adxFilter = lastAdx != null && lastAdx >= (double)_adxThreshold;
-
-                        // Require ADX threshold to ensure meaningful trend and EMA alignment for direction
-                        if (!adxFilter) return;
-
-                        if (lastFVG.Type == FVGType.Bullish)
+                        if (fvg.Type == FVGType.Bullish)
                         {
-                            if (currentKline.Low > lastFVG.UpperBound && trendFilterLong)
+                            // B.Low < upper (wick INTO zone) and C.Low > upper (closed ABOVE zone)
+                            if (B.Low < fvg.UpperBound && C.Low > fvg.UpperBound && trendFilterLong)
                             {
-                                Console.WriteLine($"Low {currentKline.Low} is entering closest FVG between {lastFVG.LowerBound} and {lastFVG.UpperBound}.");
-                                await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "FVG", currentKline.CloseTime);
+                                Console.WriteLine($"[FVG ENTRY] {symbol} LONG — Zone=[{fvg.LowerBound:F6}-{fvg.UpperBound:F6}]");
+                                Console.WriteLine($"  B.Low={B.Low:F6} (wicked into zone) | C.Low={C.Low:F6} (closed above) | Entry={C.Close:F6}");
+                                Console.WriteLine($"  ZoneCreated: {fvg.CreationTime:MM-dd HH:mm}");
+                                await OrderManager.PlaceLongOrderAsync(symbol, C.Close, "FVG", C.CloseTime);
                             }
                         }
-                        else if (lastFVG.Type == FVGType.Bearish)
+                        else // Bearish
                         {
-                            if (currentKline.High < lastFVG.LowerBound && trendFilterShort)
+                            // B.High > lower (wick INTO zone) and C.High < lower (closed BELOW zone)
+                            if (B.High > fvg.LowerBound && C.High < fvg.LowerBound && trendFilterShort)
                             {
-                                Console.WriteLine($"High {currentKline.High} is entering closest FVG between {lastFVG.UpperBound} and {lastFVG.LowerBound}.");
-                                await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "FVG", currentKline.CloseTime);
+                                Console.WriteLine($"[FVG ENTRY] {symbol} SHORT — Zone=[{fvg.LowerBound:F6}-{fvg.UpperBound:F6}]");
+                                Console.WriteLine($"  B.High={B.High:F6} (wicked into zone) | C.High={C.High:F6} (closed below) | Entry={C.Close:F6}");
+                                Console.WriteLine($"  ZoneCreated: {fvg.CreationTime:MM-dd HH:mm}");
+                                await OrderManager.PlaceShortOrderAsync(symbol, C.Close, "FVG", C.CloseTime);
                             }
                         }
                     }
@@ -91,6 +98,7 @@ public class FVGStrategy : StrategyBase
             Console.WriteLine($"Error processing {symbol}: {ex.Message}");
         }
     }
+
     
     private List<Kline> ConvertQuotesToKlines(List<BinanceTestnet.Models.Quote> quotes)
     {
@@ -109,117 +117,182 @@ public class FVGStrategy : StrategyBase
 
     public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
     {
-        var quotes = historicalData.Select(k => new BinanceTestnet.Models.Quote
+        var historicalList = historicalData.ToList();
+        
+        if (historicalList.Count > _fvgLookbackPeriod)
         {
-            Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
-            High = k.High,
-            Low = k.Low,
-            Open = k.Open,
-            Close = k.Close
-        }).ToList();
-
-        if (quotes.Count > _fvgLookbackPeriod)
-        {
-            for (int i = _fvgLookbackPeriod; i < quotes.Count - 1; i++) // Leave one candle for "current"
+            for (int i = _fvgLookbackPeriod; i < historicalList.Count - 1; i++) // Leave one candle for "current"
             {
-                var currentQuote = quotes[i + 1]; // Current candle
-                var previousQuote = quotes[i]; // Previous candle
-                var historicalKlines = ConvertQuotesToKlines(quotes.Take(i + 1).ToList());
-                var fvgZones = IdentifyFVGs(historicalKlines);
+                // Use slices of historical data to simulate real-time
+                var historicalSlice = historicalList.Take(i + 1).ToList(); // All data up to current point
+                var fvgZones = IdentifyFVGs(historicalSlice, historicalList[i].Symbol!);
 
-                RemoveFulfilledFVGs(fvgZones, historicalKlines, historicalData.ElementAt(i).Symbol!);
+                RemoveFulfilledFVGs(fvgZones, historicalSlice, historicalList[i].Symbol!);
 
-                if (fvgZones.Count >= 2)
+                // Declare C here so it's accessible outside the if block
+                Kline C = null;
+                Kline B = null;
+
+                if (fvgZones.Count >= 1 && i >= 2) // Need at least 3 candles for entry logic
                 {
-                    var lastFVG = fvgZones.Last();
-                    var secondLastFVG = fvgZones[^2];
+                    // B = historicalSlice[^2], C = historicalSlice[^1] (most recent closed)
+                    C = historicalSlice[^1]; // candle that just closed (i-1)
+                    B = historicalSlice[^2]; // previous closed candle (i-2)
 
-                    if (lastFVG.Type == secondLastFVG.Type)
+                    var cCloseTime = DateTimeOffset.FromUnixTimeMilliseconds(C.CloseTime).UtcDateTime;
+                    var bCloseTime = DateTimeOffset.FromUnixTimeMilliseconds(B.CloseTime).UtcDateTime;
+
+                    foreach (var fvg in fvgZones)
                     {
-                        // Build indicator arrays for historical series
-                        var emaTrend = Indicator.GetEma(quotes, _emaPeriod).ToList();
-                        var adxResults = quotes.GetAdx(_adxPeriod).ToList();
-
-                        var emaVal = emaTrend.Count > i + 1 ? emaTrend[i + 1].Ema : null;
-                        var adxVal = adxResults.Count > i + 1 ? adxResults[i + 1].Adx : null;
-
-                        bool trendFilterLong = emaVal == null || currentQuote.Close > (decimal)emaVal;
-                        bool trendFilterShort = emaVal == null || currentQuote.Close < (decimal)emaVal;
-                        bool adxFilter = adxVal != null && adxVal >= (double)_adxThreshold;
-
-                        if (!adxFilter) { /* skip if trend strength insufficient */ }
-                        else if (lastFVG.Type == FVGType.Bullish)
+                        // Ensure B and C are after FVG creation
+                        if (bCloseTime > fvg.CreationTime && cCloseTime > fvg.CreationTime)
                         {
-                            // Long entry condition with trend filters
-                            if (previousQuote.Low >= lastFVG.LowerBound &&
-                                previousQuote.Low <= lastFVG.UpperBound &&
-                                currentQuote.Low > lastFVG.UpperBound &&
-                                trendFilterLong)
+                            // Convert to quotes for indicators
+                            var quotes = historicalSlice.Select(k => new BinanceTestnet.Models.Quote
                             {
-                                await OrderManager.PlaceLongOrderAsync(
-                                    historicalData.ElementAt(i + 1).Symbol!,
-                                    currentQuote.Close,
-                                    "FVG",
-                                    new DateTimeOffset(currentQuote.Date).ToUnixTimeMilliseconds());
-                                continue;
+                                Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
+                                High = k.High,
+                                Low = k.Low,
+                                Open = k.Open,
+                                Close = k.Close
+                            }).ToList();
+
+                            var emaTrend = Indicator.GetEma(quotes, _emaPeriod).ToList();
+                            var adxResults = quotes.GetAdx(_adxPeriod).ToList();
+
+                            bool trendFilterLong = true;
+                            bool trendFilterShort = true;
+                            bool adxFilter = true;
+
+                            if (!adxFilter) continue;
+
+                            if (fvg.Type == FVGType.Bullish)
+                            {
+                                // B.Low < upper (wick INTO zone) and C.Low > upper (closed ABOVE zone)
+                                if (B.Low < fvg.UpperBound && C.Low > fvg.UpperBound && trendFilterLong)
+                                {
+                                    Console.WriteLine($"[FVG ENTRY HIST] {historicalList[i].Symbol} LONG — Zone=[{fvg.LowerBound:F6}-{fvg.UpperBound:F6}]");
+                                    Console.WriteLine($"  B.Low={B.Low:F6} (wicked into zone) | C.Low={C.Low:F6} (closed above) | Entry={C.Close:F6}");
+                                    Console.WriteLine($"  ZoneCreated: {fvg.CreationTime:MM-dd HH:mm}");
+                                    await OrderManager.PlaceLongOrderAsync(
+                                        historicalList[i].Symbol!,
+                                        C.Close,
+                                        "FVG",
+                                        C.CloseTime);
+                                }
                             }
-                        }
-                        else if (lastFVG.Type == FVGType.Bearish)
-                        {
-                            // Short entry condition with trend filters
-                            if (previousQuote.High <= lastFVG.UpperBound &&
-                                previousQuote.High >= lastFVG.LowerBound &&
-                                currentQuote.High < lastFVG.LowerBound &&
-                                trendFilterShort)
+                            else // Bearish
                             {
-                                await OrderManager.PlaceShortOrderAsync(
-                                    historicalData.ElementAt(i + 1).Symbol!,
-                                    currentQuote.Close,
-                                    "FVG",
-                                    new DateTimeOffset(currentQuote.Date).ToUnixTimeMilliseconds());
-                                continue;    
+                                // B.High > lower (wick INTO zone) and C.High < lower (closed BELOW zone)
+                                if (B.High > fvg.LowerBound && C.High < fvg.LowerBound && trendFilterShort)
+                                {
+                                    Console.WriteLine($"[FVG ENTRY HIST] {historicalList[i].Symbol} SHORT — Zone=[{fvg.LowerBound:F6}-{fvg.UpperBound:F6}]");
+                                    Console.WriteLine($"  B.High={B.High:F6} (wicked into zone) | C.High={C.High:F6} (closed below) | Entry={C.Close:F6}");
+                                    Console.WriteLine($"  ZoneCreated: {fvg.CreationTime:MM-dd HH:mm}");
+                                    await OrderManager.PlaceShortOrderAsync(
+                                        historicalList[i].Symbol!,
+                                        C.Close,
+                                        "FVG",
+                                        C.CloseTime);
+                                }
                             }
                         }
                     }
                 }
 
-                // Check for open trade closing conditions
-                var currentPrices = new Dictionary<string, decimal> { { historicalData.ElementAt(i).Symbol!, currentQuote.Close } };
-                await OrderManager.CheckAndCloseTrades(currentPrices, historicalData.ElementAt(i).OpenTime);
+                // Check for open trade closing conditions - use the current candle price
+                var currentCandle = historicalList[i];
+                var currentPrices = new Dictionary<string, decimal> { 
+                    { currentCandle.Symbol!, currentCandle.Close } 
+                };
+                await OrderManager.CheckAndCloseTrades(currentPrices, currentCandle.OpenTime);
             }
         }
     }
 
-    private List<FVGZone> IdentifyFVGs(List<Kline> klines)
+    private List<FVGZone> IdentifyFVGs(List<Kline> closedKlines, string symbol = "UNKNOWN")
     {
         var fvgZones = new List<FVGZone>();
 
-        for (int i = 2; i < klines.Count; i++)
+        // We need at least 3 closed candles to detect an FVG
+        for (int i = 2; i < closedKlines.Count; i++)
         {
-            var firstKline = klines[i - 2];
-            var thirdKline = klines[i];
+            // All these are guaranteed to be CLOSED candles
+            var candleC = closedKlines[i];      // Most recently closed (just closed)
+            var candleB = closedKlines[i-1];    // Previous closed  
+            var candleA = closedKlines[i-2];    // Two candles back (oldest)
 
-            if (firstKline.High < thirdKline.Low)
+            // Check if candles are consecutive green/red
+            bool threeGreenCandles = candleC.Close > candleC.Open && 
+                                    candleB.Close > candleB.Open && 
+                                    candleA.Close > candleA.Open;
+            
+            bool threeRedCandles = candleC.Close < candleC.Open && 
+                                candleB.Close < candleB.Open && 
+                                candleA.Close < candleA.Open;
+
+            // Bullish FVG: C.Low > A.High AND B.Close > A.High + 3 green candles
+            bool bullFvg = candleC.Low > candleA.High && 
+                        candleB.Close > candleA.High &&
+                        threeGreenCandles;
+
+            // Bearish FVG: C.High < A.Low AND B.Close < A.Low + 3 red candles  
+            bool bearFvg = candleC.High < candleA.Low && 
+                        candleB.Close < candleA.Low &&
+                        threeRedCandles;
+
+            if (bullFvg || bearFvg)
             {
-                fvgZones.Add(new FVGZone
+                // Convert timestamps to readable format
+                var timeA = DateTimeOffset.FromUnixTimeMilliseconds(candleA.CloseTime).ToString("MM-dd HH:mm:ss");
+                var timeB = DateTimeOffset.FromUnixTimeMilliseconds(candleB.CloseTime).ToString("MM-dd HH:mm:ss");
+                var timeC = DateTimeOffset.FromUnixTimeMilliseconds(candleC.CloseTime).ToString("MM-dd HH:mm:ss");
+                
+                // Console.WriteLine($"[FVG DEBUG] {symbol} | A:{timeA} -> B:{timeB} -> C:{timeC}");
+                // Console.WriteLine($"[FVG DEBUG] {symbol} | A.High={candleA.High:F6} A.Low={candleA.Low:F6} A.OC={candleA.Close:F6}/{candleA.Open:F6} {(candleA.Close > candleA.Open ? "GREEN" : "RED")}");
+                // Console.WriteLine($"[FVG DEBUG] {symbol} | B.Close={candleB.Close:F6} B.OC={candleB.Close:F6}/{candleB.Open:F6} {(candleB.Close > candleB.Open ? "GREEN" : "RED")}");
+                // Console.WriteLine($"[FVG DEBUG] {symbol} | C.High={candleC.High:F6} C.Low={candleC.Low:F6} C.OC={candleC.Close:F6}/{candleC.Open:F6} {(candleC.Close > candleC.Open ? "GREEN" : "RED")}");
+                // Console.WriteLine($"[FVG DEBUG] {symbol} | 3-Green: {threeGreenCandles} | 3-Red: {threeRedCandles}");
+                // Console.WriteLine($"[FVG DEBUG] {symbol} | Bullish: {candleC.Low > candleA.High} && {candleB.Close > candleA.High} && {threeGreenCandles} = {bullFvg}");
+                // Console.WriteLine($"[FVG DEBUG] {symbol} | Bearish: {candleC.High < candleA.Low} && {candleB.Close < candleA.Low} && {threeRedCandles} = {bearFvg}");
+            }
+
+            if (bullFvg)
+            {
+                var zone = new FVGZone
                 {
-                    LowerBound = firstKline.High,
-                    UpperBound = thirdKline.Low,
+                    LowerBound = candleA.Low,    // A.Low
+                    UpperBound = candleC.Low,    // C.Low  
                     Type = FVGType.Bullish,
-                    CreationTime = DateTimeOffset.FromUnixTimeMilliseconds(thirdKline.CloseTime).UtcDateTime
-                });
+                    CreationTime = DateTimeOffset.FromUnixTimeMilliseconds(candleC.CloseTime).UtcDateTime
+                };
+                fvgZones.Add(zone);
+                
+                // Console.WriteLine($"[FVG DETECTED] {symbol} BULLISH | Time: {zone.CreationTime:MM-dd HH:mm}");
+                // Console.WriteLine($"  Range: {zone.LowerBound:F6} - {zone.UpperBound:F6} | Gap: {zone.GapSize:F6}");
+                // Console.WriteLine($"  CandleA: {DateTimeOffset.FromUnixTimeMilliseconds(candleA.CloseTime):MM-dd HH:mm} | High={candleA.High:F6} Low={candleA.Low:F6} (GREEN)");
+                // Console.WriteLine($"  CandleB: {DateTimeOffset.FromUnixTimeMilliseconds(candleB.CloseTime):MM-dd HH:mm} | Close={candleB.Close:F6} (GREEN)");
+                // Console.WriteLine($"  CandleC: {DateTimeOffset.FromUnixTimeMilliseconds(candleC.CloseTime):MM-dd HH:mm} | Low={candleC.Low:F6} (GREEN)");
+                // Console.WriteLine("---");
             }
-            else if (firstKline.Low > thirdKline.High)
+            else if (bearFvg)
             {
-                fvgZones.Add(new FVGZone
+                var zone = new FVGZone
                 {
-                    UpperBound = firstKline.Low,
-                    LowerBound = thirdKline.High,
+                    LowerBound = candleC.High,   // C.High
+                    UpperBound = candleA.High,   // A.High
                     Type = FVGType.Bearish,
-                    CreationTime = DateTimeOffset.FromUnixTimeMilliseconds(thirdKline.CloseTime).UtcDateTime
-                });
+                    CreationTime = DateTimeOffset.FromUnixTimeMilliseconds(candleC.CloseTime).UtcDateTime
+                };
+                fvgZones.Add(zone);
+                
+                // Console.WriteLine($"[FVG DETECTED] {symbol} BEARISH | Time: {zone.CreationTime:MM-dd HH:mm}");
+                // Console.WriteLine($"  Range: {zone.LowerBound:F6} - {zone.UpperBound:F6} | Gap: {zone.GapSize:F6}");
+                // Console.WriteLine($"  CandleA: {DateTimeOffset.FromUnixTimeMilliseconds(candleA.CloseTime):MM-dd HH:mm} | High={candleA.High:F6} Low={candleA.Low:F6} (RED)");
+                // Console.WriteLine($"  CandleB: {DateTimeOffset.FromUnixTimeMilliseconds(candleB.CloseTime):MM-dd HH:mm} | Close={candleB.Close:F6} (RED)");
+                // Console.WriteLine($"  CandleC: {DateTimeOffset.FromUnixTimeMilliseconds(candleC.CloseTime):MM-dd HH:mm} | High={candleC.High:F6} (RED)");
+                // Console.WriteLine("---");
             }
-
         }
 
         return fvgZones;
@@ -230,39 +303,49 @@ public class FVGStrategy : StrategyBase
     {
         if (fvgZones == null || fvgZones.Count == 0 || allKlines == null || allKlines.Count == 0)
             return;
-
         for (int i = fvgZones.Count - 1; i >= 0; i--)
         {
             var fvg = fvgZones[i];
             bool isFulfilled = false;
 
-            // Check all candles since the FVG's creation
-            foreach (var kline in allKlines.Where(k => DateTimeOffset.FromUnixTimeMilliseconds(k.CloseTime).UtcDateTime > fvg.CreationTime))
+            // Get all candles after the FVG's creation time
+            var candlesSinceCreation = allKlines
+                .Where(k => DateTimeOffset.FromUnixTimeMilliseconds(k.CloseTime).UtcDateTime > fvg.CreationTime)
+                .ToList();
+
+            // Expire the zone if we've seen _fvgExpiryBars or more candles since creation
+            if (candlesSinceCreation.Count >= _fvgExpiryBars)
             {
-                if (fvg.Type == FVGType.Bullish)
+                isFulfilled = true; // expired
+            }
+            else
+            {
+                // Removal rule: use candle.Close for hard-fill detection
+                foreach (var kline in candlesSinceCreation)
                 {
-                    // Invalidate bullish FVG if a later candle closes below its lower boundary (hard fill)
-                    if (kline.Low < fvg.LowerBound)
+                    if (fvg.Type == FVGType.Bullish)
                     {
-                        // hard fill: remove the bullish FVG
-                        isFulfilled = true;
-                        break;
+                        // Remove bullish FVG if a later candle CLOSES below its lower boundary
+                        if (kline.Close < fvg.LowerBound)
+                        {
+                            isFulfilled = true;
+                            break;
+                        }
                     }
-                }
-                else if (fvg.Type == FVGType.Bearish)
-                {
-                    // Invalidate bearish FVG if a later candle closes above its upper boundary (hard fill)
-                    if (kline.High > fvg.UpperBound)
+                    else if (fvg.Type == FVGType.Bearish)
                     {
-                        isFulfilled = true;
-                        break;
+                        // Remove bearish FVG if a later candle CLOSES above its upper boundary
+                        if (kline.Close > fvg.UpperBound)
+                        {
+                            isFulfilled = true;
+                            break;
+                        }
                     }
                 }
             }
 
             if (isFulfilled)
             {
-                //Console.WriteLine($"[REMOVED] {symbol} FVG Zone:  Upper Bound: {fvg.UpperBound}  Lower Bound: {fvg.LowerBound}");
                 fvgZones.RemoveAt(i);
             }
         }

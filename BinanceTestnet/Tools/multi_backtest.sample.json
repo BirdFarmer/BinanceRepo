@@ -1,6 +1,6 @@
 {
   "Strategy": "FVG",
-  "Timeframes": ["30m"],
+  "Timeframes": ["5m"],
   "SymbolSets": {
     "tier_1_10": ["SOLUSDT", "ETHUSDT", "BTCUSDT", "ZECUSDT", "XRPUSDT", "UNIUSDT", "DOGEUSDT", "BNBUSDT", "GIGGLEUSDT", "FILUSDT"]
   },
@@ -8,7 +8,7 @@
     {
       "Name": "fixed",
       "RiskProfiles": [ 
-        { "Name": "rr_1_5_to_1", "TpMultiplier": 4, "SlMultiplier":  1}, { "Name": "rr_7_to_1", "TpMultiplier": 2, "SlMultiplier": 1 }, { "Name": "rr_6_to_1", "TpMultiplier": 6, "SlMultiplier": 1 }
+        { "Name": "rr_1_5_to_1", "TpMultiplier": 4, "SlMultiplier":  1}, { "Name": "rr_7_to_1", "TpMultiplier": 2, "SlMultiplier": 1 }, { "Name": "rr_6_to_1", "TpMultiplier": 3, "SlMultiplier": 1 }
       ]
     }
   ],
