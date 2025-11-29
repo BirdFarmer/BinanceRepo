@@ -40,30 +40,40 @@ public class FVGStrategy : StrategyBase
 
             RemoveFulfilledFVGs(fvgZones, closedKlines, symbol);
 
-            if (fvgZones.Count >= 1 && closedKlines.Count >= 3) // Need at least 3 closed candles
+            if (fvgZones.Count >= 1 && klines.Count >= 3) // Need at least 3 candles now (2 closed + 1 forming)
             {
-                // Use only CLOSED candles for entry logic
-                // B = closedKlines[^2] (i-2), C = closedKlines[^1] (i-1)
-                var C = closedKlines[^1]; // candle that just closed (i-1)
-                var B = closedKlines[^2]; // previous closed candle (i-2)
+                // Use current forming candle for entry logic
+                // B = klines[^2] (previous closed), C = klines[^1] (current forming)
+                var C = klines[^1]; // current forming candle
+                var B = klines[^2]; // previous closed candle
 
-                var cCloseTime = DateTimeOffset.FromUnixTimeMilliseconds(C.CloseTime).UtcDateTime;
+                var cOpenTime = DateTimeOffset.FromUnixTimeMilliseconds(C.OpenTime).UtcDateTime;
                 var bCloseTime = DateTimeOffset.FromUnixTimeMilliseconds(B.CloseTime).UtcDateTime;
 
                 // Check ALL FVG zones, not just the last one
                 foreach (var fvg in fvgZones)
                 {
                     // Ensure B and C are after FVG creation
-                    if (bCloseTime > fvg.CreationTime && cCloseTime > fvg.CreationTime)
+                    if (bCloseTime > fvg.CreationTime && cOpenTime > fvg.CreationTime)
                     {
                         // Build indicators from closed candles only
                         var indicatorQuotes = ToIndicatorQuotes(closedKlines);
-                        var emaTrend = Indicator.GetEma(indicatorQuotes, _emaPeriod).ToList();
+                        var emaResults = Indicator.GetEma(indicatorQuotes, _emaPeriod).ToList();
                         var adxResults = indicatorQuotes.GetAdx(_adxPeriod).ToList();
 
-                        bool trendFilterLong = true; // Your trend filters
-                        bool trendFilterShort = true;
-                        bool adxFilter = true;
+                        // Determine latest EMA and ADX values (be permissive if indicators unavailable)
+                        decimal? latestEma = null;
+                        decimal? latestAdx = null;
+                        var lastEmaRes = emaResults.LastOrDefault();
+                        if (lastEmaRes != null && lastEmaRes.Ema.HasValue)
+                            latestEma = Convert.ToDecimal(lastEmaRes.Ema.Value);
+                        var lastAdxRes = adxResults.LastOrDefault();
+                        if (lastAdxRes != null && lastAdxRes.Adx.HasValue)
+                            latestAdx = Convert.ToDecimal(lastAdxRes.Adx.Value);
+
+                        bool trendFilterLong = latestEma.HasValue ? (C.Close > latestEma.Value) : true;
+                        bool trendFilterShort = latestEma.HasValue ? (C.Close < latestEma.Value) : true;
+                        bool adxFilter = latestAdx.HasValue ? (latestAdx.Value >= _adxThreshold) : true;
 
                         if (!adxFilter) continue;
 
@@ -130,21 +140,20 @@ public class FVGStrategy : StrategyBase
                 RemoveFulfilledFVGs(fvgZones, historicalSlice, historicalList[i].Symbol!);
 
                 // Declare C here so it's accessible outside the if block
-                Kline C = null;
-                Kline B = null;
+                Kline? C = null;
+                Kline? B = null;
 
-                if (fvgZones.Count >= 1 && i >= 2) // Need at least 3 candles for entry logic
+                if (fvgZones.Count >= 1 && historicalSlice.Count >= 3) // Still need 3 candles total for FVG detection
                 {
-                    // B = historicalSlice[^2], C = historicalSlice[^1] (most recent closed)
-                    C = historicalSlice[^1]; // candle that just closed (i-1)
-                    B = historicalSlice[^2]; // previous closed candle (i-2)
-
+                    C = historicalSlice[^1]; // current candle
+                    B = historicalSlice[^2]; // previous candle
+                    
                     var cCloseTime = DateTimeOffset.FromUnixTimeMilliseconds(C.CloseTime).UtcDateTime;
                     var bCloseTime = DateTimeOffset.FromUnixTimeMilliseconds(B.CloseTime).UtcDateTime;
 
                     foreach (var fvg in fvgZones)
                     {
-                        // Ensure B and C are after FVG creation
+                        // Allow entries immediately after FVG creation
                         if (bCloseTime > fvg.CreationTime && cCloseTime > fvg.CreationTime)
                         {
                             // Convert to quotes for indicators
@@ -157,12 +166,21 @@ public class FVGStrategy : StrategyBase
                                 Close = k.Close
                             }).ToList();
 
-                            var emaTrend = Indicator.GetEma(quotes, _emaPeriod).ToList();
+                            var emaResults = Indicator.GetEma(quotes, _emaPeriod).ToList();
                             var adxResults = quotes.GetAdx(_adxPeriod).ToList();
 
-                            bool trendFilterLong = true;
-                            bool trendFilterShort = true;
-                            bool adxFilter = true;
+                            decimal? latestEma = null;
+                            decimal? latestAdx = null;
+                            var lastEmaRes = emaResults.LastOrDefault();
+                            if (lastEmaRes != null && lastEmaRes.Ema.HasValue)
+                                latestEma = Convert.ToDecimal(lastEmaRes.Ema.Value);
+                            var lastAdxRes = adxResults.LastOrDefault();
+                            if (lastAdxRes != null && lastAdxRes.Adx.HasValue)
+                                latestAdx = Convert.ToDecimal(lastAdxRes.Adx.Value);
+
+                            bool trendFilterLong = latestEma.HasValue ? (C.Close > latestEma.Value) : true;
+                            bool trendFilterShort = latestEma.HasValue ? (C.Close < latestEma.Value) : true;
+                            bool adxFilter = latestAdx.HasValue ? (latestAdx.Value >= _adxThreshold) : true;
 
                             if (!adxFilter) continue;
 
@@ -234,12 +252,14 @@ public class FVGStrategy : StrategyBase
             // Bullish FVG: C.Low > A.High AND B.Close > A.High + 3 green candles
             bool bullFvg = candleC.Low > candleA.High && 
                         candleB.Close > candleA.High &&
-                        threeGreenCandles;
+                        threeGreenCandles && 
+                        HasVolumeConfirmation(closedKlines, i);
 
             // Bearish FVG: C.High < A.Low AND B.Close < A.Low + 3 red candles  
             bool bearFvg = candleC.High < candleA.Low && 
                         candleB.Close < candleA.Low &&
-                        threeRedCandles;
+                        threeRedCandles && 
+                        HasVolumeConfirmation(closedKlines, i);
 
             if (bullFvg || bearFvg)
             {
@@ -350,9 +370,17 @@ public class FVGStrategy : StrategyBase
             }
         }
     }
-
-    // Bucket and rounding provided by StrategyUtils
-
+    
+    private bool HasVolumeConfirmation(List<Kline> closedKlines, int currentIndex)
+    {
+        if (closedKlines.Count < 21) return true; // Not enough data, be permissive
+        
+        var volumeB = closedKlines[currentIndex - 1].Volume; // B candle volume
+        var recentVolumes = closedKlines.Skip(closedKlines.Count - 21).Take(20).Select(k => k.Volume).ToList();
+        var volumeMA20 = recentVolumes.Average();
+        
+        return volumeB >= volumeMA20 * 2m; // B volume >= 2x 20-period average
+    }
 
     
     // Parsing and request creation centralized in StrategyUtils

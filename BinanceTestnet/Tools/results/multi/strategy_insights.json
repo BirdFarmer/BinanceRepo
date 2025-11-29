@@ -1,16 +1,18 @@
 {
-  "MACDStandard": "Total runs: 12, Positive runs: 8 (66,7%), Avg netPnL: 4,36",
-  "BollingerSqueeze": "Best setup — TF:5m; Symbols:tier_1_10 (SOLUSDT,ETHUSDT,BTCUSDT,ZECUSDT,XRPUSDT,UNIUSDT,DOGEUSDT,BNBUSDT,GIGGLEUSDT,FILUSDT); TP:7; SL:3; Win:42.19% ; Net:71.19; Trades:64; Start:2025-11-09 00:00:00 UTC; Candles:1000",
+  "MACDStandard": "Best setup — TF:5m; Symbols:tier_1_5 (BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT); TP:3.0; SL:1.0; Win:47.17% ; Net:-2.95; Trades:159; Start:2025-10-01 00:00:00 UTC; Candles:1500",
+  "BollingerSqueeze": "Best setup — TF:5m; Symbols:tier_1_5 (BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT); TP:3.0; SL:1.0; Win:0.00% ; Net:0.00; Trades:0; Start:2025-11-24 00:00:00 UTC; Candles:1500",
   "IchimokuCloud": "Best setup — TF:1h; Symbols:tier_50_54 (SANDUSDT,THETAUSDT,AAVEUSDT,FTMUSDT,MANAUSDT); TP:2.5; SL:2.0; Win:45.45% ; Net:37.80; Trades:55; Start:2025-10-15 00:00:00 UTC; Candles:(unknown)",
   "Aroon": "Best setup — TF:1h; Symbols:tier_50_54 (SANDUSDT,THETAUSDT,AAVEUSDT,FTMUSDT,MANAUSDT); TP:1.5; SL:1.0; Win:55.56% ; Net:5.49; Trades:18; Start:2025-10-01 00:00:00 UTC; Candles:1000",
   "EnhancedMACD": "Best setup — TF:1h; Symbols:tier_1_5 (ALPACAUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT); TP:2.5; SL:2.0; Win:40.38% ; Net:16.73; Trades:52; Start:2025-10-15 00:00:00 UTC; Candles:(unknown)",
-  "EmaStochRsi": "Best setup — TF:15m; Symbols:tier_1_5 (ALPACAUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT); TP:2.5; SL:2.0; Win:37.87% ; Net:40.93; Trades:367; Start:2025-10-15 00:00:00 UTC; Candles:(unknown)",
-  "FVG": "Best setup — TF:5m; Symbols:tier_1_10 (SOLUSDT,ETHUSDT,BTCUSDT,ZECUSDT,XRPUSDT,UNIUSDT,DOGEUSDT,BNBUSDT,GIGGLEUSDT,FILUSDT); TP:2; SL:1; Win:51.34% ; Net:14.28; Trades:411; Start:2025-10-13 00:00:00 UTC; Candles:1000",
+  "EmaStochRsi": "Best setup — TF:5m; Symbols:tier_1_5 (BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT); TP:3.0; SL:1.0; Win:54.24% ; Net:11.10; Trades:330; Start:2025-10-01 00:00:00 UTC; Candles:1500",
+  "FVG": "Best setup — TF:5m; Symbols:tier_1_5 (AVAXUSDT,BANANAUSDT,MLNUSDT,FARTCOINUSDT,PAXGUSDT); TP:4.0; SL:1.0; Win:37.50% ; Net:-7.88; Trades:32; Start:2025-11-24 00:00:00 UTC; Candles:1500",
   "HullSMA": "Best setup — TF:15m; Symbols:tier_1_5 (ETHUSDT,ZECUSDT,SOLUSDT,XRPUSDT,BEATUSDT,SUIUSDT,BNBUSDT,1000PEPEUSDT,HYPEUSDT,DOGEUSDT,LINKUSDT,RESOLVUSDT,UNIUSDT,AVAXUSDT,HUSDT,LRCUSDT,PIPPINUSDT,EDUUSDT,HIPPOUSDT,1000000MOGUSDT,TAUSDT,RENDERUSDT,KERNELUSDT); TP:1.5; SL:1.0; Win:63.64% ; Net:3.94; Trades:11; Start:2025-10-25 00:00:00 UTC; Candles:201",
   "FibonacciRetracement": "Best setup — TF:5m; Symbols:tier_1; TP:4.0; SL:1.0; Win:25.00% ; Net:-37.25; Trades:8; Start:2025-11-01 00:00:00 UTC; Candles:250",
-  "SupportResistance": "Best setup — TF:1h; Symbols:tier_50_54 (SANDUSDT,THETAUSDT,AAVEUSDT,FTMUSDT,MANAUSDT); TP:1.5; SL:1.0; Win:64.29% ; Net:10.81; Trades:14; Start:2025-10-01 00:00:00 UTC; Candles:996",
+  "SupportResistance": "Best setup — TF:5m; Symbols:tier_1_5 (AVAXUSDT,BANANAUSDT,MLNUSDT,FARTCOINUSDT,PAXGUSDT); TP:4.0; SL:1.0; Win:47.37% ; Net:4.30; Trades:19; Start:2025-11-24 00:00:00 UTC; Candles:1500",
   "RsiDivergence": "Best setup — TF:5m; Symbols:tier_100_110 (TURBOUSDT,XPINUSDT,FLOWUSDT,FORMUSDT,TRUSTUSDT,AIXBTUSDT,WUSDT,REEFUSDT,KAVAUSDT,SANDUSDT); TP:7; SL:1; Win:50.00% ; Net:4.44; Trades:2; Start:2025-11-09 00:00:00 UTC; Candles:1000",
   "RSIMomentum": "Best setup — TF:5m; Symbols:tier_100_110 (TURBOUSDT,XPINUSDT,FLOWUSDT,FORMUSDT,TRUSTUSDT,AIXBTUSDT,WUSDT,REEFUSDT,KAVAUSDT,SANDUSDT); TP:7; SL:1; Win:58.33% ; Net:14.26; Trades:24; Start:2025-11-09 00:00:00 UTC; Candles:1000",
   "DEMASuperTrend": "Best setup — TF:5m; Symbols:tier_100_110 (TURBOUSDT,XPINUSDT,FLOWUSDT,FORMUSDT,TRUSTUSDT,AIXBTUSDT,WUSDT,REEFUSDT,KAVAUSDT,SANDUSDT); TP:4; SL:1; Win:52.99% ; Net:19.66; Trades:117; Start:2025-10-25 00:00:00 UTC; Candles:1000",
-  "CDVReversalWithEMA": "Best setup — TF:15m; Symbols:tier_100_110 (TURBOUSDT,XPINUSDT,FLOWUSDT,FORMUSDT,TRUSTUSDT,AIXBTUSDT,WUSDT,REEFUSDT,KAVAUSDT,SANDUSDT); TP:2; SL:3; Win:56.25% ; Net:33.14; Trades:32; Start:2025-11-13 00:00:00 UTC; Candles:938"
+  "CDVReversalWithEMA": "Best setup — TF:5m; Symbols:tier_1_5 (BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT); TP:3.0; SL:1.0; Win:41.18% ; Net:-2.88; Trades:34; Start:2025-10-01 00:00:00 UTC; Candles:1500",
+  "ExampleMeanReversion": "Best setup — TF:15m; Symbols:tier_1 (BTCUSDT); TP:2; SL:1; Win:52.0% ; Net:12.5; Trades:40; Start:2025-11-01 00:00:00 UTC; Candles:1000",
+  "SimpleSMA375": "Best setup — TF:5m; Symbols:tier_1_5 (BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT); TP:3.0; SL:1.0; Win:60.44% ; Net:5.84; Trades:91; Start:2025-11-24 00:00:00 UTC; Candles:1500"
 }

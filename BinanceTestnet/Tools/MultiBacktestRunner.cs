@@ -21,6 +21,8 @@ namespace BinanceTestnet.Tools
     public class MultiBacktestConfig
     {
         public string Strategy { get; set; } = "MACDStandard"; // global default
+        // Optional multi-strategy support. If present, runner will iterate over these values.
+        public List<string>? Strategies { get; set; }
         public List<string> Timeframes { get; set; } = new();
         public Dictionary<string, List<string>> SymbolSets { get; set; } = new();
         public List<ExitModeConfig> ExitModes { get; set; } = new();
@@ -142,7 +144,7 @@ namespace BinanceTestnet.Tools
             var selectedStrategies = new List<SelectedTradingStrategy> { selectedStrategy };
             var runner = new StrategyRunner(_client, _apiKey, symbols, timeframe, wallet, orderManager, selectedStrategies);
 
-            string endUtc = null;
+            string? endUtc = null;
             // Track per-symbol fetched counts to compute a conservative candlesTested value
             var perSymbolCounts = new List<int>();
             foreach (var symbol in symbols)
@@ -196,6 +198,8 @@ namespace BinanceTestnet.Tools
             var csvPath = Path.Combine(_pendingOutputDir, "multi_results.csv");
             if (System.IO.File.Exists(csvPath)) System.IO.File.Delete(csvPath);
 
+            var strategyNames = (cfg.Strategies != null && cfg.Strategies.Any()) ? cfg.Strategies : new List<string> { cfg.Strategy };
+
             foreach (var timeframe in cfg.Timeframes)
             {
                 foreach (var kvp in cfg.SymbolSets)
@@ -211,7 +215,11 @@ namespace BinanceTestnet.Tools
                             foreach (var rp in exit.RiskProfiles!)
                             {
                                 if (ct.IsCancellationRequested) return;
-                                await RunOneCombination(cfg.Strategy, timeframe, setName, symbols, exit, rp, ct);
+                                foreach (var strat in strategyNames)
+                                {
+                                    if (ct.IsCancellationRequested) return;
+                                    await RunOneCombination(strat, timeframe, setName, symbols, exit, rp, ct);
+                                }
                             }
                         }
                     }
