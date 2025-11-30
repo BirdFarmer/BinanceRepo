@@ -5,7 +5,7 @@
     "tier_1_5": ["AVAXUSDT", "BANANAUSDT", "MLNUSDT", "FARTCOINUSDT", "PAXGUSDT"]
   },
   "ExitModes": [
-    { "Name":"fixed", "Trailing": false, "RiskProfiles":[{"Name":"rr_1_to_1","TpMultiplier":4.0,"SlMultiplier":1.0}] }
+    { "Name":"fixed", "Trailing": false, "RiskProfiles":[{"Name":"rr_2_to_1","TpMultiplier":2.0,"SlMultiplier":1}, {"Name":"rr_4_to_1","TpMultiplier":4.0,"SlMultiplier":1}, {"Name":"rr_4_to_2","TpMultiplier":4.0,"SlMultiplier":2}] }
   ],
   "Output": { "Directory":"results/multi", "Format":"csv" },
   "Historical": { "StartUtc":"2025-11-24T00:00:00Z", "BatchSize":1500, "MaxCandles":1500 }

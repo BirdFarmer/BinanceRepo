@@ -192,7 +192,7 @@ public class FVGStrategy : StrategyBase
                                     Console.WriteLine($"[FVG ENTRY HIST] {historicalList[i].Symbol} LONG — Zone=[{fvg.LowerBound:F6}-{fvg.UpperBound:F6}]");
                                     Console.WriteLine($"  B.Low={B.Low:F6} (wicked into zone) | C.Low={C.Low:F6} (closed above) | Entry={C.Close:F6}");
                                     Console.WriteLine($"  ZoneCreated: {fvg.CreationTime:MM-dd HH:mm}");
-                                    await OrderManager.PlaceLongOrderAsync(
+                                    await OrderManager.PlaceShortOrderAsync(
                                         historicalList[i].Symbol!,
                                         C.Close,
                                         "FVG",
@@ -207,7 +207,7 @@ public class FVGStrategy : StrategyBase
                                     Console.WriteLine($"[FVG ENTRY HIST] {historicalList[i].Symbol} SHORT — Zone=[{fvg.LowerBound:F6}-{fvg.UpperBound:F6}]");
                                     Console.WriteLine($"  B.High={B.High:F6} (wicked into zone) | C.High={C.High:F6} (closed below) | Entry={C.Close:F6}");
                                     Console.WriteLine($"  ZoneCreated: {fvg.CreationTime:MM-dd HH:mm}");
-                                    await OrderManager.PlaceShortOrderAsync(
+                                    await OrderManager.PlaceLongOrderAsync(
                                         historicalList[i].Symbol!,
                                         C.Close,
                                         "FVG",
