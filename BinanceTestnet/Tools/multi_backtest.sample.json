@@ -1,24 +1,12 @@
 {
-  "Strategy": "FVG",
-  "Timeframes": ["30m"],
+  "Strategies": ["FVG"],
+  "Timeframes": ["5m"],
   "SymbolSets": {
-    "tier_1_10": ["SOLUSDT", "ETHUSDT", "BTCUSDT", "ZECUSDT", "XRPUSDT", "UNIUSDT", "DOGEUSDT", "BNBUSDT", "GIGGLEUSDT", "FILUSDT"]
+    "tier_1_5": ["AVAXUSDT", "BANANAUSDT", "MLNUSDT", "FARTCOINUSDT", "PAXGUSDT"]
   },
   "ExitModes": [
-    {
-      "Name": "fixed",
-      "RiskProfiles": [ 
-        { "Name": "rr_1_5_to_1", "TpMultiplier": 4, "SlMultiplier":  1}, { "Name": "rr_7_to_1", "TpMultiplier": 2, "SlMultiplier": 1 }, { "Name": "rr_6_to_1", "TpMultiplier": 6, "SlMultiplier": 1 }
-      ]
-    }
+    { "Name":"fixed", "Trailing": false, "RiskProfiles":[{"Name":"rr_2_to_1","TpMultiplier":2.0,"SlMultiplier":1}, {"Name":"rr_4_to_1","TpMultiplier":4.0,"SlMultiplier":1}, {"Name":"rr_4_to_2","TpMultiplier":4.0,"SlMultiplier":2}] }
   ],
-  "Output": {
-    "Directory": "results/multi",
-    "Format": "csv"
-  },
-  "Historical": {
-    "StartUtc": "2025-10-13T00:00:00Z",
-    "BatchSize": 1000,
-    "MaxCandles": 3000
-  }
+  "Output": { "Directory":"results/multi", "Format":"csv" },
+  "Historical": { "StartUtc":"2025-11-24T00:00:00Z", "BatchSize":1500, "MaxCandles":1500 }
 }

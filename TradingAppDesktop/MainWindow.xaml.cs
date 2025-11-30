@@ -25,18 +25,18 @@ namespace TradingAppDesktop
         private bool _isStarting = false; // Add this class field
         private readonly object _startLock = new(); // Add this for thread safety
         private List<string>? _customCoinSelection = null;
-    private RecentTradesViewModel _recentTradesVm;
-    private PaperWalletViewModel _paperWalletVm;
-    
-    // Trailing UI state
-    private bool _useTrailing = false;
-    private decimal _trailingActivationPercent = 2.8m; // reuse ATR slider default
-    private decimal _trailingCallbackPercent = 1.0m;
-    
-    // Persisted settings
-    private UserSettings? _userSettings = null;
-    // UI: Closed candles toggle state (persisted)
-    private bool _useClosedCandles = false;
+        private RecentTradesViewModel _recentTradesVm;
+        private PaperWalletViewModel _paperWalletVm;
+        
+        // Trailing UI state
+        private bool _useTrailing = false;
+        private decimal _trailingActivationPercent = 2.8m; // reuse ATR slider default
+        private decimal _trailingCallbackPercent = 1.0m;
+        
+        // Persisted settings
+        private UserSettings? _userSettings = null;
+        // UI: Closed candles toggle state (persisted)
+        private bool _useClosedCandles = false;
     
 
 
@@ -57,6 +57,22 @@ namespace TradingAppDesktop
             Console.SetOut(new TextBoxWriter(LogText));
             StartButton.Click += StartButton_Click;
             StopButton.Click += StopButton_Click;
+
+            // Ensure StrategySelector selection changes update the UI (SelectedStrategies is an ObservableCollection)
+            try
+            {
+                if (StrategySelector != null && StrategySelector.SelectedStrategies != null)
+                {
+                    StrategySelector.SelectedStrategies.CollectionChanged += (s, ev) =>
+                    {
+                        // call the existing handler to update closed-candle UI
+                        OnStrategySelectionChanged(this, null);
+                    };
+                    // initialize state based on any pre-selected strategies
+                    OnStrategySelectionChanged(this, null);
+                }
+            }
+            catch { }
 
             // UI-dependent initialization
             this.Loaded += (s, e) =>
@@ -916,6 +932,37 @@ namespace TradingAppDesktop
 
             // Additional logic if needed:
             StatusText.Text = $"{StrategySelector.SelectedCount} strategies selected";
+
+            // If FVG strategy is selected we force closed-candle mode off and disable the checkbox
+            try
+            {
+                bool fvgSelected = StrategySelector.SelectedStrategies?.Contains(SelectedTradingStrategy.FVG) == true;
+                if (UseClosedCandlesCheckBox != null)
+                {
+                    if (fvgSelected)
+                    {
+                        UseClosedCandlesCheckBox.IsChecked = false;
+                        UseClosedCandlesCheckBox.IsEnabled = false;
+                        _useClosedCandles = false;
+                        BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.UseClosedCandles = false;
+                        if (_userSettings != null)
+                        {
+                            _userSettings.UseClosedCandles = false;
+                            _userSettings.Save();
+                        }
+                    }
+                    else
+                    {
+                        UseClosedCandlesCheckBox.IsEnabled = true;
+                        // Restore to persisted or current runtime value
+                        UseClosedCandlesCheckBox.IsChecked = _userSettings?.UseClosedCandles ?? _useClosedCandles;
+                    }
+                }
+            }
+            catch
+            {
+                // non-fatal UI update; ignore any failures
+            }
         }
 
         // UI handler: toggle closed candle mode

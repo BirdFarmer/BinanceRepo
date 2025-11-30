@@ -2,6 +2,21 @@
 
 This is a concise summary of the updated FVG (Fair Value Gap) strategy implementation. The strategy now removes any dependency on order-book validation (so backtests match live/paper modes) and uses lightweight trend filters to improve signal quality.
 
+## Class Overview (implementation)
+
+This document describes the C# `FVGStrategy` implementation used in the codebase.
+
+- **Responsibility:** detect Fair Value Gap (FVG) zones from closed candles, evaluate retest/clear conditions, apply optional trend filters, and request order placement when entry rules are met.
+- **Inputs:** a sequence of closed `Kline` objects (historical or live closed candles). The strategy respects the runtime flag `StrategyRuntimeConfig.UseClosedCandles` for whether to ignore the forming candle.
+- **Key methods:**
+    - `IdentifyFVGs(List<Kline> closedKlines, string symbol)` — scans recent candles and returns detected FVG zones.
+    - `RunAsync(string symbol, string interval)` — main live/paper execution loop: fetches recent klines, identifies and prunes FVGs, checks entry conditions and calls `OrderManager.PlaceLongOrderAsync` or `PlaceShortOrderAsync` when appropriate.
+    - `RunOnHistoricalDataAsync(IEnumerable<Kline> klines)` — backtest/historical path that uses the same detection and entry logic but runs deterministically over historical data.
+- **Entry decision flow:** detect FVGs, require retest of the zone by a prior candle and a clearing move by the current candle, optionally require trend alignment (e.g., EMA50/ADX as configured in this repository), then log an `[FVG ENTRY]` message and call the order manager.
+- **Outputs / side-effects:** creates `Trade` placement requests via `OrderManager` (paper or live depending on operation mode), writes strategy-specific logs to the central logger/console, and updates internal FVG state (removing fulfilled zones).
+- **Integration points:** interacts with `OrderManager` for placing entries, `Wallet` for paper trades, and `StrategyRuntimeConfig` for runtime flags. The strategy is executed by the `StrategyRunner` which may run multiple strategy instances concurrently.
+
+
 ## What's Changed
 - Removed order-book fetching and imbalance checks — entries are now entirely price-action + indicator based so they are reproducible in historical backtests.
 - Added trend alignment filters:

@@ -145,7 +145,7 @@ namespace BinanceTestnet.Strategies
                         Console.WriteLine($"[DEBUG][HIST] previousResult: Date={previousResult.Date}, Dema={previousResult.Dema}, Supertrend={previousResult.Supertrend}, Direction={previousResult.Direction}");
                     }
                     await OrderManager.PlaceLongOrderAsync(currentKline.Symbol, currentKline.Close, 
-                        "DEMA Supertrend Bullish", currentKline.CloseTime);
+                        "DEMA Supertrend", currentKline.CloseTime);
                 }
                 else if (shortSignal && !string.IsNullOrEmpty(currentKline.Symbol))
                 {
@@ -156,7 +156,7 @@ namespace BinanceTestnet.Strategies
                         Console.WriteLine($"[DEBUG][HIST] previousResult: Date={previousResult.Date}, Dema={previousResult.Dema}, Supertrend={previousResult.Supertrend}, Direction={previousResult.Direction}");
                     }
                     await OrderManager.PlaceShortOrderAsync(currentKline.Symbol, currentKline.Close, 
-                        "DEMA Supertrend Bearish", currentKline.CloseTime);
+                        "DEMA Supertrend", currentKline.CloseTime);
                 }
 
                 // Check for trade closures based on current price
