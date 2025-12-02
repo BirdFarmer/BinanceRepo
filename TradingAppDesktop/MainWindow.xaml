@@ -180,10 +180,12 @@
 
                     <!-- Exit Mode -->
                     <Label Grid.Row="7" Grid.Column="0" Content="Exit Mode:"/>
-                    <ComboBox Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ExitModeComboBox" SelectionChanged="ExitModeComboBox_SelectionChanged">
+                    <ComboBox Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="1" x:Name="ExitModeComboBox" SelectionChanged="ExitModeComboBox_SelectionChanged">
                         <ComboBoxItem Content="Take Profit" IsSelected="True"/>
                         <ComboBoxItem Content="Trailing Stop"/>
+                        <ComboBoxItem Content="PnL% Take Profit"/>
                     </ComboBox>
+                    <TextBox Grid.Row="7" Grid.Column="2" x:Name="ExitPnLPctTextBox" Width="70" Text="5" Visibility="Collapsed" ToolTip="Exit PnL% (unlevered). Example: 5" HorizontalAlignment="Left" TextChanged="ExitPnLPctTextBox_TextChanged"/>
 
                     <!-- Shared Slider: ATR Multiplier or Activation % -->
             <Label Grid.Row="8" Grid.Column="0" x:Name="ExitParamLabel" Content="ATR Multiplier:"/>

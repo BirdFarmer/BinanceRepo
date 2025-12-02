@@ -32,6 +32,8 @@ namespace TradingAppDesktop
         private bool _useTrailing = false;
         private decimal _trailingActivationPercent = 2.8m; // reuse ATR slider default
         private decimal _trailingCallbackPercent = 1.0m;
+        // Exit PnL% UI state (runtime only)
+        private decimal? _exitPnLPct = null;
         
         // Persisted settings
         private UserSettings? _userSettings = null;
@@ -416,24 +418,37 @@ namespace TradingAppDesktop
         private void AtrMultiplier_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (!IsLoaded || AtrMultiplierText == null) return;
-            // Always display as ATR multiplier; in trailing mode this is Activation ATR Multiplier
-            AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
+            // If PnL% mode is selected, repurpose this slider as Exit PnL% input
+            bool isPnLMode = ExitModeComboBox != null && ExitModeComboBox.SelectedItem is ComboBoxItem ei &&
+                             string.Equals(ei.Content?.ToString(), "PnL% Take Profit", StringComparison.OrdinalIgnoreCase);
 
-            if (_useTrailing)
+            if (isPnLMode)
             {
-                _trailingActivationPercent = (decimal)AtrMultiplierSlider.Value; // semantics: ATR multiplier
-                if (_userSettings != null)
-                {
-                    _userSettings.TrailingActivationAtrMultiplier = _trailingActivationPercent;
-                    _userSettings.Save();
-                }
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F2}%";
+                _exitPnLPct = (decimal)AtrMultiplierSlider.Value;
+                // Do not persist PnL% to user settings (session/runtime only)
             }
             else
             {
-                if (_userSettings != null)
+                // Always display as ATR multiplier; in trailing mode this is Activation ATR Multiplier
+                AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F1} * ATR";
+
+                if (_useTrailing)
                 {
-                    _userSettings.TpAtrMultiplier = (decimal)AtrMultiplierSlider.Value;
-                    _userSettings.Save();
+                    _trailingActivationPercent = (decimal)AtrMultiplierSlider.Value; // semantics: ATR multiplier
+                    if (_userSettings != null)
+                    {
+                        _userSettings.TrailingActivationAtrMultiplier = _trailingActivationPercent;
+                        _userSettings.Save();
+                    }
+                }
+                else
+                {
+                    if (_userSettings != null)
+                    {
+                        _userSettings.TpAtrMultiplier = (decimal)AtrMultiplierSlider.Value;
+                        _userSettings.Save();
+                    }
                 }
             }
         }
@@ -558,6 +573,32 @@ namespace TradingAppDesktop
                 _tradingService.SetPaperWalletViewModel(_paperWalletVm);
                 // Pass trailing config from UI
                 _tradingService.SetTrailingUiConfig(_useTrailing, _trailingActivationPercent, _trailingCallbackPercent);
+                // Pass exit mode config (runtime only)
+                string exitModeName;
+                decimal? exitPctToPass = null;
+                if (ExitModeComboBox.SelectedItem is ComboBoxItem exitItem)
+                {
+                    var exitContent = exitItem.Content?.ToString() ?? "Take Profit";
+                    if (string.Equals(exitContent, "PnL% Take Profit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        exitModeName = "PnLPct";
+                        // Use runtime percent from slider
+                        exitPctToPass = _exitPnLPct ?? (decimal?)AtrMultiplierSlider.Value;
+                    }
+                    else if (string.Equals(exitContent, "Trailing Stop", StringComparison.OrdinalIgnoreCase))
+                    {
+                        exitModeName = "TrailingStop";
+                    }
+                    else
+                    {
+                        exitModeName = "TakeProfit";
+                    }
+                }
+                else
+                {
+                    exitModeName = "TakeProfit";
+                }
+                _tradingService.SetExitModeConfig(exitModeName, exitPctToPass);
                 
                 // PASS THE CUSTOM COIN SELECTION
                 Log(_customCoinSelection != null 
@@ -612,8 +653,22 @@ namespace TradingAppDesktop
             {
                 var mode = item.Content?.ToString();
                 _useTrailing = string.Equals(mode, "Trailing Stop", StringComparison.OrdinalIgnoreCase);
+                // Show PnL% UI: repurpose ATR slider label/display instead of separate textbox
+                var isPnLMode = string.Equals(mode, "PnL% Take Profit", StringComparison.OrdinalIgnoreCase);
+                if (ExitPnLPctTextBox != null)
+                {
+                    ExitPnLPctTextBox.Visibility = Visibility.Collapsed; // we don't use the textbox when repurposing the slider
+                }
+                // Update the ATR label to reflect current mode immediately
+                ExitParamLabel.Content = isPnLMode ? "Exit PnL%:" : (_useTrailing ? "Activation ATR Multiplier:" : "ATR Multiplier:");
+                // If switching into PnL mode, set _exitPnLPct from current slider value
+                if (isPnLMode)
+                {
+                    _exitPnLPct = (decimal)AtrMultiplierSlider.Value;
+                    AtrMultiplierText.Text = $"{AtrMultiplierSlider.Value:F2}%";
+                    // Optionally clamp slider range for percent; leave slider min/max as-is unless you want changes
+                }
                 // Restore full label text for clarity
-                ExitParamLabel.Content = _useTrailing ? "Activation ATR Multiplier:" : "ATR Multiplier:";
                 var vis = _useTrailing ? Visibility.Visible : Visibility.Collapsed;
                 if (CallbackLabel != null) CallbackLabel.Visibility = vis;
                 if (CallbackSlider != null) CallbackSlider.Visibility = vis;
@@ -621,7 +676,7 @@ namespace TradingAppDesktop
                 // Refresh label text to reflect current mode
                 AtrMultiplier_ValueChanged(AtrMultiplierSlider, new RoutedPropertyChangedEventArgs<double>(AtrMultiplierSlider.Value, AtrMultiplierSlider.Value));
 
-                // Persist exit mode selection
+                // Persist exit mode selection (only store TrailingStop vs TakeProfit for legacy settings)
                 if (_userSettings != null)
                 {
                     _userSettings.ExitMode = _useTrailing ? "TrailingStop" : "TakeProfit";
@@ -639,6 +694,20 @@ namespace TradingAppDesktop
             {
                 _userSettings.TrailingCallbackPercent = _trailingCallbackPercent;
                 _userSettings.Save();
+            }
+        }
+
+        private void ExitPnLPctTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            if (ExitPnLPctTextBox == null) return;
+            if (decimal.TryParse(ExitPnLPctTextBox.Text, out var pct) && pct > 0)
+            {
+                _exitPnLPct = pct;
+            }
+            else
+            {
+                _exitPnLPct = null;
             }
         }
 

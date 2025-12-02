@@ -38,6 +38,9 @@ namespace TradingAppDesktop.Services
         private bool _uiUseTrailing = false;
         private decimal _uiTrailingActivationPercent = 1.0m;
         private decimal _uiTrailingCallbackPercent = 1.0m;
+        // Exit mode config supplied by UI (runtime only)
+        private string _uiExitMode = "TakeProfit"; // TakeProfit | TrailingStop | PnLPct
+        private decimal? _uiExitPnLPct = null;
         
     private static TradeLogger _tradeLogger = null!;
         private readonly ReportSettings _reportSettings;
@@ -290,6 +293,19 @@ namespace TradingAppDesktop.Services
                 _orderManager.UpdateTrailingConfig(true, _uiTrailingActivationPercent, _uiTrailingCallbackPercent);
             }
 
+            // Apply exit mode configuration from UI (runtime only)
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(_uiExitMode))
+                {
+                    if (Enum.TryParse<OrderManager.ExitMode>(_uiExitMode, true, out var parsedExit))
+                    {
+                        _orderManager.UpdateExitMode(parsedExit, _uiExitPnLPct);
+                    }
+                }
+            }
+            catch { /* non-fatal */ }
+
             _reportSettings.StrategyName = selectedStrategies.First().ToString();
             _reportSettings.Leverage = (int)leverage;
             _reportSettings.TakeProfitMultiplier = takeProfit;
@@ -479,6 +495,13 @@ namespace TradingAppDesktop.Services
             _uiUseTrailing = useTrailing;
             _uiTrailingActivationPercent = activationPercent;
             _uiTrailingCallbackPercent = callbackPercent;
+        }
+
+        // Set exit mode from UI (call before StartTrading). exitModeName: "TakeProfit" | "TrailingStop" | "PnLPct"
+        public void SetExitModeConfig(string exitModeName, decimal? exitPnLPct)
+        {
+            _uiExitMode = string.IsNullOrWhiteSpace(exitModeName) ? "TakeProfit" : exitModeName;
+            _uiExitPnLPct = exitPnLPct;
         }
 
         private async Task<bool> CheckApiHealth()
