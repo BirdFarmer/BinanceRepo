@@ -24,6 +24,17 @@ namespace BinanceTestnet.Trading
 
     public class OrderManager
     {
+        public enum ExitMode
+        {
+            TakeProfit,
+            TrailingStop,
+            PnLPct
+        }
+
+        // Exit mode runtime config (default: TakeProfit)
+        private ExitMode _exitMode = ExitMode.TakeProfit;
+        // Exit PnL percent (unlevered) - session/runtime only
+        private decimal? _exitPnLPct = null;
         // Fields grouped by functionality
         private Wallet _wallet;
         private readonly DatabaseManager _databaseManager;
@@ -112,6 +123,13 @@ namespace BinanceTestnet.Trading
             _replaceTakeProfitWithTrailing = replaceTpWithTrailing;
             _trailingActivationPercentOverride = activationPercent; // store ATR multiplier
             _trailingCallbackPercentOverride = callbackPercent;
+        }
+
+        // Update exit mode and optional PnL percent (runtime only)
+        public void UpdateExitMode(ExitMode mode, decimal? exitPnLPct = null)
+        {
+            _exitMode = mode;
+            _exitPnLPct = exitPnLPct;
         }
 
         public async Task InitializeLotSizes()
@@ -315,29 +333,56 @@ namespace BinanceTestnet.Trading
             }
             else
             {
-                var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
-                if (tpPercent <= 0 || slPercent <= 0 || double.IsNaN((double)tpPercent) || 
-                    double.IsNaN((double)slPercent) || double.IsInfinity((double)tpPercent) || 
-                    double.IsInfinity((double)slPercent))
+                // If Exit Mode is PnLPct, compute TP from unlevered PnL percent and keep SL from ATR-based logic
+                if (_exitMode == ExitMode.PnLPct && _exitPnLPct.HasValue && _exitPnLPct.Value > 0)
                 {
-                    return; // Skip the trade if values are invalid
-                }
+                    var exitPct = _exitPnLPct.Value;
+                    // Derive SL percent from Risk-Reward ratio (RR). RR is stored in _stopLoss field.
+                    var rrDivider = _stopLoss > 0 ? _stopLoss : 2.0m;
+                    var slPercent = exitPct / rrDivider; // e.g. TP 5% and RR 2 => SL 2.5%
 
-                if (isLong)
-                {
-                    takeProfitPrice = price * (1 + (tpPercent / 100));
-                    stopLossPrice = price * (1 - (slPercent / 100));
+                    if (isLong)
+                    {
+                        takeProfitPrice = price * (1 + (exitPct / 100m));
+                        stopLossPrice = price * (1 - (slPercent / 100m));
+                    }
+                    else
+                    {
+                        takeProfitPrice = price * (1 - (exitPct / 100m));
+                        stopLossPrice = price * (1 + (slPercent / 100m));
+                    }
+
+                    riskDistance = isLong ? takeProfitPrice - price : price - takeProfitPrice;
+                    // Provide default heuristics; may be overridden by UI
+                    trailingActivationPercent = (riskDistance / 2) / price * 100;
+                    trailingCallbackPercent = (riskDistance) / price * 100;
                 }
                 else
                 {
-                    takeProfitPrice = price * (1 - (tpPercent / 100));
-                    stopLossPrice = price * (1 + (slPercent / 100));
-                }
+                    var (tpPercent, slPercent) = await CalculateATRBasedTPandSL(symbol);
+                    if (tpPercent <= 0 || slPercent <= 0 || double.IsNaN((double)tpPercent) || 
+                        double.IsNaN((double)slPercent) || double.IsInfinity((double)tpPercent) || 
+                        double.IsInfinity((double)slPercent))
+                    {
+                        return; // Skip the trade if values are invalid
+                    }
 
-                riskDistance = isLong ? takeProfitPrice - price : price - takeProfitPrice;
-                // Provide default heuristics; may be overridden by UI
-                trailingActivationPercent = (riskDistance / 2) / price * 100;
-                trailingCallbackPercent = (riskDistance) / price * 100;
+                    if (isLong)
+                    {
+                        takeProfitPrice = price * (1 + (tpPercent / 100));
+                        stopLossPrice = price * (1 - (slPercent / 100));
+                    }
+                    else
+                    {
+                        takeProfitPrice = price * (1 - (tpPercent / 100));
+                        stopLossPrice = price * (1 + (slPercent / 100));
+                    }
+
+                    riskDistance = isLong ? takeProfitPrice - price : price - takeProfitPrice;
+                    // Provide default heuristics; may be overridden by UI
+                    trailingActivationPercent = (riskDistance / 2) / price * 100;
+                    trailingCallbackPercent = (riskDistance) / price * 100;
+                }
             }
 
             // If trailing is replacing TP, derive activation percent using ATR/Price and SL using RR divider
