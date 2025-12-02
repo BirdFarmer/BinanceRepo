@@ -16,7 +16,7 @@ public enum SelectedTradingStrategy
     BollingerSqueeze = 13,
     SupportResistance = 14,
     SimpleSMA375 = 15,
-    DEMASuperTrend = 16
-    ,
-    CDVReversalWithEMA = 17
+    DEMASuperTrend = 16,
+    CDVReversalWithEMA = 17,
+    HarmonicPattern = 18
 }
