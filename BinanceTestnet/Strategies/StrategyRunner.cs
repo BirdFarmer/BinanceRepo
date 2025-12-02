@@ -137,6 +137,9 @@ namespace BinanceTestnet.Strategies
                     case SelectedTradingStrategy.CDVReversalWithEMA:
                         strategies.Add(new CDVReversalWithEMAStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;
+                    case SelectedTradingStrategy.HarmonicPattern:
+                        strategies.Add(new HarmonicPatternStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
                                                                         
                 }
             }

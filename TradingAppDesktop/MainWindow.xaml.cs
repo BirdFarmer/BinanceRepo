@@ -143,7 +143,8 @@ namespace TradingAppDesktop
                 new StrategyItem(SelectedTradingStrategy.CDVReversalWithEMA, "CDV Reversal + EMA50", "CDV divergence reversal validated by EMA50 crossover"),
                 new StrategyItem(SelectedTradingStrategy.BollingerSqueeze, "Bollinger Squeeze", "Breaking out of Bollinger Bands squeeze"),
                 new StrategyItem(SelectedTradingStrategy.SupportResistance, "Support Resistance Break", "Breaking out and retesting pivots"),
-                new StrategyItem(SelectedTradingStrategy.DEMASuperTrend, "DEMA Supertrend", "DEMA Supertrend strategy")           
+                new StrategyItem(SelectedTradingStrategy.DEMASuperTrend, "DEMA Supertrend", "DEMA Supertrend strategy"),
+                new StrategyItem(SelectedTradingStrategy.HarmonicPattern, "Harmonic Pattern", "Detects harmonic patterns like Gartley, Butterfly, Bat")           
             });
 
 
