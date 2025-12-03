@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using RestSharp;
 using BinanceLive.Services; // Added for DataFetchingUtility
+using System.Runtime.Serialization;
 
 namespace BinanceTestnet.Tools
 {
@@ -36,11 +37,28 @@ namespace BinanceTestnet.Tools
     public List<RiskProfileConfig>? RiskProfiles { get; set; }
     }
 
+    
+
     public class RiskProfileConfig
     {
         public string Name { get; set; } = string.Empty;
         public decimal TpMultiplier { get; set; }
-        public decimal SlMultiplier { get; set; }
+
+        [JsonProperty("RiskDivider")]
+        public decimal RiskDivider { get; set; }
+
+        // Accept legacy SlMultiplier when deserializing, but do not write it when saving.
+        [JsonProperty("SlMultiplier")]
+        private decimal? SlMultiplierLegacy { get; set; }
+
+        [OnDeserialized]
+        internal void OnDeserializedMethod(StreamingContext context)
+        {
+            if ((RiskDivider == 0m || RiskDivider == default) && SlMultiplierLegacy.HasValue)
+            {
+                RiskDivider = SlMultiplierLegacy.Value;
+            }
+        }
     }
 
     public class OutputConfig
@@ -107,7 +125,7 @@ namespace BinanceTestnet.Tools
             decimal leverage = 10m;
             decimal marginPerTrade = 10m;
             decimal takeProfit = riskProfile?.TpMultiplier ?? 1.0m;
-            decimal stopLoss = riskProfile?.SlMultiplier ?? 1.0m;
+            decimal stopLoss = riskProfile?.RiskDivider ?? 1.0m;
             decimal tpIteration = 0m;
             var opMode = OperationMode.Backtest;
             var tradeDirection = SelectedTradeDirection.Both;
@@ -334,7 +352,7 @@ namespace BinanceTestnet.Tools
             {
                 if (writeHeader)
                 {
-                    await sw.WriteLineAsync("sessionId,timeframe,symbolSet,strategy,startUtc,endUtc,candlesTested,exitMode,tpMult,slMult,trades,winRate,netPnl,avgWin,avgLoss,payoff,expectancy,maxConsecLoss,avgDuration,topSymbol,bottomSymbol");
+                    await sw.WriteLineAsync("sessionId,timeframe,symbolSet,strategy,startUtc,endUtc,candlesTested,exitMode,tpMult,riskDivider,trades,winRate,netPnl,avgWin,avgLoss,payoff,expectancy,maxConsecLoss,avgDuration,topSymbol,bottomSymbol");
                 }
                 string row = string.Join(",", new[]
                 {
@@ -347,7 +365,7 @@ namespace BinanceTestnet.Tools
                     (candlesTested.HasValue ? candlesTested.Value.ToString() : ""),
                     exitMode.Name,
                     (riskProfile?.TpMultiplier ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    (riskProfile?.SlMultiplier ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    (riskProfile?.RiskDivider ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture),
                     total.ToString(),
                     winRate.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
                     net.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),

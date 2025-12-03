@@ -52,10 +52,10 @@ exitModes:
   - name: fixed
     trailing: false
     riskProfiles:
-      - { name: rr_1_to_0_5, tpMultiplier: 0.5, slMultiplier: 1.0 }
-      - { name: rr_1_to_1, tpMultiplier: 1.0, slMultiplier: 1.0 }
-      - { name: rr_1_5_to_1, tpMultiplier: 1.5, slMultiplier: 1.0 }
-      - { name: rr_3_to_1, tpMultiplier: 3.0, slMultiplier: 1.0 }
+      - { name: rr_1_to_0_5, tpMultiplier: 0.5, riskDivider: 1.0 }
+      - { name: rr_1_to_1, tpMultiplier: 1.0, riskDivider: 1.0 }
+      - { name: rr_1_5_to_1, tpMultiplier: 1.5, riskDivider: 1.0 }
+      - { name: rr_3_to_1, tpMultiplier: 3.0, riskDivider: 1.0 }
   - name: trailing_default
     trailing: true
     activationPct: 0.8   # ~0.8 x ATR% starting point
@@ -91,7 +91,7 @@ runs:
       - name: fixed
         trailing: false
         riskProfiles:
-          - { name: rr_1_to_1, tpMultiplier: 1.0, slMultiplier: 1.0 }
+          - { name: rr_1_to_1, tpMultiplier: 1.0, riskDivider: 1.0 }
 ```
 
 CLI override (optional): allow `--strategy <StrategyName>` to override the YAML for quick one-offs.
@@ -99,7 +99,7 @@ CLI override (optional): allow `--strategy <StrategyName>` to override the YAML 
 CSV columns per run:
 
 ```
-sessionId,timeframe,symbolSet,exitMode,tpMult,slMult,trailing,activationPct,callbackPct,
+sessionId,timeframe,symbolSet,exitMode,tpMult,riskDivider,trailing,activationPct,callbackPct,
 trades,winRate,netPnl,avgWin,avgLoss,payoff,expectancy,maxConsecLoss,avgDuration,topSymbols,bottomSymbols
 ```
 

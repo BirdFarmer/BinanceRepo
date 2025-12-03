@@ -13,7 +13,8 @@
         <TextBlock Text="MULTI BACKTEST HARNESS" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource AccentColor}" Margin="4"/>
         <Grid Grid.Row="1" Margin="0,10,0,10">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="300"/>
+                <!-- widened left panel to make symbol set controls and trash icon visible -->
+                <ColumnDefinition Width="650"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <!-- Left config panel -->
@@ -31,60 +32,168 @@
                         <Button Content="Browse" Click="BrowseDb_Click"/>
                     </DockPanel>
                     <Separator Margin="0,10"/>
-                    <Button x:Name="RunButton" Content="Run Backtests" Click="RunButton_Click" Background="{DynamicResource SuccessColor}" x:FieldModifier="protected"/>
-                    <Button x:Name="CancelButton" Content="Cancel" Click="CancelButton_Click" Background="{DynamicResource DangerColor}" IsEnabled="False" x:FieldModifier="protected"/>
-                    <TextBlock x:Name="StatusText" Text="Idle" Foreground="{DynamicResource WarningColor}" Margin="0,10,0,0" x:FieldModifier="protected"/>
-                    <TextBlock Text="Output: results/multi/multi_results.csv" Foreground="{DynamicResource SecondaryForeground}" FontSize="11" Margin="0,4,0,0"/>
-                    <Button Content="Open Results Folder" Click="OpenResults_Click" Margin="0,8,0,0"/>
+                    <TextBlock x:Name="StatusText" Text="Idle" Foreground="{DynamicResource WarningColor}" Margin="0,6,0,0" x:FieldModifier="protected"/>
+                    <DockPanel Margin="0,4,0,0">
+                        <TextBlock Text="Output: results/multi/multi_results.csv" Foreground="{DynamicResource SecondaryForeground}" FontSize="11" VerticalAlignment="Center"/>
+                        <Button Content="Open Results Folder" Click="OpenResults_Click" Margin="8,0,0,0" DockPanel.Dock="Right"/>
+                    </DockPanel>
                     <Separator Margin="10,10,10,10"/>
-                    <Separator Margin="10,10,10,10"/>
-                    <!-- JSON Config Editor Section -->
+                    <!-- UI-based Config Editor -->
                     <Border Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,8,0,0">
                         <StackPanel>
-                            <TextBlock Text="Edit JSON Config" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
-                            <TextBox x:Name="JsonConfigEditor" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" MinHeight="120" MaxHeight="220" TextWrapping="Wrap" Background="{DynamicResource TextBoxBackground}" Foreground="{DynamicResource TextBoxForeground}" x:FieldModifier="protected"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <TextBlock Text="Config Editor (UI)" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
+                            <Grid Margin="0,6,0,2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Strategy" FontWeight="SemiBold" Foreground="{StaticResource AccentColor}" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="StrategyCombo" Grid.Column="1" IsEditable="True" Width="260" Margin="8,0,0,0" HorizontalAlignment="Right">
+                                        <ComboBoxItem Content="EmaStochRsi" />
+                                        <ComboBoxItem Content="EnhancedMACD" />
+                                        <ComboBoxItem Content="FVG" />
+                                        <ComboBoxItem Content="IchimokuCloud" />
+                                        <ComboBoxItem Content="CandleDistributionReversal" />
+                                        <ComboBoxItem Content="RSIMomentum" />
+                                        <ComboBoxItem Content="MACDStandard" />
+                                        <ComboBoxItem Content="RsiDivergence" />
+                                        <ComboBoxItem Content="FibonacciRetracement" />
+                                        <ComboBoxItem Content="Aroon" />
+                                        <ComboBoxItem Content="HullSMA" />
+                                        <ComboBoxItem Content="SMAExpansion" />
+                                        <ComboBoxItem Content="BollingerSqueeze" />
+                                        <ComboBoxItem Content="SupportResistance" />
+                                        <ComboBoxItem Content="SimpleSMA375" />
+                                        <ComboBoxItem Content="DEMASuperTrend" />
+                                        <ComboBoxItem Content="CDVReversalWithEMA" />
+                                        <ComboBoxItem Content="HarmonicPattern" />
+                                    </ComboBox>
+                                </Grid>
+                                <Grid Grid.Row="1" Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Select one or more timeframes:" FontSize="12" Foreground="Gray" VerticalAlignment="Center" Grid.Column="0" Margin="0,0,12,0"/>
+                                    <StackPanel Orientation="Horizontal" Grid.Column="1" VerticalAlignment="Center">
+                                        <CheckBox x:Name="Tf5mChk" Content="5m" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="0,2"/>
+                                        <CheckBox x:Name="Tf15mChk" Content="15m" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="0,2"/>
+                                        <CheckBox x:Name="Tf1hChk" Content="1h" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="0,2"/>
+                                        <CheckBox x:Name="Tf4hChk" Content="4h" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="6,2"/>
+                                        <CheckBox x:Name="Tf1dChk" Content="1d" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="6,2"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+
+                            <Separator/>
+                            <TextBlock Text="Symbol Sets" FontWeight="SemiBold" Foreground="{StaticResource AccentColor}" Margin="0,8,0,4"/>
+                            <DockPanel>
+                                <TextBox x:Name="SymbolSetNameInput" Width="140" Margin="0,0,6,0" x:FieldModifier="protected"/>
+                                <Button Content="Add Set" Click="AddSymbolSet_Click"/>
+                                <Button Content="Import CSV" Click="ImportSymbolSetCsv_Click" Margin="6,0,0,0" ToolTip="Import symbols from a CSV file (one or many columns)."/>
+                                <Button Content="Open Coin Manager" Click="OpenCoinManager_Click" Margin="6,0,0,0" ToolTip="Open Coin Manager and import selected coins into the current set (or create new if checked)."/>
+                                <CheckBox x:Name="CreateNewFromCoinManagerChk" Content="Create New" Foreground="{StaticResource AccentColor}" Margin="6,0,0,0" x:FieldModifier="protected" ToolTip="When checked, importing from Coin Manager will always create a new symbol set instead of merging into the selected set."/>
+                            </DockPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                                <ListBox x:Name="SymbolSetNamesListBox" Width="220" Height="120" SelectionChanged="SymbolSetNamesListBox_SelectionChanged" x:FieldModifier="protected"/>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Text="Symbols (rows of comma-separated pairs)" Foreground="{StaticResource AccentColor}" FontSize="12"/>
+                                    <TextBox x:Name="SymbolSetTextBox" Width="360" Height="120" x:FieldModifier="protected" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                                        <Button Content="Add Row" Click="AddSymbolRow_Click"/>
+                                        <Button Content="Save Set" Click="SaveSymbolSet_Click" Margin="6,0,0,0" ToolTip="Save the edited set into the current in-memory symbol sets."/>
+                                        <Button Content="Remove Set" Click="RemoveSymbolSet_Click" Margin="6,0,0,0" ToolTip="Remove the selected symbol set."/>
+                                        <Button x:Name="RemoveSetTrashBtn" Content="Delete Set 🗑️" Click="RemoveSetTrash_Click" Margin="6,0,0,0" Width="110" ToolTip="Delete the selected set (permanent)." x:FieldModifier="protected" Background="{DynamicResource DangerColor}" Foreground="White"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Separator/>
+                            <TextBlock Text="Exit Modes (fixed only)" FontWeight="SemiBold" Foreground="{StaticResource AccentColor}" Margin="0,8,0,4"/>
+                            <TextBlock Text="Risk Profiles" Foreground="{StaticResource AccentColor}" FontSize="12"/>
+                            <DataGrid x:Name="RiskProfilesGrid" AutoGenerateColumns="False" Height="160" CanUserAddRows="False" x:FieldModifier="protected">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="TP Mult" Binding="{Binding TpMultiplier}" Width="80" />
+                                    <DataGridTextColumn Header="Risk Divider (SL)" Binding="{Binding RiskDivider}" Width="100" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                                <Button Content="Add Profile" Click="AddRiskProfile_Click"/>
+                                <Button Content="Remove Profile" Click="RemoveRiskProfile_Click" Margin="6,0,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0" HorizontalAlignment="Right">
                                 <Button Content="Reload" Click="ReloadJsonConfig_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}" Margin="0,0,8,0"/>
-                                <Button Content="Validate" Click="ValidateJsonConfig_Click" Background="{DynamicResource SuccessColor}" Foreground="{DynamicResource PrimaryForeground}" Margin="0,0,8,0"/>
                                 <Button Content="Save" Click="SaveJsonConfig_Click" Background="{DynamicResource WarningColor}" Foreground="Black"/>
                             </StackPanel>
+                            <!-- JSON preview status (moved to right panel) -->
                             <TextBlock x:Name="JsonConfigStatus" Text="" Foreground="{DynamicResource WarningColor}" FontSize="12" Margin="0,6,0,0" x:FieldModifier="protected"/>
                         </StackPanel>
                     </Border>
                 </StackPanel>
             </Border>
-            <!-- Right progress panel -->
-                    <Border Grid.Column="1" Background="{DynamicResource CardBackground}" CornerRadius="6" Padding="10">
+            <!-- Right progress panel (2x2 layout) -->
+            <Border Grid.Column="1" Background="{DynamicResource CardBackground}" CornerRadius="6" Padding="10">
                 <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="650" />
+                        <ColumnDefinition Width="550" />
+                    </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
+                        <!-- Row 0: Latest Run Summary (spans both columns) -->
+                        <RowDefinition Height="400" />
+                        <!-- Row 1: Progress (col 0) | JSON Preview (col 1) -->
+                        <RowDefinition Height="*" />
+                        <!-- Row 2: Run/Cancel buttons -->
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="Progress" Foreground="{DynamicResource AccentColor}" FontWeight="Bold"/>
-                    <!-- Moved summary here so it appears to the right of the config panel -->
-                    <Border Grid.Row="1" Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,8,0,8">
+
+                    <!-- Summary spans both columns on the top row -->
+                    <Border Grid.Row="0" Grid.ColumnSpan="2" Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,0,0,8">
                         <StackPanel>
                             <TextBlock Text="Latest Run Summary" FontWeight="Bold" Foreground="{DynamicResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
                             <!-- Use a read-only TextBox so users can select and copy summary text -->
-                            <TextBox x:Name="SummaryTextBox" Text="No summary available." Foreground="{DynamicResource SecondaryForeground}" FontSize="13" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent" x:FieldModifier="protected" AcceptsReturn="True" MinHeight="480"/>
+                            <TextBox x:Name="SummaryTextBox" Text="No summary available." Foreground="{DynamicResource SecondaryForeground}" FontSize="13" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent" x:FieldModifier="protected" AcceptsReturn="True" MinHeight="550"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
                                 <Button Content="Copy Insights" Click="CopySummary_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}" Padding="6,4"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                        <ItemsControl x:Name="ProgressList" x:FieldModifier="protected">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                             <!-- Use read-only TextBox per progress line so users can select/copy entries -->
-                             <!-- Bind OneWay to the item (string). TextBox.Text defaults to TwoWay on some setups and binding to the whole object triggers
-                                 "Two way binding requires path or xpath" — make it explicitly OneWay to avoid modal binding errors. -->
-                             <TextBox Text="{Binding Mode=OneWay}" Foreground="{DynamicResource SecondaryForeground}" FontFamily="Consolas" FontSize="12" Margin="0,2" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+
+                    <!-- Progress: left column in second row -->
+                    <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0">
+                        <TextBlock Text="Progress" Foreground="{DynamicResource AccentColor}" FontWeight="Bold"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
+                            <ItemsControl x:Name="ProgressList" x:FieldModifier="protected">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- Use read-only TextBox per progress line so users can select/copy entries -->
+                                        <TextBox Text="{Binding Mode=OneWay}" Foreground="{DynamicResource SecondaryForeground}" FontFamily="Consolas" FontSize="12" Margin="0,2" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+
+                    <!-- JSON Preview: right column in second row -->
+                    <Border Grid.Row="1" Grid.Column="1" Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="6">
+                        <StackPanel>
+                            <TextBlock Text="JSON Preview" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="{StaticResource AccentColor}"/>
+                            <TextBox x:Name="JsonPreviewTextBox" Text="" IsReadOnly="True" FontFamily="Consolas" FontSize="12" Height="300" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="Wrap" Background="{DynamicResource CardBackground}" BorderThickness="1" x:FieldModifier="protected" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Run/Cancel buttons at bottom, spanning both columns -->
+                    <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                        <Button x:Name="RunButton" Content="Run Backtests" Click="RunButton_Click" Background="{DynamicResource SuccessColor}" x:FieldModifier="protected" Padding="12,6"/>
+                        <Button x:Name="CancelButton" Content="Cancel" Click="CancelButton_Click" Background="{DynamicResource DangerColor}" IsEnabled="False" x:FieldModifier="protected" Margin="8,0,0,0" Padding="12,6"/>
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>
