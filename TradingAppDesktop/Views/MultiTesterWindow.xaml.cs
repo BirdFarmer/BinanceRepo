@@ -24,7 +24,7 @@ namespace TradingAppDesktop.Views
         private readonly ObservableCollection<string> _timeframes = new();
         private readonly ObservableCollection<string> _symbolSetNames = new();
         private readonly ObservableCollection<BinanceTestnet.Tools.RiskProfileConfig> _riskProfiles = new();
-        private readonly ObservableCollection<string> _symbolSetRows = new();
+        // symbol set rows are represented in a single editable TextBox (`SymbolSetTextBox`) as comma-separated values
         private readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> _symbolSets = new(System.StringComparer.OrdinalIgnoreCase);
         private BinanceTestnet.Tools.MultiBacktestConfig? _loadedConfig;
         private CancellationTokenSource? _cts;
@@ -36,7 +36,6 @@ namespace TradingAppDesktop.Views
             ProgressList.ItemsSource = _progress;
             SymbolSetNamesListBox.ItemsSource = _symbolSetNames;
             RiskProfilesGrid.ItemsSource = _riskProfiles;
-            SymbolSetRowsControl.ItemsSource = _symbolSetRows;
             // default strategy
             StrategyCombo.Text = "MACDStandard";
             // Sensible defaults
@@ -90,13 +89,12 @@ namespace TradingAppDesktop.Views
                     }
                 }
 
-                // populate rows for first set if any
+                // populate text box for first set if any
                 if (_symbolSetNames.Count > 0)
                 {
                     var first = _symbolSetNames[0];
-                    _symbolSetRows.Clear();
-                    foreach (var s in _symbolSets[first]) _symbolSetRows.Add(s);
                     SymbolSetNamesListBox.SelectedItem = first;
+                    try { SymbolSetTextBox.Text = string.Join(", ", _symbolSets[first]); } catch { SymbolSetTextBox.Text = string.Empty; }
                 }
 
                 // Populate risk profiles (assume fixed exit mode)
@@ -114,6 +112,8 @@ namespace TradingAppDesktop.Views
                 }
 
                 JsonConfigStatus.Text = "Loaded.";
+                // Update preview with loaded config
+                try { JsonPreviewTextBox.Text = Newtonsoft.Json.JsonConvert.SerializeObject(cfg, Newtonsoft.Json.Formatting.Indented); } catch { JsonPreviewTextBox.Text = string.Empty; }
             }
             catch (Exception ex)
             {
@@ -121,6 +121,65 @@ namespace TradingAppDesktop.Views
             }
         }
 
+        private void OpenCoinManager_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dbPath = DatabasePathTextBox.Text?.Trim() ?? string.Empty;
+                var win = new CoinSelectionWindow(dbPath);
+                // Subscribe to OnCoinsUpdated to receive the selection when user clicks Apply in coin manager
+                win.OnCoinsUpdated += (list) =>
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (list == null || list.Count == 0) return;
+                        bool createNew = false;
+                        try { createNew = CreateNewFromCoinManagerChk.IsChecked == true; } catch { }
+
+                        if (createNew)
+                        {
+                            // Do not auto-add a generated set name. Instead suggest a sensible name and populate the editor.
+                            var suggested = $"coin_manager_{DateTime.UtcNow:yyyyMMddHHmmss}";
+                            SymbolSetNameInput.Text = suggested;
+                            try { SymbolSetTextBox.Text = string.Join(", ", list); } catch { SymbolSetTextBox.Text = string.Empty; }
+                            JsonConfigStatus.Text = $"Imported {list.Count} coins (unsaved). Enter a set name and click Save Set to persist.";
+                        }
+                        else
+                        {
+                            string targetName;
+                            if (SymbolSetNamesListBox.SelectedItem is string selName)
+                            {
+                                targetName = selName;
+                                if (!_symbolSets.ContainsKey(targetName)) _symbolSets[targetName] = new System.Collections.Generic.List<string>();
+                                var existing = _symbolSets[targetName];
+                                foreach (var s in list)
+                                {
+                                    if (!existing.Contains(s, System.StringComparer.OrdinalIgnoreCase)) existing.Add(s);
+                                }
+                                // update editor text
+                                try { SymbolSetTextBox.Text = string.Join(", ", existing); } catch { SymbolSetTextBox.Text = string.Empty; }
+                                JsonConfigStatus.Text = $"Imported {list.Count} coins into '{targetName}'.";
+                            }
+                            else
+                            {
+                                // no selection -> suggest a name and populate editor (user must Save)
+                                var suggested = $"coin_manager_{DateTime.UtcNow:yyyyMMddHHmmss}";
+                                SymbolSetNameInput.Text = suggested;
+                                try { SymbolSetTextBox.Text = string.Join(", ", list); } catch { SymbolSetTextBox.Text = string.Empty; }
+                                JsonConfigStatus.Text = $"Imported {list.Count} coins (unsaved). Enter a set name and click Save Set to persist.";
+                            }
+                        }
+                    });
+                };
+
+                win.Owner = this;
+                win.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Failed to open Coin Manager: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
         // Reload button handler
         private void ReloadJsonConfig_Click(object sender, RoutedEventArgs e)
         {
@@ -160,21 +219,20 @@ namespace TradingAppDesktop.Views
             if (dlg.ShowDialog(this) != true) return;
             try
             {
-                var lines = File.ReadAllLines(dlg.FileName).Where(l => !string.IsNullOrWhiteSpace(l)).SelectMany(l => l.Split(',', ';')).Select(s => s.Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToArray();
-                var name = Path.GetFileNameWithoutExtension(dlg.FileName);
-                if (string.IsNullOrWhiteSpace(name)) name = "imported_set";
-                // Ensure unique
-                var uniq = name;
-                int i = 1;
-                while (_symbolSets.ContainsKey(uniq)) { uniq = name + "_" + i++; }
-                _symbolSets[uniq] = lines.ToList();
-                _symbolSetNames.Add(uniq);
-                SymbolSetNamesListBox.SelectedItem = uniq;
-                // populate rows for editing convenience
-                SymbolSetRowsControl.ItemsSource = null;
-                _symbolSetRows.Clear();
-                foreach (var s in _symbolSets[uniq]) _symbolSetRows.Add(s);
-                SymbolSetRowsControl.ItemsSource = _symbolSetRows;
+                var tokens = File.ReadAllLines(dlg.FileName)
+                    .Where(l => !string.IsNullOrWhiteSpace(l))
+                    .SelectMany(l => l.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var suggested = Path.GetFileNameWithoutExtension(dlg.FileName);
+                if (string.IsNullOrWhiteSpace(suggested)) suggested = "imported_set";
+                // Suggest a name but do not auto-add; user must click Save Set to persist
+                SymbolSetNameInput.Text = suggested;
+                SymbolSetTextBox.Text = string.Join(", ", tokens);
+                JsonConfigStatus.Text = $"Imported {tokens.Length} symbols (unsaved). Enter a set name and click Save Set to persist.";
+                try { UpdateJsonPreview(); } catch { }
             }
             catch (Exception ex) { MessageBox.Show(this, $"Failed to import: {ex.Message}", "Import Error", MessageBoxButton.OK, MessageBoxImage.Error); }
         }
@@ -183,38 +241,84 @@ namespace TradingAppDesktop.Views
         {
             if (SymbolSetNamesListBox.SelectedItem is string name && _symbolSets.TryGetValue(name, out var list))
             {
-                _symbolSetRows.Clear();
-                foreach (var s in list) _symbolSetRows.Add(s);
+                try { SymbolSetTextBox.Text = string.Join(", ", list); } catch { SymbolSetTextBox.Text = string.Empty; }
             }
             else
             {
-                _symbolSetRows.Clear();
+                SymbolSetTextBox.Text = string.Empty;
             }
         }
 
         private void SaveSymbolSet_Click(object sender, RoutedEventArgs e)
         {
-            if (!(SymbolSetNamesListBox.SelectedItem is string name)) { MessageBox.Show(this, "Select a symbol set to save.", "No selection", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-            var collected = new System.Collections.Generic.List<string>();
-            foreach (var row in _symbolSetRows)
-            {
-                if (string.IsNullOrWhiteSpace(row)) continue;
-                var parts = row.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).Where(s => !string.IsNullOrWhiteSpace(s));
-                foreach (var p in parts) collected.Add(p);
-            }
-            _symbolSets[name] = collected.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            // Determine target name: prefer input box if filled, otherwise current selection
+            var inputName = SymbolSetNameInput.Text?.Trim();
+            var name = !string.IsNullOrWhiteSpace(inputName) ? inputName : (SymbolSetNamesListBox.SelectedItem as string);
+            if (string.IsNullOrWhiteSpace(name)) { MessageBox.Show(this, "Enter a name for the symbol set before saving.", "Name required", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+            var text = SymbolSetTextBox.Text ?? string.Empty;
+            var collected = text.Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _symbolSets[name] = collected;
+            if (!_symbolSetNames.Contains(name)) _symbolSetNames.Add(name);
+            // ensure selection reflects saved name
+            SymbolSetNamesListBox.SelectedItem = name;
             JsonConfigStatus.Text = $"Saved set '{name}'.";
+            try { UpdateJsonPreview(); } catch { }
         }
 
         private void RemoveSymbolSet_Click(object sender, RoutedEventArgs e)
         {
             if (SymbolSetNamesListBox.SelectedItem is string name)
             {
+                var idx = SymbolSetNamesListBox.SelectedIndex;
+                // Remove from both collections
                 _symbolSets.Remove(name);
                 _symbolSetNames.Remove(name);
-                _symbolSetRows.Clear();
+                try { SymbolSetTextBox.Text = string.Empty; } catch { }
+                // Select next available set if any
+                if (_symbolSetNames.Count > 0)
+                {
+                    var nextIdx = Math.Clamp(idx, 0, _symbolSetNames.Count - 1);
+                    SymbolSetNamesListBox.SelectedIndex = nextIdx;
+                }
+                JsonConfigStatus.Text = $"Removed set '{name}'.";
+                return;
+            }
+            MessageBox.Show(this, "Select a symbol set to remove.", "No selection", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void RemoveSetTrash_Click(object sender, RoutedEventArgs e)
+        {
+            if (!(SymbolSetNamesListBox.SelectedItem is string name))
+            {
+                MessageBox.Show(this, "Select a symbol set to delete.", "No selection", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var confirm = MessageBox.Show(this, $"Delete symbol set '{name}'? This cannot be undone.", "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirm != MessageBoxResult.Yes) return;
+            try
+            {
+                var idx = SymbolSetNamesListBox.SelectedIndex;
+                _symbolSets.Remove(name);
+                _symbolSetNames.Remove(name);
+                try { SymbolSetTextBox.Text = string.Empty; } catch { }
+                if (_symbolSetNames.Count > 0)
+                {
+                    var nextIdx = Math.Clamp(idx, 0, _symbolSetNames.Count - 1);
+                    SymbolSetNamesListBox.SelectedIndex = nextIdx;
+                }
+                JsonConfigStatus.Text = $"Deleted set '{name}'.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Failed to delete set: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        // per-row removal removed — use Save Set to persist changes after editing the comma-separated list
 
         private void AddRiskProfile_Click(object sender, RoutedEventArgs e)
         {
@@ -280,23 +384,44 @@ namespace TradingAppDesktop.Views
             return cfg;
         }
 
-        private void AddSymbolRow_Click(object sender, RoutedEventArgs e)
+        // Update the read-only JSON preview using current UI state
+        private void UpdateJsonPreview()
         {
-            _symbolSetRows.Add(string.Empty);
+            try
+            {
+                var cfg = BuildConfigFromUi();
+                var text = Newtonsoft.Json.JsonConvert.SerializeObject(cfg, Newtonsoft.Json.Formatting.Indented);
+                JsonPreviewTextBox.Text = text;
+            }
+            catch
+            {
+                try { JsonPreviewTextBox.Text = string.Empty; } catch { }
+            }
         }
 
-        private void RemoveSymbolRow_Click(object sender, RoutedEventArgs e)
+        private void AddSymbolRow_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.DataContext is string row)
+            try
             {
-                _symbolSetRows.Remove(row);
+                var tb = this.FindName("SymbolSetTextBox") as TextBox;
+                if (tb == null) return;
+                // If empty, insert placeholder separator so users can type the next pair
+                if (string.IsNullOrWhiteSpace(tb.Text))
+                {
+                    tb.Text = string.Empty;
+                }
+                else
+                {
+                    // Ensure there's a trailing comma + space before appending
+                    if (!tb.Text.TrimEnd().EndsWith(",")) tb.Text = tb.Text.TrimEnd() + ", ";
+                }
+                tb.CaretIndex = tb.Text.Length;
+                tb.Focus();
             }
-            else if (sender is Button btn2)
-            {
-                // fallback: remove last
-                if (_symbolSetRows.Count > 0) _symbolSetRows.RemoveAt(_symbolSetRows.Count - 1);
-            }
+            catch { }
         }
+
+        // per-row removal removed
 
         // Copy the summary text to the clipboard so users can paste/share insights
         private void CopySummary_Click(object sender, RoutedEventArgs e)

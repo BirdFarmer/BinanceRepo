@@ -13,7 +13,8 @@
         <TextBlock Text="MULTI BACKTEST HARNESS" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource AccentColor}" Margin="4"/>
         <Grid Grid.Row="1" Margin="0,10,0,10">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="450"/>
+                <!-- widened left panel to make symbol set controls and trash icon visible -->
+                <ColumnDefinition Width="600"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <!-- Left config panel -->
@@ -42,9 +43,7 @@
                     <Border Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,8,0,0">
                         <StackPanel>
                             <TextBlock Text="Config Editor (UI)" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
-
-                            <TextBlock Text="Timeframes" FontWeight="SemiBold"/>
-                            <TextBlock Text="Strategy" FontWeight="SemiBold" Margin="0,6,0,2"/>
+                            <TextBlock Text="Strategy" FontWeight="SemiBold"  Foreground="{StaticResource AccentColor}" Margin="0,6,0,2"/>
                             <ComboBox x:Name="StrategyCombo" IsEditable="True" Width="200" Margin="0,0,0,8">
                                 <ComboBoxItem Content="EmaStochRsi" />
                                 <ComboBoxItem Content="EnhancedMACD" />
@@ -65,51 +64,46 @@
                                 <ComboBoxItem Content="CDVReversalWithEMA" />
                                 <ComboBoxItem Content="HarmonicPattern" />
                             </ComboBox>
+                            <TextBlock Text="Timeframes" FontWeight="SemiBold" Foreground="{StaticResource AccentColor}" />
                             <TextBlock Text="Select one or more timeframes:" FontSize="12" Foreground="Gray" Margin="0,2,0,4"/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8" HorizontalAlignment="Left">
                                 <StackPanel>
-                                    <CheckBox x:Name="Tf5mChk" Content="5m" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
-                                    <CheckBox x:Name="Tf15mChk" Content="15m" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
-                                    <CheckBox x:Name="Tf1hChk" Content="1h" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
+                                    <CheckBox x:Name="Tf5mChk" Content="5m" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="0,2"/>
+                                    <CheckBox x:Name="Tf15mChk" Content="15m" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="0,2"/>
+                                    <CheckBox x:Name="Tf1hChk" Content="1h" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="0,2"/>
                                 </StackPanel>
                                 <StackPanel Margin="12,0,0,0">
-                                    <CheckBox x:Name="Tf4hChk" Content="4h" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
-                                    <CheckBox x:Name="Tf1dChk" Content="1d" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
+                                    <CheckBox x:Name="Tf4hChk" Content="4h" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="0,2"/>
+                                    <CheckBox x:Name="Tf1dChk" Content="1d" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Foreground="{StaticResource AccentColor}" Margin="0,2"/>
                                 </StackPanel>
                             </StackPanel>
 
                             <Separator/>
-                            <TextBlock Text="Symbol Sets" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                            <TextBlock Text="Symbol Sets" FontWeight="SemiBold" Foreground="{StaticResource AccentColor}" Margin="0,8,0,4"/>
                             <DockPanel>
                                 <TextBox x:Name="SymbolSetNameInput" Width="140" Margin="0,0,6,0" x:FieldModifier="protected"/>
                                 <Button Content="Add Set" Click="AddSymbolSet_Click"/>
-                                <Button Content="Import CSV" Click="ImportSymbolSetCsv_Click" Margin="6,0,0,0"/>
+                                <Button Content="Import CSV" Click="ImportSymbolSetCsv_Click" Margin="6,0,0,0" ToolTip="Import symbols from a CSV file (one or many columns)."/>
+                                <Button Content="Open Coin Manager" Click="OpenCoinManager_Click" Margin="6,0,0,0" ToolTip="Open Coin Manager and import selected coins into the current set (or create new if checked)."/>
+                                <CheckBox x:Name="CreateNewFromCoinManagerChk" Content="Create New" Foreground="{StaticResource AccentColor}" Margin="6,0,0,0" x:FieldModifier="protected" ToolTip="When checked, importing from Coin Manager will always create a new symbol set instead of merging into the selected set."/>
                             </DockPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                                 <ListBox x:Name="SymbolSetNamesListBox" Width="220" Height="120" SelectionChanged="SymbolSetNamesListBox_SelectionChanged" x:FieldModifier="protected"/>
                                 <StackPanel Margin="6,0,0,0">
-                                    <TextBlock Text="Symbols (rows of comma-separated pairs)" FontSize="12"/>
-                                    <ItemsControl x:Name="SymbolSetRowsControl" Width="360" Height="100" x:FieldModifier="protected">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <DockPanel Margin="0,2">
-                                                    <TextBox Text="{Binding ., Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="False" VerticalAlignment="Center" />
-                                                    <Button Content="-" Click="RemoveSymbolRow_Click" Width="28" Margin="6,0,0,0"/>
-                                                </DockPanel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+                                    <TextBlock Text="Symbols (rows of comma-separated pairs)" Foreground="{StaticResource AccentColor}" FontSize="12"/>
+                                    <TextBox x:Name="SymbolSetTextBox" Width="360" Height="120" x:FieldModifier="protected" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
                                         <Button Content="Add Row" Click="AddSymbolRow_Click"/>
-                                        <Button Content="Save Set" Click="SaveSymbolSet_Click" Margin="6,0,0,0"/>
-                                        <Button Content="Remove Set" Click="RemoveSymbolSet_Click" Margin="6,0,0,0"/>
+                                        <Button Content="Save Set" Click="SaveSymbolSet_Click" Margin="6,0,0,0" ToolTip="Save the edited set into the current in-memory symbol sets."/>
+                                        <Button Content="Remove Set" Click="RemoveSymbolSet_Click" Margin="6,0,0,0" ToolTip="Remove the selected symbol set."/>
+                                        <Button x:Name="RemoveSetTrashBtn" Content="Delete Set 🗑️" Click="RemoveSetTrash_Click" Margin="6,0,0,0" Width="110" ToolTip="Delete the selected set (permanent)." x:FieldModifier="protected" Background="{DynamicResource DangerColor}" Foreground="White"/>
                                     </StackPanel>
                                 </StackPanel>
                             </StackPanel>
 
                             <Separator/>
-                            <TextBlock Text="Exit Modes (fixed only)" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                            <TextBlock Text="Risk Profiles" FontSize="12"/>
+                            <TextBlock Text="Exit Modes (fixed only)" FontWeight="SemiBold" Foreground="{StaticResource AccentColor}" Margin="0,8,0,4"/>
+                            <TextBlock Text="Risk Profiles" Foreground="{StaticResource AccentColor}" FontSize="12"/>
                             <DataGrid x:Name="RiskProfilesGrid" AutoGenerateColumns="False" Height="160" CanUserAddRows="False" x:FieldModifier="protected">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
@@ -126,6 +120,9 @@
                                 <Button Content="Reload" Click="ReloadJsonConfig_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}" Margin="0,0,8,0"/>
                                 <Button Content="Save" Click="SaveJsonConfig_Click" Background="{DynamicResource WarningColor}" Foreground="Black"/>
                             </StackPanel>
+                            <!-- Read-only JSON preview of the generated config -->
+                            <TextBlock Text="JSON Preview" FontWeight="SemiBold" Margin="0,8,0,4" Foreground="{StaticResource AccentColor}"/>
+                            <TextBox x:Name="JsonPreviewTextBox" Text="" IsReadOnly="True" FontFamily="Consolas" FontSize="12" Height="200" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="Wrap" Background="{DynamicResource CardBackground}" BorderThickness="1" Margin="0,0,0,6" x:FieldModifier="protected" />
                             <TextBlock x:Name="JsonConfigStatus" Text="" Foreground="{DynamicResource WarningColor}" FontSize="12" Margin="0,6,0,0" x:FieldModifier="protected"/>
                         </StackPanel>
                     </Border>
