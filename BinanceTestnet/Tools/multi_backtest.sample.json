@@ -1,12 +1,93 @@
 {
-"Strategies": ["HarmonicPattern"],
-"Timeframes": ["5m"],
-"SymbolSets": {
-"tier_1_5": ["PUMPUSDT","BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","ZECUSDT","PIPPINUSDT","DOGEUSDT","BNBUSDT","TNSRUSDT","SUIUSDT","HYPEUSDT","PARTIUSDT","MONUSDT","1000PEPEUSDT","TRADOORUSDT","ASTERUSDT","PIEVERSEUSDT","FARTCOINUSDT","AVAXUSDT","ADAUSDT","LINKUSDT","ENAUSDT","PAXGUSDT","XPLUSDT","TRUSTUSDT","LTCUSDT","BCHUSDT","TAOUSDT","WLFIUSDT","SAHARAUSDT","APRUSDT","RESOLVUSDT","BOBUSDT","ATUSDT","COMMONUSDT","SXPUSDT","AIAUSDT","HEMIUSDT","1000RATSUSDT","ALLOUSDT","MMTUSDT","SOONUSDT","BLESSUSDT","FOLKSUSDT","PIXELUSDT","GRIFFAINUSDT","ZENUSDT","FFUSDT","MAVIAUSDT","EVAAUSDT","JELLYJELLYUSDT","APTUSDT"]
-},
-"ExitModes": [
-{ "Name":"fixed","Trailing":false,"RiskProfiles":[{"Name":"rr_2_to_1","TpMultiplier":2.0,"SlMultiplier":2},{"Name":"rr_4_to_1","TpMultiplier":4.0,"SlMultiplier":1},{"Name":"rr_6_to_1","TpMultiplier":6.0,"SlMultiplier":1}] }
-],
-"Output": { "Directory":"results/multi", "Format":"csv" },
-"Historical": { "StartUtc":"2025-11-01T00:00:00Z", "BatchSize":1500, "MaxCandles":1500 }
+  "Strategy": "HarmonicPattern",
+  "Strategies": null,
+  "Timeframes": [
+    "5m",
+    "15m"
+  ],
+  "SymbolSets": {
+    "tier_1_5": [
+      "PUMPUSDT",
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "ZECUSDT",
+      "PIPPINUSDT",
+      "DOGEUSDT",
+      "BNBUSDT",
+      "TNSRUSDT",
+      "SUIUSDT",
+      "HYPEUSDT",
+      "PARTIUSDT",
+      "MONUSDT",
+      "1000PEPEUSDT",
+      "TRADOORUSDT",
+      "ASTERUSDT",
+      "PIEVERSEUSDT",
+      "FARTCOINUSDT",
+      "AVAXUSDT",
+      "ADAUSDT",
+      "LINKUSDT",
+      "ENAUSDT",
+      "PAXGUSDT",
+      "XPLUSDT",
+      "TRUSTUSDT",
+      "LTCUSDT",
+      "BCHUSDT",
+      "TAOUSDT",
+      "WLFIUSDT",
+      "SAHARAUSDT",
+      "APRUSDT",
+      "RESOLVUSDT",
+      "BOBUSDT",
+      "ATUSDT",
+      "COMMONUSDT",
+      "SXPUSDT",
+      "AIAUSDT",
+      "HEMIUSDT",
+      "1000RATSUSDT",
+      "ALLOUSDT",
+      "MMTUSDT",
+      "SOONUSDT",
+      "BLESSUSDT",
+      "FOLKSUSDT",
+      "PIXELUSDT",
+      "GRIFFAINUSDT",
+      "ZENUSDT",
+      "FFUSDT",
+      "MAVIAUSDT",
+      "EVAAUSDT",
+      "JELLYJELLYUSDT",
+      "APTUSDT"
+    ]
+  },
+  "ExitModes": [
+    {
+      "Name": "fixed",
+      "RiskProfiles": [
+        {
+          "Name": "2_1",
+          "TpMultiplier": 2.0,
+          "RiskDivider": 1.0,
+          "SlMultiplier": null
+        },
+        {
+          "Name": "4_1",
+          "TpMultiplier": 4.0,
+          "RiskDivider": 1.0,
+          "SlMultiplier": null
+        }
+      ]
+    }
+  ],
+  "Output": {
+    "Directory": "results/multi",
+    "Format": "csv"
+  },
+  "Historical": {
+    "StartUtc": "2025-11-01T00:00:00Z",
+    "BatchSize": 1500,
+    "MaxCandles": 1500
+  }
 }

@@ -13,7 +13,7 @@
         <TextBlock Text="MULTI BACKTEST HARNESS" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource AccentColor}" Margin="4"/>
         <Grid Grid.Row="1" Margin="0,10,0,10">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="450"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <!-- Left config panel -->
@@ -38,14 +38,92 @@
                     <Button Content="Open Results Folder" Click="OpenResults_Click" Margin="0,8,0,0"/>
                     <Separator Margin="10,10,10,10"/>
                     <Separator Margin="10,10,10,10"/>
-                    <!-- JSON Config Editor Section -->
+                    <!-- UI-based Config Editor -->
                     <Border Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="8" Margin="0,8,0,0">
                         <StackPanel>
-                            <TextBlock Text="Edit JSON Config" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
-                            <TextBox x:Name="JsonConfigEditor" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" MinHeight="120" MaxHeight="220" TextWrapping="Wrap" Background="{DynamicResource TextBoxBackground}" Foreground="{DynamicResource TextBoxForeground}" x:FieldModifier="protected"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <TextBlock Text="Config Editor (UI)" FontWeight="Bold" Foreground="{StaticResource SuccessColor}" FontSize="15" Margin="0,0,0,6"/>
+
+                            <TextBlock Text="Timeframes" FontWeight="SemiBold"/>
+                            <TextBlock Text="Strategy" FontWeight="SemiBold" Margin="0,6,0,2"/>
+                            <ComboBox x:Name="StrategyCombo" IsEditable="True" Width="200" Margin="0,0,0,8">
+                                <ComboBoxItem Content="EmaStochRsi" />
+                                <ComboBoxItem Content="EnhancedMACD" />
+                                <ComboBoxItem Content="FVG" />
+                                <ComboBoxItem Content="IchimokuCloud" />
+                                <ComboBoxItem Content="CandleDistributionReversal" />
+                                <ComboBoxItem Content="RSIMomentum" />
+                                <ComboBoxItem Content="MACDStandard" />
+                                <ComboBoxItem Content="RsiDivergence" />
+                                <ComboBoxItem Content="FibonacciRetracement" />
+                                <ComboBoxItem Content="Aroon" />
+                                <ComboBoxItem Content="HullSMA" />
+                                <ComboBoxItem Content="SMAExpansion" />
+                                <ComboBoxItem Content="BollingerSqueeze" />
+                                <ComboBoxItem Content="SupportResistance" />
+                                <ComboBoxItem Content="SimpleSMA375" />
+                                <ComboBoxItem Content="DEMASuperTrend" />
+                                <ComboBoxItem Content="CDVReversalWithEMA" />
+                                <ComboBoxItem Content="HarmonicPattern" />
+                            </ComboBox>
+                            <TextBlock Text="Select one or more timeframes:" FontSize="12" Foreground="Gray" Margin="0,2,0,4"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8" HorizontalAlignment="Left">
+                                <StackPanel>
+                                    <CheckBox x:Name="Tf5mChk" Content="5m" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
+                                    <CheckBox x:Name="Tf15mChk" Content="15m" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
+                                    <CheckBox x:Name="Tf1hChk" Content="1h" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
+                                </StackPanel>
+                                <StackPanel Margin="12,0,0,0">
+                                    <CheckBox x:Name="Tf4hChk" Content="4h" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
+                                    <CheckBox x:Name="Tf1dChk" Content="1d" Checked="TimeframeCheckbox_Checked" Unchecked="TimeframeCheckbox_Unchecked" Margin="0,2"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Separator/>
+                            <TextBlock Text="Symbol Sets" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                            <DockPanel>
+                                <TextBox x:Name="SymbolSetNameInput" Width="140" Margin="0,0,6,0" x:FieldModifier="protected"/>
+                                <Button Content="Add Set" Click="AddSymbolSet_Click"/>
+                                <Button Content="Import CSV" Click="ImportSymbolSetCsv_Click" Margin="6,0,0,0"/>
+                            </DockPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                                <ListBox x:Name="SymbolSetNamesListBox" Width="220" Height="120" SelectionChanged="SymbolSetNamesListBox_SelectionChanged" x:FieldModifier="protected"/>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Text="Symbols (rows of comma-separated pairs)" FontSize="12"/>
+                                    <ItemsControl x:Name="SymbolSetRowsControl" Width="360" Height="100" x:FieldModifier="protected">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="0,2">
+                                                    <TextBox Text="{Binding ., Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="False" VerticalAlignment="Center" />
+                                                    <Button Content="-" Click="RemoveSymbolRow_Click" Width="28" Margin="6,0,0,0"/>
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                                        <Button Content="Add Row" Click="AddSymbolRow_Click"/>
+                                        <Button Content="Save Set" Click="SaveSymbolSet_Click" Margin="6,0,0,0"/>
+                                        <Button Content="Remove Set" Click="RemoveSymbolSet_Click" Margin="6,0,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Separator/>
+                            <TextBlock Text="Exit Modes (fixed only)" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                            <TextBlock Text="Risk Profiles" FontSize="12"/>
+                            <DataGrid x:Name="RiskProfilesGrid" AutoGenerateColumns="False" Height="160" CanUserAddRows="False" x:FieldModifier="protected">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="TP Mult" Binding="{Binding TpMultiplier}" Width="80" />
+                                    <DataGridTextColumn Header="Risk Divider (SL)" Binding="{Binding RiskDivider}" Width="100" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                                <Button Content="Add Profile" Click="AddRiskProfile_Click"/>
+                                <Button Content="Remove Profile" Click="RemoveRiskProfile_Click" Margin="6,0,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0" HorizontalAlignment="Right">
                                 <Button Content="Reload" Click="ReloadJsonConfig_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}" Margin="0,0,8,0"/>
-                                <Button Content="Validate" Click="ValidateJsonConfig_Click" Background="{DynamicResource SuccessColor}" Foreground="{DynamicResource PrimaryForeground}" Margin="0,0,8,0"/>
                                 <Button Content="Save" Click="SaveJsonConfig_Click" Background="{DynamicResource WarningColor}" Foreground="Black"/>
                             </StackPanel>
                             <TextBlock x:Name="JsonConfigStatus" Text="" Foreground="{DynamicResource WarningColor}" FontSize="12" Margin="0,6,0,0" x:FieldModifier="protected"/>

@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MultiTester UI Mockup</title>
+  <style>
+    :root{font-family:Segoe UI, Tahoma, Arial, sans-serif;color:#222}
+    body{margin:0;background:#f3f4f6;padding:16px}
+    .container{display:grid;grid-template-columns:450px 1fr 360px;gap:12px;align-items:start}
+    .panel{background:#fff;border:1px solid #ddd;border-radius:6px;padding:12px;box-shadow:0 1px 2px rgba(0,0,0,0.03)}
+    h2{font-size:16px;margin:4px 0 12px}
+    label{display:block;font-size:12px;color:#444;margin-top:8px}
+    input[type=text], input[type=number], select, textarea{width:100%;padding:8px;border:1px solid #cfcfcf;border-radius:4px;font-size:13px}
+    textarea{min-height:110px;font-family:monospace;white-space:pre-wrap}
+    .row{display:flex;gap:8px;align-items:center}
+    .muted{color:#666;font-size:12px}
+    .list{border:1px dashed #ddd;padding:6px;border-radius:4px;max-height:200px;overflow:auto;background:#fafafa}
+    .item{display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid #eee}
+    .controls button{padding:6px 8px;border-radius:4px;border:1px solid #bbb;background:#fff;cursor:pointer}
+    .controls button.primary{background:#2563eb;color:#fff;border-color:#1e40af}
+    .controls button.ghost{background:transparent;border:1px dashed #bbb}
+    .small{font-size:12px;padding:4px 6px}
+    .flex{display:flex;gap:8px}
+    .center{display:flex;align-items:center}
+    .bottom{grid-column:1/-1;margin-top:12px}
+    .json-preview{height:160px;font-family:monospace;white-space:pre;overflow:auto;padding:8px;background:#0f172a;color:#e2e8f0;border-radius:4px}
+    .right-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+    .symbol-count{font-size:12px;color:#666;margin-top:6px}
+    .notice{background:#fffbeb;border:1px solid #fce9b0;padding:8px;border-radius:4px;color:#73540a;font-size:13px}
+  </style>
+</head>
+<body>
+  <h1>MultiTester Mockup</h1>
+  <p class="muted">Interactive mockup — remove JSON textbox and edit via UI controls. Try importing a CSV in SymbolSets.</p>
+
+  <div class="container">
+    <!-- Left: General -->
+    <div class="panel">
+      <h2>General</h2>
+      <label>Strategy</label>
+      <select id="strategy">
+        <option>MACDStandard</option>
+        <option>EmaStochRsi</option>
+        <option>EnhancedMACD</option>
+        <option>FVG</option>
+        <option>IchimokuCloud</option>
+        <option>RSIMomentum</option>
+        <option>RsiDivergence</option>
+        <option>FibonacciRetracement</option>
+        <option>Aroon</option>
+        <option>HullSMA</option>
+        <option>SMAExpansion</option>
+        <option>SimpleSMA375</option>
+        <option>BollingerSqueeze</option>
+        <option>SupportResistance</option>
+      </select>
+
+      <label>Timeframes</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="tfInput" type="text" placeholder="e.g., 5m, 1h" />
+        <button id="addTf" class="small">Add</button>
+      </div>
+      <div id="timeframesList" class="list" aria-label="timeframes"></div>
+
+      <label>Historical</label>
+      <div class="row">
+        <input id="startUtc" type="text" value="2025-11-01T00:00:00Z" readonly />
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1">
+          <label>BatchSize</label>
+          <input id="batchSize" type="number" value="1500" min="1" />
+        </div>
+        <div style="width:120px">
+          <label>MaxCandles</label>
+          <input id="maxCandles" type="number" value="1500" min="0" />
+        </div>
+      </div>
+
+      <div style="margin-top:12px" class="notice">Output and Historical.StartUtc are read-only in the UI.</div>
+    </div>
+
+    <!-- Middle: SymbolSets -->
+    <div class="panel">
+      <h2>SymbolSets</h2>
+      <div style="display:grid;grid-template-columns:160px 1fr;gap:8px;align-items:start">
+        <div>
+          <label>Sets</label>
+          <div id="setsList" class="list"></div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <input id="newSetName" type="text" placeholder="set name" />
+            <button id="createSet" class="small">Create</button>
+          </div>
+        </div>
+        <div>
+          <label>Symbols (one per line or comma-separated)</label>
+          <textarea id="symbolsEditor" placeholder="BTCUSDT, ETHUSDT"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input id="importCsv" type="file" accept=".csv" />
+            <button id="saveSymbols" class="small primary">Save to Set</button>
+            <button id="removeSet" class="small">Remove Set</button>
+          </div>
+          <div id="symbolsCount" class="symbol-count">No set selected</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <label>Import CSV tips</label>
+        <div class="muted">CSV may contain a header. The mockup extracts token-like strings (alphanumerics+). Use Upload to load symbols into the selected set.</div>
+      </div>
+    </div>
+
+    <!-- Right: ExitModes / RiskProfiles -->
+    <div class="panel">
+      <h2>ExitModes (fixed)</h2>
+      <label>Mode</label>
+      <select id="exitModeSelect"><option value="fixed">fixed</option></select>
+
+      <label style="margin-top:8px">Risk Profiles</label>
+      <div id="riskList" class="list"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input id="rpName" type="text" placeholder="profile name" />
+        <input id="rpTp" type="number" step="0.1" placeholder="TP" value="2.0" style="width:80px" />
+        <input id="rpRisk" type="number" step="0.1" placeholder="RiskDivider" value="1.0" style="width:110px" />
+        <button id="addRp" class="small">Add</button>
+      </div>
+
+      <div style="margin-top:12px" class="muted">Rules: TpMultiplier & RiskDivider must be &gt; 0. Names should be unique per mode.</div>
+    </div>
+
+    <!-- Bottom: JSON preview and actions -->
+    <div class="bottom panel" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0">JSON Preview</h2>
+        <div class="right-actions">
+          <button id="copyJson" class="small">Copy JSON</button>
+          <button id="downloadJson" class="small primary">Download JSON</button>
+        </div>
+      </div>
+      <div id="jsonPreview" class="json-preview"></div>
+    </div>
+
+  </div>
+
+  <script>
+    // In-memory model
+    const model = {
+      Strategy: document.getElementById('strategy').value,
+      Timeframes: [],
+      SymbolSets: {},
+      ExitModes: [ { Name: 'fixed', RiskProfiles: [] } ],
+      Output: { Directory: 'results/multi', Format: 'csv' },
+      Historical: { StartUtc: document.getElementById('startUtc').value, BatchSize: 1500, MaxCandles: 1500 }
+    };
+
+    // Helpers
+    const tfList = document.getElementById('timeframesList');
+    const setsList = document.getElementById('setsList');
+    const symbolsEditor = document.getElementById('symbolsEditor');
+    const symbolsCount = document.getElementById('symbolsCount');
+    const riskList = document.getElementById('riskList');
+    const jsonPreview = document.getElementById('jsonPreview');
+
+    let selectedSet = null;
+
+    // Timeframes
+    function renderTimeframes(){
+      tfList.innerHTML = '';
+      model.Timeframes.forEach((tf, idx) => {
+        const el = document.createElement('div'); el.className='item';
+        el.innerHTML = `<span>${tf}</span><span class="center"><button class="small" data-action="up" data-idx="${idx}">▲</button><button class="small" data-action="down" data-idx="${idx}">▼</button><button class="small" data-action="remove" data-idx="${idx}">✖</button></span>`;
+        tfList.appendChild(el);
+      });
+      updatePreview();
+    }
+    document.getElementById('addTf').addEventListener('click', ()=>{
+      const v = document.getElementById('tfInput').value.trim(); if(!v) return; model.Timeframes.push(v); document.getElementById('tfInput').value=''; renderTimeframes();
+    });
+    tfList.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button'); if(!btn) return; const action = btn.dataset.action; const idx = Number(btn.dataset.idx);
+      if(action==='up' && idx>0){ [model.Timeframes[idx-1],model.Timeframes[idx]]=[model.Timeframes[idx],model.Timeframes[idx-1]]; renderTimeframes(); }
+      if(action==='down' && idx<model.Timeframes.length-1){ [model.Timeframes[idx+1],model.Timeframes[idx]]=[model.Timeframes[idx],model.Timeframes[idx+1]]; renderTimeframes(); }
+      if(action==='remove'){ model.Timeframes.splice(idx,1); renderTimeframes(); }
+    });
+
+    // SymbolSets
+    function renderSets(){
+      setsList.innerHTML='';
+      Object.keys(model.SymbolSets).forEach((name)=>{
+        const el = document.createElement('div'); el.className='item';
+        el.innerHTML = `<span>${name}</span><span class="center"><button class="small" data-action="select" data-name="${name}">Edit</button><button class="small" data-action="del" data-name="${name}">Delete</button></span>`;
+        setsList.appendChild(el);
+      });
+      updatePreview();
+    }
+    document.getElementById('createSet').addEventListener('click', ()=>{
+      const name = document.getElementById('newSetName').value.trim(); if(!name) return alert('Enter set name'); if(model.SymbolSets[name]) return alert('Set exists'); model.SymbolSets[name]=[]; document.getElementById('newSetName').value=''; renderSets();
+    });
+    setsList.addEventListener('click',(e)=>{
+      const btn = e.target.closest('button'); if(!btn) return; const action = btn.dataset.action; const name = btn.dataset.name;
+      if(action==='select'){ selectedSet = name; symbolsEditor.value = (model.SymbolSets[name]||[]).join('\n'); symbolsCount.textContent=(model.SymbolSets[name]||[]).length+ ' symbols'; }
+      if(action==='del'){ if(confirm('Delete set '+name+'?')){ delete model.SymbolSets[name]; if(selectedSet===name){ selectedSet=null; symbolsEditor.value=''; symbolsCount.textContent='No set selected'; } renderSets(); }}
+    });
+    document.getElementById('saveSymbols').addEventListener('click', ()=>{
+      if(!selectedSet){ alert('Select a set to save into'); return; }
+      const raw = symbolsEditor.value.trim(); if(!raw){ model.SymbolSets[selectedSet]=[]; symbolsCount.textContent='0 symbols'; renderSets(); return; }
+      const parts = raw.split(/[,\n;]+/).map(s=>s.trim()).filter(s=>s); model.SymbolSets[selectedSet]=[...new Set(parts)]; symbolsCount.textContent=model.SymbolSets[selectedSet].length+' symbols'; renderSets();
+    });
+    document.getElementById('removeSet').addEventListener('click', ()=>{ if(!selectedSet) return alert('Select a set'); if(confirm('Remove set '+selectedSet+'?')){ delete model.SymbolSets[selectedSet]; selectedSet=null; symbolsEditor.value=''; symbolsCount.textContent='No set selected'; renderSets(); } });
+
+    // CSV import
+    document.getElementById('importCsv').addEventListener('change', (ev)=>{
+      const f = ev.target.files[0]; if(!f) return; const rdr = new FileReader(); rdr.onload = ()=>{
+        const txt = String(rdr.result||''); // extract tokens that look like symbols (letters, numbers, underscores)
+        const tokens = Array.from(new Set(txt.match(/[A-Z0-9]+USDT/gi)||[])).map(t=>t.trim().toUpperCase());
+        if(tokens.length===0){ // fallback: split on commas/newlines
+          const parts=txt.split(/[\n,;]+/).map(s=>s.trim()).filter(s=>s);
+          if(parts.length===0) return alert('No symbols found in CSV'); tokens.push(...parts);
+        }
+        if(!selectedSet){ // create a temp set
+          const name = 'import_'+Date.now(); model.SymbolSets[name]=tokens; renderSets(); selectedSet=name; symbolsEditor.value = tokens.join('\n'); symbolsCount.textContent=tokens.length+' symbols';
+        } else { model.SymbolSets[selectedSet] = Array.from(new Set([...(model.SymbolSets[selectedSet]||[]), ...tokens])); symbolsEditor.value = model.SymbolSets[selectedSet].join('\n'); symbolsCount.textContent=model.SymbolSets[selectedSet].length+' symbols'; renderSets(); }
+      }; rdr.readAsText(f);
+    });
+
+    // Risk profiles
+    function renderRisks(){
+      const rp = model.ExitModes[0].RiskProfiles;
+      riskList.innerHTML=''; rp.forEach((r,idx)=>{
+        const el = document.createElement('div'); el.className='item';
+        el.innerHTML = `<div style='flex:1'><strong>${r.Name}</strong><div class='muted'>TP:${r.TpMultiplier}  RiskDivider:${r.RiskDivider}</div></div><div class='center'><button class='small' data-action='up' data-idx='${idx}'>▲</button><button class='small' data-action='down' data-idx='${idx}'>▼</button><button class='small' data-action='del' data-idx='${idx}'>✖</button></div>`;
+        riskList.appendChild(el);
+      }); updatePreview();
+    }
+    document.getElementById('addRp').addEventListener('click', ()=>{
+      const name = document.getElementById('rpName').value.trim(); const tp = parseFloat(document.getElementById('rpTp').value); const r = parseFloat(document.getElementById('rpRisk').value);
+      if(!name) return alert('Enter profile name'); if(!(tp>0) || !(r>0)) return alert('TP and RiskDivider must be > 0');
+      const rpList = model.ExitModes[0].RiskProfiles; if(rpList.some(x=>x.Name===name)) return alert('Name already exists'); rpList.push({ Name:name, TpMultiplier:tp, RiskDivider:r }); document.getElementById('rpName').value=''; renderRisks();
+    });
+    riskList.addEventListener('click',(e)=>{
+      const btn = e.target.closest('button'); if(!btn) return; const idx = Number(btn.dataset.idx); const action = btn.dataset.action; const rp = model.ExitModes[0].RiskProfiles;
+      if(action==='up' && idx>0){ [rp[idx-1],rp[idx]]=[rp[idx],rp[idx-1]]; renderRisks(); }
+      if(action==='down' && idx<rp.length-1){ [rp[idx+1],rp[idx]]=[rp[idx],rp[idx+1]]; renderRisks(); }
+      if(action==='del'){ if(confirm('Delete profile '+rp[idx].Name+'?')){ rp.splice(idx,1); renderRisks(); }}
+    });
+
+    // JSON preview
+    function updatePreview(){
+      const exportModel = {
+        Strategy: document.getElementById('strategy').value,
+        Timeframes: model.Timeframes,
+        SymbolSets: model.SymbolSets,
+        ExitModes: model.ExitModes.map(e=>({ Name:e.Name, RiskProfiles: e.RiskProfiles.map(r=>({ Name:r.Name, TpMultiplier:r.TpMultiplier, RiskDivider:r.RiskDivider })) })),
+        Output: model.Output,
+        Historical: { StartUtc: model.Historical.StartUtc, BatchSize: Number(document.getElementById('batchSize').value)||model.Historical.BatchSize, MaxCandles: Number(document.getElementById('maxCandles').value)||model.Historical.MaxCandles }
+      };
+      jsonPreview.textContent = JSON.stringify(exportModel, null, 2);
+    }
+
+    document.getElementById('strategy').addEventListener('change', updatePreview);
+    document.getElementById('batchSize').addEventListener('change', updatePreview);
+    document.getElementById('maxCandles').addEventListener('change', updatePreview);
+
+    document.getElementById('copyJson').addEventListener('click', ()=>{ navigator.clipboard.writeText(jsonPreview.textContent).then(()=>alert('JSON copied to clipboard'), ()=>alert('Copy failed')); });
+    document.getElementById('downloadJson').addEventListener('click', ()=>{
+      const blob = new Blob([jsonPreview.textContent], {type:'application/json'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='multi_backtest.json'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    // Init with example data
+    model.Timeframes.push('5m','1h');
+    model.SymbolSets['tier_1_5']=['BTCUSDT','ETHUSDT'];
+    model.ExitModes[0].RiskProfiles.push({Name:'conservative',TpMultiplier:2.5,RiskDivider:3.0});
+    renderTimeframes(); renderSets(); renderRisks(); updatePreview();
+  </script>
+</body>
+</html>

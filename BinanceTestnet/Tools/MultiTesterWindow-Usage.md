@@ -52,8 +52,8 @@ The config file controls all batch parameters. Example:
     {
       "Name": "fixed",
       "Trailing": false,
-      "RiskProfiles": [
-        { "Name": "rr_1_to_1", "TpMultiplier": 1.0, "SlMultiplier": 1.0 }
+        "RiskProfiles": [
+        { "Name": "rr_1_to_1", "TpMultiplier": 1.0, "RiskDivider": 1.0 }
       ]
     },
     {
