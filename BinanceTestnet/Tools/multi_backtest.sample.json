@@ -6,7 +6,32 @@
     "15m"
   ],
   "SymbolSets": {
-    "coin_manager_20251203131325": []
+    "2": [
+      "DOGEUSDT",
+      "BNBUSDT",
+      "BNXUSDT",
+      "PIEVERSEUSDT",
+      "HYPEUSDT",
+      "1000PEPEUSDT",
+      "ADAUSDT",
+      "LINKUSDT",
+      "ASTERUSDT",
+      "BOBUSDT",
+      "MONUSDT",
+      "TURBOUSDT",
+      "ALPHAUSDT",
+      "FARTCOINUSDT",
+      "BCHUSDT",
+      "PARTIUSDT",
+      "AVAXUSDT",
+      "ENAUSDT",
+      "PENGUUSDT",
+      "TRADOORUSDT",
+      "GIGGLEUSDT",
+      "PAXGUSDT",
+      "PUMPUSDT",
+      "PORT3USDT"
+    ]
   },
   "ExitModes": [
     {
