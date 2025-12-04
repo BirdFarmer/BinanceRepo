@@ -72,37 +72,24 @@ namespace BinanceTestnet.Strategies
                     bool isSqueeze = bbWidth < currentATR * _squeezeThreshold;
                     _squeezeBarsCount = isSqueeze ? _squeezeBarsCount + 1 : 0;
                     bool validSqueeze = _squeezeBarsCount >= _minSqueezeBars;
+                    // Don't spam logs on every squeeze bar during live runs.
+                    // Only log concise entry information when a signal triggers.
                     if (isSqueeze)
-                    { 
-                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {symbol} | " +
-                                                                $"Close: {workingKlines.Last().Close:F4} | " +
-                                                                $"BB Width: {bbWidth:F4} | " +
-                                                                $"ATR: {currentATR:F4} | " +
-                                                                $"Ratio: {bbWidth / currentATR:F4} | " +
-                                                                $"Squeeze: {isSqueeze} | " +
-                                                                $"Squeeze Count: {_squeezeBarsCount} | " +
-                                                                $"Valid: {validSqueeze} | " +
-                                                                $"Upper: {upperBand.Last():F4} | " +
-                                                                $"Lower: {lowerBand.Last():F4}");
-
-                    }
-                    
-                    if (isSqueeze)//validSqueeze
                     {
                         // Select signal/previous respecting policy (fallback to workingKlines end points)
                         var (signalKline, previousKline) = SelectSignalPair(klines);
                         if (signalKline == null || previousKline == null) return;
                         var lastClose = signalKline.Close;
                         var prevClose = previousKline.Close;
-
                         if (lastClose > upperBand.Last() && prevClose <= upperBand.Last() && symbol != null)
                         {
-                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ LONG SIGNAL ⚡ {symbol} @ {lastClose}");
+                            // Concise, readable entry log
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ LONG {symbol} @ {FormatPrice(lastClose)} | Upper: {FormatPrice(upperBand.Last())} | Lower: {FormatPrice(lowerBand.Last())} | ATR: {FormatPrice(currentATR)}");
                             await OrderManager.PlaceLongOrderAsync(symbol!, lastClose, "BB Squeeze", signalKline.CloseTime);
                         }
                         else if (lastClose < lowerBand.Last() && prevClose >= lowerBand.Last() && symbol != null)
                         {
-                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ SHORT SIGNAL ⚡ {symbol} @ {lastClose}");
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ SHORT {symbol} @ {FormatPrice(lastClose)} | Upper: {FormatPrice(upperBand.Last())} | Lower: {FormatPrice(lowerBand.Last())} | ATR: {FormatPrice(currentATR)}");
                             await OrderManager.PlaceShortOrderAsync(symbol!, lastClose, "BB Squeeze", signalKline.CloseTime);
                         }
                     }
@@ -189,55 +176,64 @@ namespace BinanceTestnet.Strategies
                 int squeezeCount = 0;
                 int signalCount = 0;
 
-                for (int i = 0; i < upperBand.Count; i++) // Use the indicator array length
+                // Determine earliest index where both BB and ATR are available
+                int startIndex = Math.Max(_bbPeriod - 1, _atrPeriod);
+
+                // Use a local squeeze counter and track the start index for backtests
+                int localSqueezeBars = 0;
+                int squeezeStartIndex = -1;
+
+                for (int k = startIndex; k < klines.Count; k++)
                 {
-                    int klineIndex = i + _bbPeriod - 1; // Match indicator index to kline index
-                    if (klineIndex >= klines.Count) break;
-                    
-                    var currentKline = klines[klineIndex];
-                    var currentUpper = upperBand[i];
-                    var currentLower = lowerBand[i];
-                    var currentMiddle = middleBand[i - _bbPeriod];
-                    var currentATR = atrValues[i - _bbPeriod - _atrPeriod];
-                    
-                    // For ATR - need similar fix:
-                    int atrIndex = i + _atrPeriod - 1; 
-                    if (atrIndex < atrValues.Count)
+                    var currentKline = klines[k];
+                    var prevKline = klines[k - 1];
+
+                    var currentUpper = upperBand[k];
+                    var currentLower = lowerBand[k];
+                    var currentMiddle = middleBand[k];
+
+                    // ATR list is shorter: atrValues[0] corresponds to klines[_atrPeriod]
+                    decimal currentATR = 0;
+                    int atrIndex = k - _atrPeriod;
+                    if (atrIndex >= 0 && atrIndex < atrValues.Count)
                     {
-                         currentATR = atrValues[atrIndex];
+                        currentATR = atrValues[atrIndex];
                     }
 
                     var bbWidth = currentUpper - currentLower;
-                    bool isSqueeze = bbWidth < currentATR * _squeezeThreshold;
-                    _squeezeBarsCount = isSqueeze ? _squeezeBarsCount + 1 : 0;
-                    bool validSqueeze = _squeezeBarsCount >= _minSqueezeBars;
+                    bool isSqueeze = currentATR > 0 ? bbWidth < currentATR * _squeezeThreshold : false;
 
-                    // Debug print current values
-                    //if (i % 10 == 0 || isSqueeze) // Print every 10 candles or during squeezes
+                    // Track squeeze start and length but avoid verbose per-bar printing
                     if (isSqueeze)
                     {
-                        Console.WriteLine($"\nCandle {i} ({currentKline.CloseTime.ToDateTime()})");
-                        Console.WriteLine($"- Close: {currentKline.Close}");
-                        Console.WriteLine($"- BB Upper: {currentUpper:F4}, Middle: {currentMiddle:F4}, Lower: {currentLower:F4}");
-                        Console.WriteLine($"- BB Width: {bbWidth:F4}, ATR: {currentATR:F4}, Ratio: {bbWidth / currentATR:F4}");
-                        Console.WriteLine($"- Squeeze: {isSqueeze} (Count: {_squeezeBarsCount}, Valid: {validSqueeze})");
-                        Console.WriteLine($"- Threshold: {_squeezeThreshold}");
+                        if (localSqueezeBars == 0)
+                        {
+                            squeezeStartIndex = k;
+                        }
+                        localSqueezeBars++;
+                    }
+                    else
+                    {
+                        // reset when squeeze ends
+                        localSqueezeBars = 0;
+                        squeezeStartIndex = -1;
                     }
 
-                    if (isSqueeze)//validSqueeze
+                    if (isSqueeze)
                     {
                         squeezeCount++;
-                        var prevKline = klines[i - 1];
 
                         // Long signal
                         if (currentKline.Close > currentUpper && prevKline.Close <= currentUpper && currentKline.Symbol != null)
                         {
                             signalCount++;
+                            var squeezeStartTime = squeezeStartIndex >= 0 ? klines[squeezeStartIndex].CloseTime.ToDateTime() : (DateTime?)null;
                             Console.WriteLine($"\n>>> LONG SIGNAL <<<");
                             Console.WriteLine($"- Time: {currentKline.CloseTime.ToDateTime()}");
-                            Console.WriteLine($"- Price: {currentKline.Close} (Crossed above Upper BB: {currentUpper})");
-                            Console.WriteLine($"- BB Width: {bbWidth}, ATR: {currentATR}");
-                            Console.WriteLine($"- Prev Close: {prevKline.Close}, Current Close: {currentKline.Close}");
+                            Console.WriteLine($"- Price: {currentKline.Close}");
+                            Console.WriteLine($"- Squeeze start: {(squeezeStartTime.HasValue ? squeezeStartTime.Value.ToString() : "unknown")} (Bars: {localSqueezeBars})");
+                            Console.WriteLine($"- BB Upper: {currentUpper:F4}, Lower: {currentLower:F4}, BB Width: {bbWidth:F4}");
+                            Console.WriteLine($"- ATR: {currentATR:F4}, Ratio: {(currentATR>0? (bbWidth / currentATR):0):F4}");
 
                             await OrderManager.PlaceLongOrderAsync(
                                 currentKline.Symbol!,
@@ -249,11 +245,13 @@ namespace BinanceTestnet.Strategies
                         else if (currentKline.Close < currentLower && prevKline.Close >= currentLower && currentKline.Symbol != null)
                         {
                             signalCount++;
+                            var squeezeStartTime = squeezeStartIndex >= 0 ? klines[squeezeStartIndex].CloseTime.ToDateTime() : (DateTime?)null;
                             Console.WriteLine($"\n>>> SHORT SIGNAL <<<");
                             Console.WriteLine($"- Time: {currentKline.CloseTime.ToDateTime()}");
-                            Console.WriteLine($"- Price: {currentKline.Close} (Crossed below Lower BB: {currentLower})");
-                            Console.WriteLine($"- BB Width: {bbWidth}, ATR: {currentATR}");
-                            Console.WriteLine($"- Prev Close: {prevKline.Close}, Current Close: {currentKline.Close}");
+                            Console.WriteLine($"- Price: {currentKline.Close}");
+                            Console.WriteLine($"- Squeeze start: {(squeezeStartTime.HasValue ? squeezeStartTime.Value.ToString() : "unknown")} (Bars: {localSqueezeBars})");
+                            Console.WriteLine($"- BB Upper: {currentUpper:F4}, Lower: {currentLower:F4}, BB Width: {bbWidth:F4}");
+                            Console.WriteLine($"- ATR: {currentATR:F4}, Ratio: {(currentATR>0? (bbWidth / currentATR):0):F4}");
 
                             await OrderManager.PlaceShortOrderAsync(
                                 currentKline.Symbol!,
@@ -288,6 +286,17 @@ namespace BinanceTestnet.Strategies
             {
                 Console.WriteLine($"Not enough data for backtest. Need {_bbPeriod + _atrPeriod} candles, got {klines.Count}");
             }
+        }
+
+        // Format prices with readable precision without overflowing with decimals.
+        private static string FormatPrice(decimal price)
+        {
+            // Use fewer decimals for larger prices, more for small prices, but cap at 6 decimals
+            if (price >= 100m) return price.ToString("F2");
+            if (price >= 1m) return price.ToString("F4");
+            if (price >= 0.01m) return price.ToString("F6");
+            // very small prices: show up to 6 significant digits
+            return price.ToString("G6");
         }
 
         // Parse and request helpers centralized in StrategyUtils
