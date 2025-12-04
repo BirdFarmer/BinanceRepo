@@ -41,7 +41,7 @@
                         <!-- Right column: Strategies / Harmonic -->
                         <StackPanel x:Name="StrategiesContent" Grid.Column="1">
                             <TextBlock Text="Strategies" Foreground="{DynamicResource PrimaryForeground}" FontWeight="SemiBold"/>
-                            <ComboBox x:Name="StrategySelector" Margin="0,6,0,0" Width="320">
+                            <ComboBox x:Name="StrategySelector" Margin="0,6,0,0" Width="320" HorizontalAlignment="Left" SelectionChanged="StrategySelector_SelectionChanged">
                                 <ComboBoxItem Content="HarmonicPattern" />
                                 <ComboBoxItem Content="OtherStrategy (disabled)" IsEnabled="False"/>
                                 <ComboBoxItem Content="OtherStrategy2 (disabled)" IsEnabled="False"/>
@@ -51,20 +51,20 @@
                                 <StackPanel x:Name="HarmonicPanel" Visibility="Collapsed">
                                     <TextBlock Text="Harmonic Patterns" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryForeground}"/>
                                     <UniformGrid Columns="2" Margin="0,8,0,0">
-                                        <CheckBox x:Name="ChkGartley" Content="Gartley" IsChecked="True"/>
-                                        <CheckBox x:Name="ChkButterfly" Content="Butterfly" IsChecked="True"/>
-                                        <CheckBox x:Name="ChkBat" Content="Bat" IsChecked="True"/>
-                                        <CheckBox x:Name="ChkCrab" Content="Crab" IsChecked="True"/>
-                                        <CheckBox x:Name="ChkCypher" Content="Cypher" IsChecked="True"/>
-                                        <CheckBox x:Name="ChkShark" Content="Shark" IsChecked="True"/>
+                                        <CheckBox x:Name="ChkGartley" Content="Gartley" IsChecked="True" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <CheckBox x:Name="ChkButterfly" Content="Butterfly" IsChecked="True" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <CheckBox x:Name="ChkBat" Content="Bat" IsChecked="True" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <CheckBox x:Name="ChkCrab" Content="Crab" IsChecked="True" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <CheckBox x:Name="ChkCypher" Content="Cypher" IsChecked="True" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <CheckBox x:Name="ChkShark" Content="Shark" IsChecked="True" Foreground="{DynamicResource PrimaryForeground}"/>
                                     </UniformGrid>
 
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0" VerticalAlignment="Center">
-                                        <CheckBox x:Name="ChkUseTrendFilter" Content="Use Trend Filter (SMA)" IsChecked="False" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="ChkUseTrendFilter" Content="Use Trend Filter (SMA)" IsChecked="False" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}"/>
                                     </StackPanel>
 
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
-                                        <TextBlock Text="Validation bars:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="Validation bars:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource PrimaryForeground}"/>
                                         <TextBox x:Name="TxtValidationBars" Width="64" Text="3"/>
                                     </StackPanel>
                                 </StackPanel>
