@@ -1,4 +1,5 @@
 using BinanceTestnet.Models;
+using BinanceTestnet.Config;
 using System.IO;
 using System.Collections.Concurrent;
 using System;
@@ -118,7 +119,16 @@ namespace BinanceTestnet.Strategies
                 }).ToList();
 
                 // detection: use a small validation window to confirm point D (like Pine's t_b)
-                int validationBars = 3; 
+                int validationBars = 3;
+                bool useTrendFilter = false;
+                try
+                {
+                    var us = UserSettingsReader.Load();
+                    validationBars = us.HarmonicValidationBars >= 1 ? us.HarmonicValidationBars : validationBars;
+                    useTrendFilter = us.HarmonicUseTrendFilter;
+                }
+                catch { }
+
                 var detection = Tools.HarmonicPatternDetector.Detect(quotes, pivotStrength: 3, validationBars: validationBars);
 
                 if (detection == null || detection.Pattern == Tools.HarmonicPattern.None)
@@ -126,6 +136,29 @@ namespace BinanceTestnet.Strategies
                     // No pattern detected
                     return;
                 }
+
+                // Respect user-configured allowed patterns (if a user.settings.json is present)
+                try
+                {
+                    var us = UserSettingsReader.Load();
+                    bool allowed = detection.Pattern switch
+                    {
+                        Tools.HarmonicPattern.Gartley => us.HarmonicEnableGartley,
+                        Tools.HarmonicPattern.Butterfly => us.HarmonicEnableButterfly,
+                        Tools.HarmonicPattern.Bat => us.HarmonicEnableBat,
+                        Tools.HarmonicPattern.Crab => us.HarmonicEnableCrab,
+                        Tools.HarmonicPattern.Cypher => us.HarmonicEnableCypher,
+                        Tools.HarmonicPattern.Shark => us.HarmonicEnableShark,
+                        _ => true
+                    };
+                    if (!allowed)
+                    {
+                        DumpDetectionCsv(symbol, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
+                            null, null, null, null, signalKline.Close, null, "skipped_pattern_disabled", detection.Notes);
+                        return;
+                    }
+                }
+                catch { /* best-effort: if settings can't be read, default to allowing patterns */ }
 
                 // (No per-symbol cooldown enforced here; OrderManager already prevents duplicate active trades.)
 
@@ -160,20 +193,21 @@ namespace BinanceTestnet.Strategies
                     return;
                 }
 
-                // symmetric trend filtering: avoid shorts in uptrend and longs in downtrend
-                if (detection.IsBearish && marketIsUp)
+                // symmetric trend filtering: avoid shorts in uptrend and longs in downtrend (configurable)
+                if (useTrendFilter)
                 {
-                    // Console.WriteLine($"Skipping bearish {detection.Pattern} because market is up (price {signalKline.Close} > SMA50 {sma50:F4})");
-                    DumpDetectionCsv(symbol, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
-                        tX, pXprice, tD, pDprice, signalKline.Close, null, "skipped_trend", detection.Notes);
-                    return;
-                }
-                if (detection.IsBullish && !marketIsUp)
-                {
-                    // Console.WriteLine($"Skipping bullish {detection.Pattern} because market is down (price {signalKline.Close} <= SMA50 {sma50:F4})");
-                    DumpDetectionCsv(symbol, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
-                        tX, pXprice, tD, pDprice, signalKline.Close, null, "skipped_trend", detection.Notes);
-                    return;
+                    if (detection.IsBearish && marketIsUp)
+                    {
+                        DumpDetectionCsv(symbol, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
+                            tX, pXprice, tD, pDprice, signalKline.Close, null, "skipped_trend", detection.Notes);
+                        return;
+                    }
+                    if (detection.IsBullish && !marketIsUp)
+                    {
+                        DumpDetectionCsv(symbol, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
+                            tX, pXprice, tD, pDprice, signalKline.Close, null, "skipped_trend", detection.Notes);
+                        return;
+                    }
                 }
 
                 // Debug output: print detection details so user can understand why trades are placed
@@ -343,13 +377,45 @@ namespace BinanceTestnet.Strategies
             for (int i = MinLookback; i < quotes.Count; i++)
             {
                 var window = quotes.Take(i + 1).ToList();
-                // Use validationBars=3 for historical detection (same as live behavior)
+                // Use validationBars from user settings (fall back to 3)
                 int validationBars = 3;
+                bool useTrendFilter = false;
+                try
+                {
+                    var us = UserSettingsReader.Load();
+                    validationBars = us.HarmonicValidationBars >= 1 ? us.HarmonicValidationBars : validationBars;
+                    useTrendFilter = us.HarmonicUseTrendFilter;
+                }
+                catch { }
+
                 var detection = Tools.HarmonicPatternDetector.Detect(window, pivotStrength: 3, validationBars: validationBars);
                 var kline = dataList[i];
 
                 if (detection != null && detection.Pattern != Tools.HarmonicPattern.None)
                 {
+                    // Respect user-configured allowed patterns for historical/backtest runs
+                    try
+                    {
+                        var us = UserSettingsReader.Load();
+                        bool allowed = detection.Pattern switch
+                        {
+                            Tools.HarmonicPattern.Gartley => us.HarmonicEnableGartley,
+                            Tools.HarmonicPattern.Butterfly => us.HarmonicEnableButterfly,
+                            Tools.HarmonicPattern.Bat => us.HarmonicEnableBat,
+                            Tools.HarmonicPattern.Crab => us.HarmonicEnableCrab,
+                            Tools.HarmonicPattern.Cypher => us.HarmonicEnableCypher,
+                            Tools.HarmonicPattern.Shark => us.HarmonicEnableShark,
+                            _ => true
+                        };
+                        if (!allowed)
+                        {
+                            var symSkip = kline.Symbol ?? string.Empty;
+                            DumpDetectionCsv(symSkip, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
+                                null, null, null, null, kline.Close, null, "skipped_pattern_disabled", detection.Notes);
+                            continue;
+                        }
+                    }
+                    catch { }
                     // ensure symbol is present
                     var sym = kline.Symbol ?? string.Empty;
                     if (string.IsNullOrEmpty(sym))
@@ -379,15 +445,13 @@ namespace BinanceTestnet.Strategies
                         DumpDetectionCsv(sym, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
                             htX, hpXprice, htD, hpDprice, kline.Close, null, "skipped_low_confidence", detection.Notes);
                     }
-                    else if (detection.IsBearish && marketIsUp)
+                    else if (useTrendFilter && detection.IsBearish && marketIsUp)
                     {
-                        // Console.WriteLine($"[Hist] Skipping bearish {detection.Pattern} at {kline.OpenTime} because market is up (price {kline.Close} > SMA50 {sma50:F4})");
                         DumpDetectionCsv(sym, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
                             htX, hpXprice, htD, hpDprice, kline.Close, null, "skipped_trend", detection.Notes);
                     }
-                    else if (detection.IsBullish && !marketIsUp)
+                    else if (useTrendFilter && detection.IsBullish && !marketIsUp)
                     {
-                        // Console.WriteLine($"[Hist] Skipping bullish {detection.Pattern} at {kline.OpenTime} because market is down (price {kline.Close} <= SMA50 {sma50:F4})");
                         DumpDetectionCsv(sym, detection.Pattern, detection.IsBullish, detection.Confidence, detection.AbXa, detection.BcAb, detection.CdXa,
                             htX, hpXprice, htD, hpDprice, kline.Close, null, "skipped_trend", detection.Notes);
                     }

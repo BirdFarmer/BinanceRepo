@@ -1,5 +1,5 @@
 {
-  "Strategy": "FVG",
+  "Strategy": "CDVReversalWithEMA",
   "Strategies": null,
   "Timeframes": [
     "5m",
@@ -19,7 +19,9 @@
       "BOBUSDT",
       "MONUSDT",
       "TURBOUSDT",
-      "ALPHAUSDT",
+      "ALPHAUSDT"
+    ],
+    "1": [
       "FARTCOINUSDT",
       "BCHUSDT",
       "PARTIUSDT",
