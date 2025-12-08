@@ -122,8 +122,8 @@ namespace BinanceTestnet.Strategies
                     case SelectedTradingStrategy.SMAExpansion:
                         strategies.Add(new SMAExpansionStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;
-                    case SelectedTradingStrategy.BollingerSqueeze:
-                        strategies.Add(new BollingerSqueezeStrategy(_client, _apiKey, _orderManager, _wallet));
+                    case SelectedTradingStrategy.BollingerNoSqueeze:
+                        strategies.Add(new BollingerNoSqueezeStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;              
                     case SelectedTradingStrategy.SupportResistance:
                         strategies.Add(new SupportResistanceStrategy(_client, _apiKey, _orderManager, _wallet));

@@ -13,7 +13,7 @@ public enum SelectedTradingStrategy
     Aroon = 10,
     HullSMA = 11,
     SMAExpansion = 12,
-    BollingerSqueeze = 13,
+    BollingerNoSqueeze = 13,
     SupportResistance = 14,
     SimpleSMA375 = 15,
     DEMASuperTrend = 16,

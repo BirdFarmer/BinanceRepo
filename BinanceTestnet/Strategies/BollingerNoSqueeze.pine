@@ -1,0 +1,86 @@
+// @version=5
+// No-Squeeze Bollinger Breakout (visual indicator)
+// Highlights long entry bars (green background) and short entry bars (red background)
+// Strategy rules (visual):
+// - Bollinger Bands (SMA basis + stddev)
+// - No-squeeze: (upper-lower)/ATR >= SqueezeMin
+// - Breakout: close > upper (long) / close < lower (short)
+// - Trend confirmation: close > EMA(EMAtrend) for long; close < EMA for short
+// - Optional ADX and volume confirmations
+
+//@version=5
+indicator("No-Squeeze Bollinger Breakout (visual)", overlay=true)
+
+// Inputs
+bbLen = input.int(20, "BB Length")
+bbStd = input.float(2.0, "BB StdDev")
+atrLen = input.int(14, "ATR Period")
+emaLen = input.int(50, "EMA Trend")
+squeezeMin = input.float(1.2, "SqueezeMin (bbWidth/ATR)")
+useAdx = input.bool(false, "Use ADX filter")
+adxLen = input.int(14, "ADX Period")
+adxThresh = input.float(20, "ADX Threshold")
+useVol = input.bool(false, "Use Volume filter")
+avgVolLen = input.int(20, "Avg Volume Period")
+volMult = input.float(1.2, "Volume Multiplier")
+enableShorts = input.bool(true, "Enable Shorts")
+
+// Bollinger Bands
+basis = ta.sma(close, bbLen)
+dev = ta.stdev(close, bbLen)
+upper = basis + bbStd * dev
+lower = basis - bbStd * dev
+
+// ATR and normalized BB width
+atr = ta.atr(atrLen)
+bbWidth = upper - lower
+bbNorm = atr > 0 ? bbWidth / atr : 0.0
+
+// Trend filter
+ema = ta.ema(close, emaLen)
+
+// ADX & Volume
+// Manual ADX calculation to avoid relying on a possibly unavailable built-in function
+upMove = high - high[1]
+downMove = low[1] - low
+plusDM = (upMove > downMove and upMove > 0) ? upMove : 0.0
+minusDM = (downMove > upMove and downMove > 0) ? downMove : 0.0
+tr = math.max(math.max(high - low, math.abs(high - nz(close[1]))), math.abs(low - nz(close[1])))
+smTR = ta.rma(tr, adxLen)
+smPlus = ta.rma(plusDM, adxLen)
+smMinus = ta.rma(minusDM, adxLen)
+plusDI = smTR > 0 ? 100 * smPlus / smTR : 0.0
+minusDI = smTR > 0 ? 100 * smMinus / smTR : 0.0
+dx = (plusDI + minusDI) > 0 ? 100 * math.abs(plusDI - minusDI) / (plusDI + minusDI) : 0.0
+adx = ta.rma(dx, adxLen)
+avgVol = ta.sma(volume, avgVolLen)
+
+// Entry conditions (delayed/re-entry rules)
+isNoSqueeze = bbNorm >= squeezeMin
+// Long: previous 3 candles had their lows below their respective lower band, and current low moves back above lower band
+prev3LowsBelow = low[1] < lower[1] and low[2] < lower[2] and low[3] < lower[3]
+longEntry = isNoSqueeze and prev3LowsBelow and low > lower and close > ema and (not useAdx or (adx >= adxThresh)) and (not useVol or volume > avgVol * volMult)
+
+// Short: previous 3 candles had their highs above their respective upper band, and current high moves back below upper band
+prev3HighsAbove = high[1] > upper[1] and high[2] > upper[2] and high[3] > upper[3]
+shortEntry = enableShorts and isNoSqueeze and prev3HighsAbove and high < upper and close < ema and (not useAdx or (adx >= adxThresh)) and (not useVol or volume > avgVol * volMult)
+
+// Visuals
+bgcolor(longEntry ? color.new(color.green, 80) : na)
+bgcolor(shortEntry ? color.new(color.red, 80) : na)
+
+plot(basis, "Basis", color=color.orange)
+pUp = plot(upper, "Upper", color=color.blue)
+pLow = plot(lower, "Lower", color=color.blue)
+fill(pUp, pLow, color.new(color.blue, 90))
+
+plotshape(longEntry, title="LongEntry", style=shape.labelup, location=location.belowbar, color=color.green, size=size.tiny, text="LONG")
+plotshape(shortEntry, title="ShortEntry", style=shape.labeldown, location=location.abovebar, color=color.red, size=size.tiny, text="SHORT")
+
+// Optional debug plot in the data window
+plotchar(bbNorm, title="BB/ATR", location=location.top, char=' ', size=size.tiny)
+
+// Tooltip text when hovering — put values into the chart's data window
+// (users can enable values by adding the indicator and looking at the data pane)
+
+// End of indicator
