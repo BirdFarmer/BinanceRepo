@@ -29,7 +29,7 @@ namespace BinanceTestnet.Strategies.Helpers
         }
 
         // 2) Parsing
-        public static bool TryParseKlines(string? content, out List<Kline> result)
+        public static bool TryParseKlines(string? content, out List<Kline> result, string? symbol = null)
         {
             result = new List<Kline>();
             if (string.IsNullOrWhiteSpace(content)) return false;
@@ -52,6 +52,7 @@ namespace BinanceTestnet.Strategies.Helpers
 
                         result.Add(new Kline
                         {
+                            Symbol = symbol,
                             Open = open,
                             High = high,
                             Low = low,
@@ -72,9 +73,9 @@ namespace BinanceTestnet.Strategies.Helpers
             }
         }
 
-        public static List<Kline> ParseKlines(string content)
+        public static List<Kline> ParseKlines(string content, string? symbol = null)
         {
-            return TryParseKlines(content, out var parsed) ? parsed : new List<Kline>();
+            return TryParseKlines(content, out var parsed, symbol) ? parsed : new List<Kline>();
         }
 
         // 3) Quotes conversion

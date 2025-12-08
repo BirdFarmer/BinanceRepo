@@ -1,10 +1,7 @@
 {
-  "Strategy": "CDVReversalWithEMA",
+  "Strategy": "BollingerSqueeze",
   "Strategies": null,
-  "Timeframes": [
-    "5m",
-    "15m"
-  ],
+  "Timeframes": [],
   "SymbolSets": {
     "2": [
       "DOGEUSDT",
@@ -20,19 +17,6 @@
       "MONUSDT",
       "TURBOUSDT",
       "ALPHAUSDT"
-    ],
-    "1": [
-      "FARTCOINUSDT",
-      "BCHUSDT",
-      "PARTIUSDT",
-      "AVAXUSDT",
-      "ENAUSDT",
-      "PENGUUSDT",
-      "TRADOORUSDT",
-      "GIGGLEUSDT",
-      "PAXGUSDT",
-      "PUMPUSDT",
-      "PORT3USDT"
     ]
   },
   "ExitModes": [
@@ -42,7 +26,7 @@
         {
           "Name": "6_1",
           "TpMultiplier": 6.0,
-          "RiskDivider": 1.0,
+          "RiskDivider": 2.0,
           "SlMultiplier": null
         },
         {

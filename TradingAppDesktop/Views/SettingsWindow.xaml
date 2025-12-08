@@ -43,12 +43,14 @@
                             <TextBlock Text="Strategies" Foreground="{DynamicResource PrimaryForeground}" FontWeight="SemiBold"/>
                             <ComboBox x:Name="StrategySelector" Margin="0,6,0,0" Width="320" HorizontalAlignment="Left" SelectionChanged="StrategySelector_SelectionChanged">
                                 <ComboBoxItem Content="HarmonicPattern" />
+                                <ComboBoxItem Content="BollingerNoSqueeze" />
                                 <ComboBoxItem Content="OtherStrategy (disabled)" IsEnabled="False"/>
                                 <ComboBoxItem Content="OtherStrategy2 (disabled)" IsEnabled="False"/>
                             </ComboBox>
 
                             <Border Margin="0,10,0,0" Padding="8" Background="{DynamicResource DarkPanelBackground}" CornerRadius="4">
-                                <StackPanel x:Name="HarmonicPanel" Visibility="Collapsed">
+                                <StackPanel>
+                                    <StackPanel x:Name="HarmonicPanel" Visibility="Collapsed">
                                     <TextBlock Text="Harmonic Patterns" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryForeground}"/>
                                     <UniformGrid Columns="2" Margin="0,8,0,0">
                                         <CheckBox x:Name="ChkGartley" Content="Gartley" IsChecked="True" Foreground="{DynamicResource PrimaryForeground}"/>
@@ -63,10 +65,54 @@
                                         <CheckBox x:Name="ChkUseTrendFilter" Content="Use Trend Filter (SMA)" IsChecked="False" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}"/>
                                     </StackPanel>
 
+                                    
+
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
                                         <TextBlock Text="Validation bars:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource PrimaryForeground}"/>
                                         <TextBox x:Name="TxtValidationBars" Width="64" Text="3"/>
                                     </StackPanel>
+                                </StackPanel>
+                                
+                                <!-- Bollinger settings panel (sibling to HarmonicPanel) -->
+                                <StackPanel x:Name="BollingerPanel" Visibility="Collapsed" Margin="0,8,0,0">
+                                    <TextBlock Text="Bollinger No-Squeeze Settings" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryForeground}"/>
+                                    <UniformGrid Columns="2" Margin="0,8,0,0">
+                                        <TextBlock Text="BB Period:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Bollinger Bands period. Lower = faster response and more entries."/>
+                                        <TextBox x:Name="TxtBBPeriod" Width="120" Text="200" ToolTip="Bollinger Bands period. Lower = faster response and more entries."/>
+
+                                        <TextBlock Text="BB StdDev:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="StdDev multiplier for bands. Lower = narrower bands → more cross events."/>
+                                        <TextBox x:Name="TxtBBStdDev" Width="120" Text="2.0" ToolTip="StdDev multiplier for bands. Lower = narrower bands → more cross events."/>
+
+                                        <TextBlock Text="Squeeze Min (norm):" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Minimum normalized BB width (bbWidth/ATR) to be considered NOT squeezed. Lower → more entries."/>
+                                        <TextBox x:Name="TxtSqueezeMin" Width="120" Text="1.2" ToolTip="Minimum normalized BB width (bbWidth/ATR) to be considered NOT squeezed. Lower → more entries."/>
+
+                                        <TextBlock Text="Volume Mult:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Volume multiplier vs average. Higher = requires a larger volume candle for entry; lower → more entries."/>
+                                        <TextBox x:Name="TxtVolumeMultiplier" Width="120" Text="1.2" ToolTip="Volume multiplier vs average. Higher = requires a larger volume candle for entry; lower → more entries."/>
+
+                                        <TextBlock Text="Avg Vol Period:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Window (candles) used to compute average volume. Shorter = more sensitive to recent spikes."/>
+                                        <TextBox x:Name="TxtAvgVolumePeriod" Width="120" Text="20" ToolTip="Window (candles) used to compute average volume. Shorter = more sensitive to recent spikes."/>
+
+                                        <TextBlock Text="Delayed Re-entry Bars:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Number of previous candles that must be outside the band before current-candle re-entry. Lower → more entries."/>
+                                        <TextBox x:Name="TxtDelayedReentryPrevBars" Width="120" Text="3" ToolTip="Number of previous candles that must be outside the band before current-candle re-entry. Lower → more entries."/>
+
+                                        <TextBlock Text="Trend Gate:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Trend filter: EMA requires price above EMA; ADX requires ADX≥threshold; RSI requires RSI>50; None disables trend gate."/>
+                                        <ComboBox x:Name="CboTrendGate" Width="160" ToolTip="Trend filter: EMA requires price above EMA; ADX requires ADX≥threshold; RSI requires RSI>50; None disables trend gate.">
+                                            <ComboBoxItem Content="None" />
+                                            <ComboBoxItem Content="EMA" />
+                                            <ComboBoxItem Content="ADX" />
+                                            <ComboBoxItem Content="RSI" />
+                                        </ComboBox>
+
+                                        <TextBlock Text="Trend Period:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Period used for EMA/ADX/RSI trend calculations. Lower = more responsive."/>
+                                        <TextBox x:Name="TxtTrendPeriod" Width="120" Text="50" ToolTip="Period used for EMA/ADX/RSI trend calculations. Lower = more responsive."/>
+
+                                        <TextBlock Text="ADX Threshold:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Minimum ADX value to consider trend strong when ADX trend gate is selected. Lower → more entries."/>
+                                        <TextBox x:Name="TxtAdxThreshold" Width="120" Text="20" ToolTip="Minimum ADX value to consider trend strong when ADX trend gate is selected. Lower → more entries."/>
+
+                                        <TextBlock Text="Debug Mode:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Enable verbose debug logging showing gate checks and reasons signals were allowed or blocked."/>
+                                        <CheckBox x:Name="ChkDebugMode" IsChecked="True" VerticalAlignment="Center" ToolTip="Enable verbose debug logging showing gate checks and reasons signals were allowed or blocked."/>
+                                    </UniformGrid>
+                                </StackPanel>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

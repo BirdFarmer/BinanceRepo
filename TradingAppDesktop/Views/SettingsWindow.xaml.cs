@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Controls;
 using TradingAppDesktop.Services;
 using TradingAppDesktop.ViewModels;
+using System.Globalization;
+using BinanceTestnet.Strategies;
 
 namespace TradingAppDesktop.Views
 {
@@ -134,19 +136,146 @@ namespace TradingAppDesktop.Views
             {
                 HarmonicPanel.Visibility = Visibility.Visible;
             }
+
+            // Show Bollinger panel if selected
+            if (selItem != null && (selItem.Content as string) == "BollingerNoSqueeze")
+            {
+                BollingerPanel.Visibility = Visibility.Visible;
+            }
+
+            // Initialize Bollinger controls from static settings
+            try
+            {
+                TxtBBPeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.BBPeriod.ToString();
+                TxtBBStdDev.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.BBStdDev.ToString(CultureInfo.InvariantCulture);
+                TxtSqueezeMin.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.SqueezeMin.ToString(CultureInfo.InvariantCulture);
+                TxtVolumeMultiplier.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
+                TxtAvgVolumePeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AvgVolumePeriod.ToString();
+                TxtDelayedReentryPrevBars.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DelayedReentryPrevBars.ToString();
+                TxtTrendPeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendPeriod.ToString();
+                TxtAdxThreshold.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AdxThreshold.ToString(CultureInfo.InvariantCulture);
+                ChkDebugMode.IsChecked = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DebugMode;
+
+                // set trend gate selection
+                var trend = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendGate.ToString();
+                foreach (var it in CboTrendGate.Items)
+                {
+                    if (it is ComboBoxItem cbi && (cbi.Content as string) == trend)
+                    {
+                        CboTrendGate.SelectedItem = it; break;
+                    }
+                }
+            }
+            catch { /* non-fatal */ }
+
+            // Wire control events to persist changes into the static settings at runtime
+            TxtBBPeriod.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtBBPeriod.Text, out var v) && v >= 1 && v <= 5000)
+                {
+                    BollingerNoSqueezeStrategy.BollingerSqueezeSettings.BBPeriod = v;
+                }
+                else
+                {
+                    TxtBBPeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.BBPeriod.ToString();
+                }
+            };
+
+            TxtBBStdDev.LostFocus += (s, ev) => {
+                if (double.TryParse(TxtBBStdDev.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var d) && d > 0)
+                {
+                    BollingerNoSqueezeStrategy.BollingerSqueezeSettings.BBStdDev = d;
+                }
+                else
+                {
+                    TxtBBStdDev.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.BBStdDev.ToString(CultureInfo.InvariantCulture);
+                }
+            };
+
+            TxtSqueezeMin.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtSqueezeMin.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec > 0)
+                {
+                    BollingerNoSqueezeStrategy.BollingerSqueezeSettings.SqueezeMin = dec;
+                }
+                else
+                {
+                    TxtSqueezeMin.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.SqueezeMin.ToString(CultureInfo.InvariantCulture);
+                }
+            };
+
+            TxtVolumeMultiplier.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtVolumeMultiplier.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec > 0)
+                {
+                    BollingerNoSqueezeStrategy.BollingerSqueezeSettings.VolumeMultiplier = dec;
+                }
+                else
+                {
+                    TxtVolumeMultiplier.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
+                }
+            };
+
+            TxtAvgVolumePeriod.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtAvgVolumePeriod.Text, out var v) && v >= 1 && v <= 1000)
+                {
+                    BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AvgVolumePeriod = v;
+                }
+                else
+                {
+                    TxtAvgVolumePeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AvgVolumePeriod.ToString();
+                }
+            };
+
+            TxtDelayedReentryPrevBars.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtDelayedReentryPrevBars.Text, out var v) && v >= 0 && v <= 50)
+                {
+                    BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DelayedReentryPrevBars = v;
+                }
+                else
+                {
+                    TxtDelayedReentryPrevBars.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DelayedReentryPrevBars.ToString();
+                }
+            };
+
+            CboTrendGate.SelectionChanged += (s, ev) => {
+                if (CboTrendGate.SelectedItem is ComboBoxItem cbi)
+                {
+                    var name = (cbi.Content as string) ?? "EMA";
+                    switch (name)
+                    {
+                        case "EMA": BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendGate = BollingerNoSqueezeStrategy.TrendFilter.EMA; break;
+                        case "ADX": BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendGate = BollingerNoSqueezeStrategy.TrendFilter.ADX; break;
+                        case "RSI": BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendGate = BollingerNoSqueezeStrategy.TrendFilter.RSI; break;
+                        default: BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendGate = BollingerNoSqueezeStrategy.TrendFilter.None; break;
+                    }
+                }
+            };
+
+            TxtTrendPeriod.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtTrendPeriod.Text, out var v) && v >= 1 && v <= 1000)
+                {
+                    BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendPeriod = v;
+                }
+                else
+                {
+                    TxtTrendPeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendPeriod.ToString();
+                }
+            };
+
+            TxtAdxThreshold.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtAdxThreshold.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec >= 0)
+                {
+                    BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AdxThreshold = dec;
+                }
+                else
+                {
+                    TxtAdxThreshold.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AdxThreshold.ToString(CultureInfo.InvariantCulture);
+                }
+            };
+
+            ChkDebugMode.Checked += (s, ev) => { BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DebugMode = true; };
+            ChkDebugMode.Unchecked += (s, ev) => { BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DebugMode = false; };
         }
 
-        private void StrategySelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            var settings = _settingsService.Settings;
-            var sel = StrategySelector.SelectedItem as ComboBoxItem;
-            if (sel != null)
-            {
-                settings.SelectedStrategy = sel.Content as string ?? settings.SelectedStrategy;
-                _settingsService.Save();
-                HarmonicPanel.Visibility = (settings.SelectedStrategy == "HarmonicPattern") ? Visibility.Visible : Visibility.Collapsed;
-            }
-        }
+        
 
         private void HarmonicToggle_Changed(object sender, RoutedEventArgs e)
         {
@@ -158,6 +287,38 @@ namespace TradingAppDesktop.Views
             settings.HarmonicEnableCypher = ChkCypher.IsChecked ?? true;
             settings.HarmonicEnableShark = ChkShark.IsChecked ?? true;
             _settingsService.Save();
+        }
+
+        // Strategy selector updated: show appropriate strategy panels
+        private void StrategySelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var settings = _settingsService.Settings;
+            var sel = StrategySelector.SelectedItem as ComboBoxItem;
+            if (sel != null)
+            {
+                settings.SelectedStrategy = sel.Content as string ?? settings.SelectedStrategy;
+                _settingsService.Save();
+                HarmonicPanel.Visibility = (settings.SelectedStrategy == "HarmonicPattern") ? Visibility.Visible : Visibility.Collapsed;
+                BollingerPanel.Visibility = (settings.SelectedStrategy == "BollingerNoSqueeze") ? Visibility.Visible : Visibility.Collapsed;
+
+                // When Bollinger panel becomes visible, (re)load controls
+                if (settings.SelectedStrategy == "BollingerNoSqueeze")
+                {
+                    try
+                    {
+                        TxtBBPeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.BBPeriod.ToString();
+                        TxtBBStdDev.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.BBStdDev.ToString(CultureInfo.InvariantCulture);
+                        TxtSqueezeMin.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.SqueezeMin.ToString(CultureInfo.InvariantCulture);
+                        TxtVolumeMultiplier.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
+                        TxtAvgVolumePeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AvgVolumePeriod.ToString();
+                        TxtDelayedReentryPrevBars.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DelayedReentryPrevBars.ToString();
+                        TxtTrendPeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendPeriod.ToString();
+                        TxtAdxThreshold.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AdxThreshold.ToString(CultureInfo.InvariantCulture);
+                        ChkDebugMode.IsChecked = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DebugMode;
+                    }
+                    catch { }
+                }
+            }
         }
 
         private void ThemeList_SelectionChanged(object sender, SelectionChangedEventArgs e)
