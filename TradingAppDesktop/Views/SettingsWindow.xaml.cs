@@ -143,6 +143,21 @@ namespace TradingAppDesktop.Views
                 BollingerPanel.Visibility = Visibility.Visible;
             }
 
+            // Show EmaCrossover panel if selected and initialize controls
+            if (selItem != null && (selItem.Content as string) == "EmaCrossoverVolume")
+            {
+                EmaCrossoverPanel.Visibility = Visibility.Visible;
+            }
+
+            try
+            {
+                TxtEmaFastLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.FastEmaLength.ToString();
+                TxtEmaSlowLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.SlowEmaLength.ToString();
+                TxtEmaVolMaLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMaLength.ToString();
+                TxtEmaVolMultiplier.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
+            }
+            catch { }
+
             // Initialize Bollinger controls from static settings
             try
             {
@@ -273,6 +288,51 @@ namespace TradingAppDesktop.Views
 
             ChkDebugMode.Checked += (s, ev) => { BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DebugMode = true; };
             ChkDebugMode.Unchecked += (s, ev) => { BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DebugMode = false; };
+
+            // Wire EMA crossover controls to persist into strategy static settings
+            TxtEmaFastLen.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtEmaFastLen.Text, out var v) && v >= 1 && v <= 5000)
+                {
+                    BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.FastEmaLength = v;
+                }
+                else
+                {
+                    TxtEmaFastLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.FastEmaLength.ToString();
+                }
+            };
+
+            TxtEmaSlowLen.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtEmaSlowLen.Text, out var v) && v >= 1 && v <= 5000)
+                {
+                    BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.SlowEmaLength = v;
+                }
+                else
+                {
+                    TxtEmaSlowLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.SlowEmaLength.ToString();
+                }
+            };
+
+            TxtEmaVolMaLen.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtEmaVolMaLen.Text, out var v) && v >= 1 && v <= 1000)
+                {
+                    BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMaLength = v;
+                }
+                else
+                {
+                    TxtEmaVolMaLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMaLength.ToString();
+                }
+            };
+
+            TxtEmaVolMultiplier.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtEmaVolMultiplier.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec > 0)
+                {
+                    BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMultiplier = dec;
+                }
+                else
+                {
+                    TxtEmaVolMultiplier.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
+                }
+            };
         }
 
         
@@ -300,6 +360,7 @@ namespace TradingAppDesktop.Views
                 _settingsService.Save();
                 HarmonicPanel.Visibility = (settings.SelectedStrategy == "HarmonicPattern") ? Visibility.Visible : Visibility.Collapsed;
                 BollingerPanel.Visibility = (settings.SelectedStrategy == "BollingerNoSqueeze") ? Visibility.Visible : Visibility.Collapsed;
+                    EmaCrossoverPanel.Visibility = (settings.SelectedStrategy == "EmaCrossoverVolume") ? Visibility.Visible : Visibility.Collapsed;
 
                 // When Bollinger panel becomes visible, (re)load controls
                 if (settings.SelectedStrategy == "BollingerNoSqueeze")
@@ -315,6 +376,18 @@ namespace TradingAppDesktop.Views
                         TxtTrendPeriod.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.TrendPeriod.ToString();
                         TxtAdxThreshold.Text = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.AdxThreshold.ToString(CultureInfo.InvariantCulture);
                         ChkDebugMode.IsChecked = BollingerNoSqueezeStrategy.BollingerSqueezeSettings.DebugMode;
+                    }
+                    catch { }
+                }
+                // When EMA Crossover selected, (re)load controls
+                if (settings.SelectedStrategy == "EmaCrossoverVolume")
+                {
+                    try
+                    {
+                        TxtEmaFastLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.FastEmaLength.ToString();
+                        TxtEmaSlowLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.SlowEmaLength.ToString();
+                        TxtEmaVolMaLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMaLength.ToString();
+                        TxtEmaVolMultiplier.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
                     }
                     catch { }
                 }

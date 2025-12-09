@@ -19,4 +19,6 @@ public enum SelectedTradingStrategy
     DEMASuperTrend = 16,
     CDVReversalWithEMA = 17,
     HarmonicPattern = 18
+    ,
+    EmaCrossoverVolume = 19
 }
