@@ -1,7 +1,9 @@
 {
-  "Strategy": "BollingerSqueeze",
+  "Strategy": "EmaCrossoverVolume",
   "Strategies": null,
-  "Timeframes": [],
+  "Timeframes": [
+    "5m"
+  ],
   "SymbolSets": {
     "2": [
       "DOGEUSDT",
@@ -25,7 +27,7 @@
       "RiskProfiles": [
         {
           "Name": "6_1",
-          "TpMultiplier": 6.0,
+          "TpMultiplier": 10.0,
           "RiskDivider": 2.0,
           "SlMultiplier": null
         },

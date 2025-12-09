@@ -44,6 +44,7 @@
                             <ComboBox x:Name="StrategySelector" Margin="0,6,0,0" Width="320" HorizontalAlignment="Left" SelectionChanged="StrategySelector_SelectionChanged">
                                 <ComboBoxItem Content="HarmonicPattern" />
                                 <ComboBoxItem Content="BollingerNoSqueeze" />
+                                <ComboBoxItem Content="EmaCrossoverVolume" />
                                 <ComboBoxItem Content="OtherStrategy (disabled)" IsEnabled="False"/>
                                 <ComboBoxItem Content="OtherStrategy2 (disabled)" IsEnabled="False"/>
                             </ComboBox>
@@ -111,6 +112,24 @@
 
                                         <TextBlock Text="Debug Mode:" Foreground="{DynamicResource PrimaryForeground}" VerticalAlignment="Center" ToolTip="Enable verbose debug logging showing gate checks and reasons signals were allowed or blocked."/>
                                         <CheckBox x:Name="ChkDebugMode" IsChecked="True" VerticalAlignment="Center" ToolTip="Enable verbose debug logging showing gate checks and reasons signals were allowed or blocked."/>
+                                    </UniformGrid>
+                                </StackPanel>
+                                
+                                <!-- EMA Crossover + Volume settings panel -->
+                                <StackPanel x:Name="EmaCrossoverPanel" Visibility="Collapsed" Margin="0,8,0,0">
+                                    <TextBlock Text="EMA Crossover + Volume Settings" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryForeground}"/>
+                                    <UniformGrid Columns="2" Margin="0,8,0,0">
+                                        <TextBlock Text="Fast EMA Length:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Shorter fast EMA reacts faster to price changes and will produce earlier cross signals (may increase false signals)." />
+                                        <TextBox x:Name="TxtEmaFastLen" Width="120" Text="25" ToolTip="Shorter fast EMA reacts faster to price changes and will produce earlier cross signals (may increase false signals)." />
+
+                                        <TextBlock Text="Slow EMA Length:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Longer slow EMA smooths trend detection; increasing it reduces signal frequency and helps avoid noise." />
+                                        <TextBox x:Name="TxtEmaSlowLen" Width="120" Text="50" ToolTip="Longer slow EMA smooths trend detection; increasing it reduces signal frequency and helps avoid noise." />
+
+                                        <TextBlock Text="Volume MA Length:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Number of candles used to compute the average volume baseline. Shorter windows react to recent spikes; longer windows provide a smoother baseline." />
+                                        <TextBox x:Name="TxtEmaVolMaLen" Width="120" Text="20" ToolTip="Number of candles used to compute the average volume baseline. Shorter windows react to recent spikes; longer windows provide a smoother baseline." />
+
+                                        <TextBlock Text="Volume Multiplier:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Entry requires current volume > (volume MA × multiplier). Increasing multiplier requires larger volume spikes for entries, reducing false signals during low activity." />
+                                        <TextBox x:Name="TxtEmaVolMultiplier" Width="120" Text="1.0" ToolTip="Entry requires current volume > (volume MA × multiplier). Increasing multiplier requires larger volume spikes for entries, reducing false signals during low activity." />
                                     </UniformGrid>
                                 </StackPanel>
                                 </StackPanel>

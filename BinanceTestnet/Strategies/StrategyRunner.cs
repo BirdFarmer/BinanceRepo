@@ -140,6 +140,9 @@ namespace BinanceTestnet.Strategies
                     case SelectedTradingStrategy.HarmonicPattern:
                         strategies.Add(new HarmonicPatternStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;
+                    case SelectedTradingStrategy.EmaCrossoverVolume:
+                        strategies.Add(new EmaCrossoverVolumeStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
                                                                         
                 }
             }

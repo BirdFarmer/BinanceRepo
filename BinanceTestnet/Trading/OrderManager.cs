@@ -1,6 +1,8 @@
 using Serilog;
 using System;
+using System.Linq;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using BinanceTestnet.Models;
 using BinanceLive.Services;
 using BinanceTestnet.Enums;
@@ -1092,24 +1094,20 @@ namespace BinanceTestnet.Trading
                     string stopLossPriceString = trade.StopLoss.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
                     
                     // Step 2: Place Stop Loss as a separate STOP_MARKET order
-                    var stopLossRequest = new RestRequest("/fapi/v1/order", Method.Post);
-                    stopLossRequest.AddParameter("symbol", trade.Symbol);
-                    stopLossRequest.AddParameter("side", trade.IsLong ? "SELL" : "BUY");
-                    stopLossRequest.AddParameter("type", "STOP_MARKET");
-                    stopLossRequest.AddParameter("stopPrice", stopLossPriceString);
-                    stopLossRequest.AddParameter("closePosition", "true");
-                    stopLossRequest.AddParameter("timestamp", serverTime);
+                    // Route conditional orders to the Algo Order API helper. This currently posts
+                    // to `/fapi/v1/algoOrder`. The helper returns an AlgoOrderResult compatible
+                    // with the old response handling so the rest of the logic remains unchanged.
+                    var algoParams = new Dictionary<string, string>
+                    {
+                        { "symbol", trade.Symbol },
+                        { "side", trade.IsLong ? "SELL" : "BUY" },
+                        { "type", "STOP_MARKET" },
+                        { "algoType", "CONDITIONAL" },
+                        { "triggerPrice", stopLossPriceString },
+                        { "closePosition", "true" }
+                    };
 
-                    var stopLossQueryString = stopLossRequest.Parameters
-                        .Where(p2 => p2.Type == ParameterType.GetOrPost)
-                        .Select(p2 => $"{p2.Name}={p2.Value}")
-                        .Aggregate((current, next) => $"{current}&{next}");
-
-                    var stopLossSignature = GenerateSignature(stopLossQueryString);
-                    stopLossRequest.AddParameter("signature", stopLossSignature);
-                    stopLossRequest.AddHeader("X-MBX-APIKEY", apiKey);
-
-                    var stopLossResponse = await _client.ExecuteAsync(stopLossRequest);
+                    var stopLossResponse = await PlaceAlgoOrderAsync(algoParams, apiKey);
                     await DelayAsync(300); // Delay after stop-loss order
 
                     if (stopLossResponse.IsSuccessful)
@@ -1227,21 +1225,24 @@ namespace BinanceTestnet.Trading
             //trailingStopLossRequest.AddParameter("closePosition", "TRUE");
             trailingStopLossRequest.AddParameter("timestamp", serverTime);
 
-            // Generate signature and send request...
-            var stopLossQueryString = trailingStopLossRequest.Parameters
-                .Where(p => p.Type == ParameterType.GetOrPost)
-                .Select(p => $"{p.Name}={p.Value}")
-                .Aggregate((current, next) => $"{current}&{next}");
+            // Send trailing stop as an Algo order (TRAILING_STOP_MARKET)
+            var trailingParams = new Dictionary<string, string>
+            {
+                { "symbol", trade.Symbol },
+                { "side", trade.IsLong ? "SELL" : "BUY" },
+                { "type", "TRAILING_STOP_MARKET" },
+                { "algoType", "CONDITIONAL" },
+                { "quantity", formattedQuantity },
+                { "reduceOnly", "true" },
+                { "activationPrice", activationPriceString },
+                { "callbackRate", callbackRateString }
+            };
 
-            var stopLossSignature = GenerateSignature(stopLossQueryString);
-            trailingStopLossRequest.AddParameter("signature", stopLossSignature);
-            trailingStopLossRequest.AddHeader("X-MBX-APIKEY", apiKey);
-
-            var stopLossResponse = await _client.ExecuteAsync(trailingStopLossRequest);
+            var stopLossResponse = await PlaceAlgoOrderAsync(trailingParams, apiKey);
 
             if (stopLossResponse.IsSuccessful)
             {
-                Console.WriteLine($"Trailing Stop placed for {trade.Symbol}: activation {activationPriceString}, callback {callbackRateString}% (reduceOnly)");                 
+                Console.WriteLine($"Trailing Stop placed for {trade.Symbol}: activation {activationPriceString}, callback {callbackRateString}% (reduceOnly)");
                 try
                 {
                     _logger.LogInformation(
@@ -1503,6 +1504,98 @@ namespace BinanceTestnet.Trading
         {
             [JsonProperty("serverTime")]
             public long ServerTime { get; set; }
+        }
+
+        private class AlgoOrderResult
+        {
+            public bool IsSuccessful { get; set; }
+            public string Content { get; set; }
+            public string ErrorMessage { get; set; }
+            public object StatusCode { get; set; }
+        }
+
+        private async Task<AlgoOrderResult> PlaceAlgoOrderAsync(Dictionary<string, string> parameters, string apiKey)
+        {
+            try
+            {
+                // Ensure timestamp
+                if (!parameters.ContainsKey("timestamp"))
+                {
+                    parameters["timestamp"] = (await GetServerTimeAsync()).ToString();
+                }
+
+                // Build a URL-encoded query string in the same order as the parameters dictionary
+                var encodedPairs = parameters.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value ?? string.Empty)}");
+                var queryString = string.Join("&", encodedPairs);
+                var signature = GenerateSignature(queryString);
+
+                // Send the signed query as part of the request URI to avoid mismatched body encoding
+                var requestUri = $"/fapi/v1/algoOrder?{queryString}&signature={signature}";
+                Console.WriteLine($"[DEBUG] AlgoOrder requestUri: {requestUri}");
+                var request = new RestRequest(requestUri, Method.Post);
+                request.AddHeader("X-MBX-APIKEY", apiKey);
+
+                var response = await _client.ExecuteAsync(request);
+
+                var result = new AlgoOrderResult
+                {
+                    IsSuccessful = response.IsSuccessful,
+                    Content = response.Content,
+                    ErrorMessage = response.ErrorMessage,
+                    StatusCode = response.StatusCode
+                };
+
+                // Retry once with alternative algoType mapping if exchange reports invalid algoType (-4500)
+                if (!result.IsSuccessful && !string.IsNullOrEmpty(result.Content) && result.Content.Contains("Invalid algoType"))
+                {
+                    try
+                    {
+                        Console.WriteLine("[DEBUG] Invalid algoType reported by exchange; attempting alternate algoType value and retrying.");
+                        if (parameters.ContainsKey("algoType"))
+                        {
+                            var orig = parameters["algoType"] ?? string.Empty;
+                            string alt;
+                            if (orig.EndsWith("_MARKET", StringComparison.OrdinalIgnoreCase))
+                                alt = orig.Substring(0, orig.Length - 7); // strip _MARKET
+                            else
+                                alt = orig + "_MARKET"; // append
+
+                            parameters["algoType"] = alt;
+                            var encodedPairs2 = parameters.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value ?? string.Empty)}");
+                            var queryString2 = string.Join("&", encodedPairs2);
+                            var signature2 = GenerateSignature(queryString2);
+                            var requestUri2 = $"/fapi/v1/algoOrder?{queryString2}&signature={signature2}";
+                            Console.WriteLine($"[DEBUG] Retrying AlgoOrder requestUri: {requestUri2}");
+                            var request2 = new RestRequest(requestUri2, Method.Post);
+                            request2.AddHeader("X-MBX-APIKEY", apiKey);
+                            var response2 = await _client.ExecuteAsync(request2);
+                            return new AlgoOrderResult
+                            {
+                                IsSuccessful = response2.IsSuccessful,
+                                Content = response2.Content,
+                                ErrorMessage = response2.ErrorMessage,
+                                StatusCode = response2.StatusCode
+                            };
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[DEBUG] Retry for algoType failed: {ex.Message}");
+                    }
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                return new AlgoOrderResult
+                {
+                    IsSuccessful = false,
+                    Content = ex.ToString(),
+                    ErrorMessage = ex.Message,
+                    StatusCode = null
+                };
+            }
         }
 
         public class ErrorResponse
