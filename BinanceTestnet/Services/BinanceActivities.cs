@@ -1,4 +1,7 @@
 using System;
+using System.Linq;
+using System.Collections.Generic;
+using System.Globalization;
 using BinanceTestnet.Trading;
 using RestSharp;
 using Newtonsoft.Json;
@@ -316,29 +319,23 @@ public class BinanceActivities
     {
         try
         {
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var queryString = $"symbol={symbol}&stopPrice={stopLossPrice}&timestamp={timestamp}";
-            var signature = GenerateSignature(queryString);
+            var parameters = new Dictionary<string, string>
+            {
+                { "symbol", symbol },
+                { "side", "SELL" },
+                { "type", "STOP_MARKET" },
+                { "algoType", "CONDITIONAL" },
+                { "triggerPrice", stopLossPrice.ToString(CultureInfo.InvariantCulture) }
+            };
 
-            var request = new RestRequest($"/fapi/v1/order?{queryString}&signature={signature}", Method.Post);
-            request.AddHeader("X-MBX-APIKEY", _apiKey);
-
-            // Add parameters for a stop-loss order
-            request.AddParameter("symbol", symbol);
-            request.AddParameter("stopPrice", stopLossPrice);
-            request.AddParameter("side", "SELL");
-            request.AddParameter("type", "STOP_MARKET");
-            request.AddParameter("timestamp", timestamp);
-
-            var response = await _client.ExecuteAsync(request);
-
-            if (response.IsSuccessful)
+            var result = await PlaceAlgoOrderAsync(parameters);
+            if (result.IsSuccessful)
             {
                 Console.WriteLine($"Successfully updated stop-loss for {symbol} to {stopLossPrice}");
             }
             else
             {
-                Console.WriteLine($"Failed to update stop-loss for {symbol}: {response.ErrorMessage}");
+                Console.WriteLine($"Failed to update stop-loss for {symbol}: {result.ErrorMessage}");
             }
         }
         catch (Exception ex)
@@ -351,29 +348,23 @@ public class BinanceActivities
     {
         try
         {
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var queryString = $"symbol={symbol}&stopPrice={takeProfitPrice}&timestamp={timestamp}";
-            var signature = GenerateSignature(queryString);
+            var parameters = new Dictionary<string, string>
+            {
+                { "symbol", symbol },
+                { "side", "SELL" },
+                { "type", "TAKE_PROFIT_MARKET" },
+                { "algoType", "CONDITIONAL" },
+                { "triggerPrice", takeProfitPrice.ToString(CultureInfo.InvariantCulture) }
+            };
 
-            var request = new RestRequest($"/fapi/v1/order?{queryString}&signature={signature}", Method.Post);
-            request.AddHeader("X-MBX-APIKEY", _apiKey);
-
-            // Add parameters for a take-profit order
-            request.AddParameter("symbol", symbol);
-            request.AddParameter("stopPrice", takeProfitPrice);
-            request.AddParameter("side", "SELL");
-            request.AddParameter("type", "TAKE_PROFIT_MARKET");
-            request.AddParameter("timestamp", timestamp);
-
-            var response = await _client.ExecuteAsync(request);
-
-            if (response.IsSuccessful)
+            var result = await PlaceAlgoOrderAsync(parameters);
+            if (result.IsSuccessful)
             {
                 Console.WriteLine($"Successfully updated take-profit for {symbol} to {takeProfitPrice}");
             }
             else
             {
-                Console.WriteLine($"Failed to update take-profit for {symbol}: {response.ErrorMessage}");
+                Console.WriteLine($"Failed to update take-profit for {symbol}: {result.ErrorMessage}");
             }
         }
         catch (Exception ex)
@@ -397,6 +388,94 @@ public class BinanceActivities
         {
             var hash = hmac.ComputeHash(queryBytes);
             return BitConverter.ToString(hash).Replace("-", "").ToLower();
+        }
+    }
+
+    private class AlgoOrderResult
+    {
+        public bool IsSuccessful { get; set; }
+        public string Content { get; set; }
+        public string ErrorMessage { get; set; }
+        public object StatusCode { get; set; }
+    }
+
+    private async Task<AlgoOrderResult> PlaceAlgoOrderAsync(Dictionary<string, string> parameters)
+    {
+        try
+        {
+            if (!parameters.ContainsKey("timestamp"))
+            {
+                parameters["timestamp"] = (await GetServerTimeAsync()).ToString();
+            }
+
+            var encodedPairs = parameters.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value ?? string.Empty)}");
+            var queryString = string.Join("&", encodedPairs);
+            var signature = GenerateSignature(queryString);
+
+            var requestUri = $"/fapi/v1/algoOrder?{queryString}&signature={signature}";
+            var request = new RestRequest(requestUri, Method.Post);
+            request.AddHeader("X-MBX-APIKEY", _apiKey);
+
+            var response = await _client.ExecuteAsync(request);
+
+            var result = new AlgoOrderResult
+            {
+                IsSuccessful = response.IsSuccessful,
+                Content = response.Content,
+                ErrorMessage = response.ErrorMessage,
+                StatusCode = response.StatusCode
+            };
+
+            // Retry once with alternative algoType mapping if exchange reports invalid algoType (-4500)
+            if (!result.IsSuccessful && !string.IsNullOrEmpty(result.Content) && result.Content.Contains("Invalid algoType"))
+            {
+                try
+                {
+                    Console.WriteLine("[DEBUG] Invalid algoType reported by exchange; attempting alternate algoType value and retrying.");
+                    if (parameters.ContainsKey("algoType"))
+                    {
+                        var orig = parameters["algoType"] ?? string.Empty;
+                        string alt;
+                        if (orig.EndsWith("_MARKET", StringComparison.OrdinalIgnoreCase))
+                            alt = orig.Substring(0, orig.Length - 7);
+                        else
+                            alt = orig + "_MARKET";
+
+                        parameters["algoType"] = alt;
+                        var encodedPairs2 = parameters.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value ?? string.Empty)}");
+                        var queryString2 = string.Join("&", encodedPairs2);
+                        var signature2 = GenerateSignature(queryString2);
+                        var requestUri2 = $"/fapi/v1/algoOrder?{queryString2}&signature={signature2}";
+                        Console.WriteLine($"[DEBUG] Retrying AlgoOrder requestUri: {requestUri2}");
+                        var request2 = new RestRequest(requestUri2, Method.Post);
+                        request2.AddHeader("X-MBX-APIKEY", _apiKey);
+                        var response2 = await _client.ExecuteAsync(request2);
+                        return new AlgoOrderResult
+                        {
+                            IsSuccessful = response2.IsSuccessful,
+                            Content = response2.Content,
+                            ErrorMessage = response2.ErrorMessage,
+                            StatusCode = response2.StatusCode
+                        };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[DEBUG] Retry for algoType failed: {ex.Message}");
+                }
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            return new AlgoOrderResult
+            {
+                IsSuccessful = false,
+                Content = ex.ToString(),
+                ErrorMessage = ex.Message,
+                StatusCode = null
+            };
         }
     }
 
