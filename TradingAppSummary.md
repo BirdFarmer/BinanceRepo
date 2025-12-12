@@ -39,8 +39,8 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - Concurrent strategy evaluation
 - Futures contract management
 
-#### Strategy Framework
-- **13 Available Strategies** - Multiple trading algorithms to choose from
+-#### Strategy Framework
+- **14 Available Strategies** - Multiple trading algorithms to choose from
 - **1-5 Active Strategies** - User-selectable maximum of 5 simultaneous strategies
 - Strategy rotation across pairs  
 - Configurable strategy parameters

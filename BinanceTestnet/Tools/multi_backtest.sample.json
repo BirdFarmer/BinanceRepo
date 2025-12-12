@@ -1,9 +1,7 @@
 {
   "Strategy": "EmaCrossoverVolume",
   "Strategies": null,
-  "Timeframes": [
-    "5m"
-  ],
+  "Timeframes": [],
   "SymbolSets": {
     "2": [
       "DOGEUSDT",
@@ -28,7 +26,7 @@
         {
           "Name": "6_1",
           "TpMultiplier": 10.0,
-          "RiskDivider": 2.0,
+          "RiskDivider": 1.0,
           "SlMultiplier": null
         },
         {
