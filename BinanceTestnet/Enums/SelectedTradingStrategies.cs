@@ -20,5 +20,6 @@ public enum SelectedTradingStrategy
     CDVReversalWithEMA = 17,
     HarmonicPattern = 18
     ,
-    EmaCrossoverVolume = 19
+    EmaCrossoverVolume = 19,
+    CandlePatternAnalysis = 20
 }

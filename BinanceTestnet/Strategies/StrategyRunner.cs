@@ -143,6 +143,9 @@ namespace BinanceTestnet.Strategies
                     case SelectedTradingStrategy.EmaCrossoverVolume:
                         strategies.Add(new EmaCrossoverVolumeStrategy(_client, _apiKey, _orderManager, _wallet));
                         break;
+                    case SelectedTradingStrategy.CandlePatternAnalysis:
+                        strategies.Add(new CandlePatternAnalysisStrategy(_client, _apiKey, _orderManager, _wallet));
+                        break;
                                                                         
                 }
             }

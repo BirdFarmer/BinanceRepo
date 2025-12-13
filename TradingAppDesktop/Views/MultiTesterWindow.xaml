@@ -72,6 +72,7 @@
                                         <ComboBoxItem Content="DEMASuperTrend" />
                                         <ComboBoxItem Content="CDVReversalWithEMA" />
                                         <ComboBoxItem Content="EmaCrossoverVolume" />
+                                        <ComboBoxItem Content="CandlePatternAnalysis" />
                                         <ComboBoxItem Content="HarmonicPattern" />
                                     </ComboBox>
                                 </Grid>

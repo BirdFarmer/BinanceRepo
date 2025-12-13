@@ -147,6 +147,7 @@ namespace TradingAppDesktop
                 new StrategyItem(SelectedTradingStrategy.SupportResistance, "Support Resistance Break", "Breaking out and retesting pivots"),
                 new StrategyItem(SelectedTradingStrategy.EmaCrossoverVolume, "EMA25/50 + Volume", "EMA 25/50 crossover confirmed by 20-period volume SMA"),
                 new StrategyItem(SelectedTradingStrategy.DEMASuperTrend, "DEMA Supertrend", "DEMA Supertrend strategy"),
+                new StrategyItem(SelectedTradingStrategy.CandlePatternAnalysis, "Candle Pattern Analysis", "Indecisive candles followed by volume breakout"),
                 new StrategyItem(SelectedTradingStrategy.HarmonicPattern, "Harmonic Pattern", "Detects harmonic patterns like Gartley, Butterfly, Bat")           
             });
 

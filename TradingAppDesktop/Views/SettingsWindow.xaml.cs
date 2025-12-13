@@ -149,12 +149,30 @@ namespace TradingAppDesktop.Views
                 EmaCrossoverPanel.Visibility = Visibility.Visible;
             }
 
+            // Show Candle Pattern panel if selected
+            if (selItem != null && (selItem.Content as string) == "CandlePatternAnalysis")
+            {
+                CandlePatternPanel.Visibility = Visibility.Visible;
+            }
+
             try
             {
                 TxtEmaFastLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.FastEmaLength.ToString();
                 TxtEmaSlowLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.SlowEmaLength.ToString();
                 TxtEmaVolMaLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMaLength.ToString();
                 TxtEmaVolMultiplier.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
+            }
+            catch { }
+
+            // Initialize Candle Pattern controls from static settings
+            try
+            {
+                TxtCandleIndecThresh.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.IndecisiveThreshold.ToString(CultureInfo.InvariantCulture);
+                TxtCandleVolMaLen.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.VolumeMALength.ToString();
+                TxtCandleEmaLen.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.EmaLength.ToString();
+                ChkCandleUseVolumeFilter.IsChecked = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.UseVolumeFilter;
+                ChkCandleUseEmaFilter.IsChecked = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.UseEmaFilter;
+                ChkCandleDebugMode.IsChecked = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.DebugMode;
             }
             catch { }
 
@@ -333,6 +351,49 @@ namespace TradingAppDesktop.Views
                     TxtEmaVolMultiplier.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
                 }
             };
+
+            // Wire Candle Pattern controls to static settings
+            TxtCandleIndecThresh.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtCandleIndecThresh.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec > 0 && dec < 1)
+                {
+                    BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.IndecisiveThreshold = dec;
+                }
+                else
+                {
+                    TxtCandleIndecThresh.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.IndecisiveThreshold.ToString(CultureInfo.InvariantCulture);
+                }
+            };
+
+            TxtCandleVolMaLen.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtCandleVolMaLen.Text, out var v) && v >= 1 && v <= 1000)
+                {
+                    BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.VolumeMALength = v;
+                }
+                else
+                {
+                    TxtCandleVolMaLen.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.VolumeMALength.ToString();
+                }
+            };
+
+            TxtCandleEmaLen.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtCandleEmaLen.Text, out var v) && v >= 1 && v <= 1000)
+                {
+                    BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.EmaLength = v;
+                }
+                else
+                {
+                    TxtCandleEmaLen.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.EmaLength.ToString();
+                }
+            };
+
+            ChkCandleUseVolumeFilter.Checked += (s, ev) => { BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.UseVolumeFilter = true; };
+            ChkCandleUseVolumeFilter.Unchecked += (s, ev) => { BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.UseVolumeFilter = false; };
+
+            ChkCandleUseEmaFilter.Checked += (s, ev) => { BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.UseEmaFilter = true; };
+            ChkCandleUseEmaFilter.Unchecked += (s, ev) => { BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.UseEmaFilter = false; };
+
+            ChkCandleDebugMode.Checked += (s, ev) => { BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.DebugMode = true; };
+            ChkCandleDebugMode.Unchecked += (s, ev) => { BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.DebugMode = false; };
         }
 
         
@@ -388,6 +449,20 @@ namespace TradingAppDesktop.Views
                         TxtEmaSlowLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.SlowEmaLength.ToString();
                         TxtEmaVolMaLen.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMaLength.ToString();
                         TxtEmaVolMultiplier.Text = BinanceTestnet.Strategies.EmaCrossoverVolumeStrategy.VolumeMultiplier.ToString(CultureInfo.InvariantCulture);
+                    }
+                    catch { }
+                }
+                // When CandlePatternAnalysis selected, (re)load controls
+                if (settings.SelectedStrategy == "CandlePatternAnalysis")
+                {
+                    try
+                    {
+                        TxtCandleIndecThresh.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.IndecisiveThreshold.ToString(CultureInfo.InvariantCulture);
+                        TxtCandleVolMaLen.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.VolumeMALength.ToString();
+                        TxtCandleEmaLen.Text = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.EmaLength.ToString();
+                        ChkCandleUseVolumeFilter.IsChecked = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.UseVolumeFilter;
+                        ChkCandleUseEmaFilter.IsChecked = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.UseEmaFilter;
+                        ChkCandleDebugMode.IsChecked = BinanceTestnet.Strategies.CandlePatternAnalysisStrategy.DebugMode;
                     }
                     catch { }
                 }

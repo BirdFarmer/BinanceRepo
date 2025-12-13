@@ -45,6 +45,7 @@
                                 <ComboBoxItem Content="HarmonicPattern" />
                                 <ComboBoxItem Content="BollingerNoSqueeze" />
                                 <ComboBoxItem Content="EmaCrossoverVolume" />
+                                <ComboBoxItem Content="CandlePatternAnalysis" />
                                 <ComboBoxItem Content="OtherStrategy (disabled)" IsEnabled="False"/>
                                 <ComboBoxItem Content="OtherStrategy2 (disabled)" IsEnabled="False"/>
                             </ComboBox>
@@ -130,6 +131,30 @@
 
                                         <TextBlock Text="Volume Multiplier:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Entry requires current volume > (volume MA × multiplier). Increasing multiplier requires larger volume spikes for entries, reducing false signals during low activity." />
                                         <TextBox x:Name="TxtEmaVolMultiplier" Width="120" Text="1.0" ToolTip="Entry requires current volume > (volume MA × multiplier). Increasing multiplier requires larger volume spikes for entries, reducing false signals during low activity." />
+                                    </UniformGrid>
+                                </StackPanel>
+                                
+                                <!-- Candle Pattern Analysis settings panel -->
+                                <StackPanel x:Name="CandlePatternPanel" Visibility="Collapsed" Margin="0,8,0,0">
+                                    <TextBlock Text="Candle Pattern Analysis Settings" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryForeground}"/>
+                                    <UniformGrid Columns="2" Margin="0,8,0,0">
+                                        <TextBlock Text="Use Volume Filter:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <CheckBox x:Name="ChkCandleUseVolumeFilter" IsChecked="True" VerticalAlignment="Center" ToolTip="Require current candle volume to exceed the Volume MA (see Volume MA Length) for a breakout to count."/>
+
+                                        <TextBlock Text="Use EMA Filter:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <CheckBox x:Name="ChkCandleUseEmaFilter" IsChecked="False" VerticalAlignment="Center" ToolTip="Require price direction to agree with EMA(trend). For longs: price &gt; EMA; for shorts: price &lt; EMA (see EMA Length)."/>
+
+                                        <TextBlock Text="Indecisive Threshold:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Body size / range threshold to consider a candle indecisive (e.g. 0.3 = 30%)" />
+                                        <TextBox x:Name="TxtCandleIndecThresh" Width="120" Text="0.3" ToolTip="Body / range threshold used to mark a candle indecisive. Lower = stricter (smaller bodies required). Example: 0.3 = 30%"/>
+
+                                        <TextBlock Text="Volume MA Length:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <TextBox x:Name="TxtCandleVolMaLen" Width="120" Text="20" ToolTip="Number of candles used to compute the average volume for the volume filter. Shorter windows react faster to recent spikes."/>
+
+                                        <TextBlock Text="EMA Length:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}"/>
+                                        <TextBox x:Name="TxtCandleEmaLen" Width="120" Text="50" ToolTip="Period used to compute the EMA for the trend filter. Higher values produce a smoother, stronger trend requirement."/>
+
+                                        <TextBlock Text="Debug Mode:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Enable verbose debug logging for this strategy."/>
+                                        <CheckBox x:Name="ChkCandleDebugMode" IsChecked="False" VerticalAlignment="Center" ToolTip="Enable verbose debug logging for this strategy. Shows window, indecisive checks, volume and EMA evaluations."/>
                                     </UniformGrid>
                                 </StackPanel>
                                 </StackPanel>
