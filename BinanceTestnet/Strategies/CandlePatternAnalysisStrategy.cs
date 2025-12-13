@@ -40,11 +40,6 @@ namespace BinanceTestnet.Strategies
                 int buffer = CandleFetchBuffer; // extra bars for indicator warm-up and stability
                 int limit = Math.Min(Math.Max(required + buffer, 4), 1000); // clamp to exchange limits
 
-                if (DebugMode)
-                {
-                    Console.WriteLine($"[CandlePattern] requesting {limit} klines (required={required}, buffer={buffer})");
-                }
-
                 var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string, string>
                 {
                     { "symbol", symbol },
@@ -146,6 +141,8 @@ namespace BinanceTestnet.Strategies
             {
                 Console.WriteLine($"Error processing {symbol}: {ex.Message}");
             }
+
+            Console.WriteLine($"CandlePatternAnalysisStrategy completed for {symbol} at {DateTime.Now:HH:mm:ss}");
         }
 
         public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)

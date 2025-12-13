@@ -1,7 +1,9 @@
 {
-  "Strategy": "EmaCrossoverVolume",
+  "Strategy": "CandlePatternAnalysis",
   "Strategies": null,
-  "Timeframes": [],
+  "Timeframes": [
+    "5m"
+  ],
   "SymbolSets": {
     "2": [
       "DOGEUSDT",
@@ -17,6 +19,18 @@
       "MONUSDT",
       "TURBOUSDT",
       "ALPHAUSDT"
+    ],
+    "coin_manager_20251212123828": [
+      "GMXUSDT",
+      "REDUSDT",
+      "CFXUSDT",
+      "REZUSDT",
+      "NEOUSDT",
+      "FXSUSDT",
+      "CLANKERUSDT",
+      "SPKUSDT",
+      "1000CATUSDT",
+      "BANANAUSDT"
     ]
   },
   "ExitModes": [
@@ -24,15 +38,9 @@
       "Name": "fixed",
       "RiskProfiles": [
         {
-          "Name": "6_1",
-          "TpMultiplier": 10.0,
-          "RiskDivider": 1.0,
-          "SlMultiplier": null
-        },
-        {
-          "Name": "4_1",
-          "TpMultiplier": 4.0,
-          "RiskDivider": 1.0,
+          "Name": "3",
+          "TpMultiplier": 3.0,
+          "RiskDivider": 2.0,
           "SlMultiplier": null
         }
       ]
