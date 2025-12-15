@@ -1428,18 +1428,59 @@ namespace TradingAppDesktop.Services
             int selectionCount,
             ILogger logger)
         {
-            var startTime = DateTime.Now;
-            int cycles = 0;
             var onBinance = new BinanceActivities(client);
-            var delay = TimeSpan.Zero; // Start immediately
+            int cycles = 0;
+            var frame = TimeTools.GetTimeSpanFromInterval(interval);
 
             while (!cancellationToken.IsCancellationRequested)
             {
+                DateTime tickStart = DateTime.UtcNow; // start counting the frame from here
                 try
                 {
-                    // 1. Execute trading logic FIRST
+                    // Evaluation timestamp is the canonical tick start for this cycle
+                    var evaluationTimestamp = tickStart;
+
+                    // Fetch klines for each symbol in parallel so all strategies evaluate the same data snapshot
+                    var fetchTasks = new List<Task<(string symbol, List<BinanceTestnet.Models.Kline> klines)>>();
+                    int perSymbolLimit = 200; // reasonable default; strategies may perform fallback if they need more
+                    foreach (var s in symbols)
+                    {
+                        var symbol = s; // local capture
+                        fetchTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var req = BinanceTestnet.Strategies.Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string, string>
+                                {
+                                    { "symbol", symbol },
+                                    { "interval", interval },
+                                    { "limit", perSymbolLimit.ToString() }
+                                });
+                                var resp = await client.ExecuteAsync(req);
+                                var kl = BinanceTestnet.Strategies.Helpers.StrategyUtils.ParseKlines(resp.Content ?? string.Empty, symbol);
+                                return (symbol, kl);
+                            }
+                            catch
+                            {
+                                return (symbol, new List<BinanceTestnet.Models.Kline>());
+                            }
+                        }));
+                    }
+
+                    var results = await Task.WhenAll(fetchTasks);
+                    var snapshot = new Dictionary<string, List<BinanceTestnet.Models.Kline>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var r in results)
+                    {
+                        if (r.klines != null && r.klines.Count > 0)
+                            snapshot[r.symbol] = r.klines;
+                    }
+
+                    // Instrumentation: log published snapshot timestamp and count
+                    logger.LogInformation($"Fetched snapshot for evaluationTimestamp={evaluationTimestamp:O}, symbols={snapshot.Count}");
+
+                    // 1. Execute trading logic FIRST (handle open orders/active trades)
                     bool handledOrders = await onBinance.HandleOpenOrdersAndActiveTrades(symbols);
-                    
+
                     if (handledOrders)
                     {
                         var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
@@ -1473,9 +1514,6 @@ namespace TradingAppDesktop.Services
                                 break;
                         }
                     }
-
-                    // 3. Delay AFTER work is done
-                    delay = TimeTools.GetTimeSpanFromInterval(interval);
                 }
                 catch (TaskCanceledException)
                 {
@@ -1483,18 +1521,25 @@ namespace TradingAppDesktop.Services
                 }
                 catch (Exception ex)  // Never swallow exceptions completely
                 {
-                    Console.WriteLine($"Cycle failed: {ex.Message}");
+                    logger.LogError(ex, "Cycle failed");
                     if (cancellationToken.IsCancellationRequested)
                         break;
-                    
                     // Emergency throttle if errors persist
-                    delay = TimeSpan.FromSeconds(5); 
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 }
 
-                // 4. Controlled delay with cancellation
-                if (delay > TimeSpan.Zero)
+                // 3. Compute remaining wait so each cycle starts at fixed intervals from tickStart
+                var elapsed = DateTime.UtcNow - tickStart;
+                var wait = frame - elapsed;
+                if (wait > TimeSpan.Zero)
                 {
-                    await Task.Delay(delay, cancellationToken);
+                    logger.LogDebug($"Cycle finished in {elapsed.TotalMilliseconds}ms; waiting {wait.TotalMilliseconds}ms until next tick (frame={frame})");
+                    await Task.Delay(wait, cancellationToken);
+                }
+                else
+                {
+                    logger.LogWarning($"Cycle overran frame by {-wait.TotalMilliseconds}ms; running next tick immediately.");
+                    // no delay, run next iteration immediately
                 }
             }
         }
