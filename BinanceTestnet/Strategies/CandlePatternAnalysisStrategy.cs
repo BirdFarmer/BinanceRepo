@@ -9,7 +9,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class CandlePatternAnalysisStrategy : StrategyBase
+    public class CandlePatternAnalysisStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         // Strategy parameters (tweakable via UI)
         public static bool UseVolumeFilter = true;
@@ -53,84 +53,7 @@ namespace BinanceTestnet.Strategies
                 if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
-                    if (klines != null && klines.Count > 4)
-                    {
-                        var (signalKline, previousKline) = SelectSignalPair(klines);
-                        if (DebugMode)
-                        {
-                            Console.WriteLine($"[CandlePattern] {symbol} - loaded {klines.Count} klines; UseClosedCandles={UseClosedCandles}");
-                        }
-                        if (signalKline == null || previousKline == null) return;
-
-                        var idx = klines.IndexOf(signalKline);
-                        if (DebugMode)
-                        {
-                            Console.WriteLine($"[CandlePattern] signalKline index={idx}, time={DateTimeOffset.FromUnixTimeMilliseconds(signalKline.OpenTime)}");
-                        }
-                        if (idx < 3) return; // need at least 3 prior candles
-
-                        if (TryDetectSignal(klines, idx, out var signal, out var rangeHigh, out var rangeLow))
-                        {
-                            if (DebugMode)
-                            {
-                                Console.WriteLine($"[CandlePattern] TryDetectSignal => {signal} (rangeHigh={rangeHigh}, rangeLow={rangeLow}, close={signalKline.Close})");
-                            }
-                            // Volume filter (use SMA of previous VolumeMALength bars, excluding current)
-                            bool volOk = true;
-                            var currVol = signalKline.Volume;
-                            if (UseVolumeFilter)
-                            {
-                                int start = Math.Max(0, idx - VolumeMALength);
-                                var avgVol = klines.Skip(start).Take(VolumeMALength).Select(k => k.Volume).DefaultIfEmpty(0m).Average();
-                                volOk = avgVol == 0 ? true : currVol > avgVol;
-                                if (DebugMode)
-                                {
-                                    Console.WriteLine($"[CandlePattern] Volume check: currVol={currVol}, avgVol({VolumeMALength})={avgVol}, volOk={volOk}");
-                                }
-                            }
-
-                            // EMA filter
-                            bool emaOk = true;
-                            if (UseEmaFilter)
-                            {
-                                var quotes = ToIndicatorQuotes(klines);
-                                var ema = Indicator.GetEma(quotes, EmaLength).ToList();
-                                // ensure ema aligns
-                                if (ema.Count > idx && ema[idx]?.Ema != null)
-                                {
-                                    var currEma = (decimal)ema[idx].Ema.GetValueOrDefault();
-                                    if (signal == "BULL") emaOk = signalKline.Close > currEma;
-                                    else if (signal == "BEAR") emaOk = signalKline.Close < currEma;
-                                    if (DebugMode)
-                                    {
-                                        Console.WriteLine($"[CandlePattern] EMA check: EMA{EmaLength}={currEma}, price={signalKline.Close}, emaOk={emaOk}");
-                                    }
-                                }
-                            }
-
-                            if (volOk && emaOk)
-                            {
-                                if (signal == "BULL")
-                                {
-                                    await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "CandlePattern", signalKline.OpenTime);
-                                    LogTradeSignal("LONG", symbol, signalKline.Close, signalKline.Volume, rangeHigh, rangeLow);
-                                    lastPrice = signalKline.Close;
-                                }
-                                else if (signal == "BEAR")
-                                {
-                                    await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "CandlePattern", signalKline.OpenTime);
-                                    LogTradeSignal("SHORT", symbol, signalKline.Close, signalKline.Volume, rangeHigh, rangeLow);
-                                    lastPrice = signalKline.Close;
-                                }
-                            }
-                        }
-
-                        if (lastPrice > 0)
-                        {
-                            var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
-                            await OrderManager.CheckAndCloseTrades(currentPrices);
-                        }
-                    }
+                    await ProcessKlinesIfAny(klines, symbol);
                 }
                 else
                 {
@@ -141,8 +64,111 @@ namespace BinanceTestnet.Strategies
             {
                 Console.WriteLine($"Error processing {symbol}: {ex.Message}");
             }
-
             Console.WriteLine($"CandlePatternAnalysisStrategy completed for {symbol} at {DateTime.Now:HH:mm:ss}");
+        }
+
+        // Snapshot-aware entry point
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count > 4)
+                {
+                    await ProcessKlinesIfAny(klines, symbol);
+                    return;
+                }
+
+                // Fallback to original behavior (fetch directly)
+                await RunAsync(symbol, interval);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing {symbol} with snapshot: {ex.Message}");
+            }
+        }
+
+        // Shared processing logic extracted so both fetch-paths can reuse it
+        private async Task ProcessKlinesIfAny(List<Kline>? klines, string symbol)
+        {
+            if (klines == null || klines.Count <= 4) return;
+
+            decimal lastPrice = 0;
+
+            var (signalKline, previousKline) = SelectSignalPair(klines);
+            if (DebugMode)
+            {
+                Console.WriteLine($"[CandlePattern] {symbol} - loaded {klines.Count} klines; UseClosedCandles={UseClosedCandles}");
+            }
+            if (signalKline == null || previousKline == null) return;
+
+            var idx = klines.IndexOf(signalKline);
+            if (DebugMode)
+            {
+                Console.WriteLine($"[CandlePattern] signalKline index={idx}, time={DateTimeOffset.FromUnixTimeMilliseconds(signalKline.OpenTime)}");
+            }
+            if (idx < 3) return; // need at least 3 prior candles
+
+            if (TryDetectSignal(klines, idx, out var signal, out var rangeHigh, out var rangeLow))
+            {
+                if (DebugMode)
+                {
+                    Console.WriteLine($"[CandlePattern] TryDetectSignal => {signal} (rangeHigh={rangeHigh}, rangeLow={rangeLow}, close={signalKline.Close})");
+                }
+                // Volume filter (use SMA of previous VolumeMALength bars, excluding current)
+                bool volOk = true;
+                var currVol = signalKline.Volume;
+                if (UseVolumeFilter)
+                {
+                    int start = Math.Max(0, idx - VolumeMALength);
+                    var avgVol = klines.Skip(start).Take(VolumeMALength).Select(k => k.Volume).DefaultIfEmpty(0m).Average();
+                    volOk = avgVol == 0 ? true : currVol > avgVol;
+                    if (DebugMode)
+                    {
+                        Console.WriteLine($"[CandlePattern] Volume check: currVol={currVol}, avgVol({VolumeMALength})={avgVol}, volOk={volOk}");
+                    }
+                }
+
+                // EMA filter
+                bool emaOk = true;
+                if (UseEmaFilter)
+                {
+                    var quotes = ToIndicatorQuotes(klines);
+                    var ema = Indicator.GetEma(quotes, EmaLength).ToList();
+                    // ensure ema aligns
+                    if (ema.Count > idx && ema[idx]?.Ema != null)
+                    {
+                        var currEma = (decimal)ema[idx].Ema.GetValueOrDefault();
+                        if (signal == "BULL") emaOk = signalKline.Close > currEma;
+                        else if (signal == "BEAR") emaOk = signalKline.Close < currEma;
+                        if (DebugMode)
+                        {
+                            Console.WriteLine($"[CandlePattern] EMA check: EMA{EmaLength}={currEma}, price={signalKline.Close}, emaOk={emaOk}");
+                        }
+                    }
+                }
+
+                if (volOk && emaOk)
+                {
+                    if (signal == "BULL")
+                    {
+                        await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "CandlePattern", signalKline.OpenTime);
+                        LogTradeSignal("LONG", symbol, signalKline.Close, signalKline.Volume, rangeHigh, rangeLow);
+                        lastPrice = signalKline.Close;
+                    }
+                    else if (signal == "BEAR")
+                    {
+                        await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "CandlePattern", signalKline.OpenTime);
+                        LogTradeSignal("SHORT", symbol, signalKline.Close, signalKline.Volume, rangeHigh, rangeLow);
+                        lastPrice = signalKline.Close;
+                    }
+                }
+            }
+
+            if (lastPrice > 0)
+            {
+                var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
+                await OrderManager.CheckAndCloseTrades(currentPrices);
+            }
         }
 
         public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)

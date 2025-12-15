@@ -33,7 +33,7 @@ namespace BinanceTestnet.Strategies
             _selectedStrategies = selectedStrategies;
         }
 
-        public async Task RunStrategiesAsync()
+        public async Task RunStrategiesAsync(Dictionary<string, List<Kline>>? snapshot = null)
         {
             var strategies = GetStrategies();
             
@@ -43,7 +43,14 @@ namespace BinanceTestnet.Strategies
             {
                 foreach (var strategy in strategies)
                 {
-                    tasks.Add(strategy.RunAsync(symbol, _interval));
+                    if (snapshot != null && strategy is ISnapshotAwareStrategy sas)
+                    {
+                        tasks.Add(sas.RunAsyncWithSnapshot(symbol, _interval, snapshot));
+                    }
+                    else
+                    {
+                        tasks.Add(strategy.RunAsync(symbol, _interval));
+                    }
                 }
             }
 

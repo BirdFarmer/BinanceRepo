@@ -38,6 +38,8 @@ namespace TradingAppDesktop.Services
         private bool _uiUseTrailing = false;
         private decimal _uiTrailingActivationPercent = 1.0m;
         private decimal _uiTrailingCallbackPercent = 1.0m;
+        // Candle alignment config supplied by UI (call SetBoundaryAlignment before StartTrading)
+        private bool _uiAlignToBoundary = false;
         // Exit mode config supplied by UI (runtime only)
         private string _uiExitMode = "TakeProfit"; // TakeProfit | TrailingStop | PnLPct
         private decimal? _uiExitPnLPct = null;
@@ -157,6 +159,12 @@ namespace TradingAppDesktop.Services
 
             _logger.LogInformation("Starting trading session...");
             _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategies}, Direction: {tradeDirection}");
+
+            if (selectedStrategies == null || selectedStrategies.Count == 0)
+            {
+                _logger.LogError("StartTrading called with no selected strategies");
+                throw new ArgumentException("At least one strategy must be selected");
+            }
             if (_uiUseTrailing)
             {
                 // Interpret activation as ATR multiplier and show an example derived percent using BTCUSDT (best-effort)
@@ -345,7 +353,7 @@ namespace TradingAppDesktop.Services
                     default: // LivePaperTrading
                         await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
                                                 takeProfit, _orderManager, 
-                                                runner, _cancellationTokenSource.Token);
+                                                runner, _cancellationTokenSource.Token, boundaryAlignment: _uiAlignToBoundary);
                         break;
                 }
             }
@@ -502,6 +510,15 @@ namespace TradingAppDesktop.Services
         {
             _uiExitMode = string.IsNullOrWhiteSpace(exitModeName) ? "TakeProfit" : exitModeName;
             _uiExitPnLPct = exitPnLPct;
+        }
+
+        // Set whether the runner should align cycles to timeframe boundaries.
+        // Call this before StartTrading to have the live/paper runner honor alignment.
+        public void SetBoundaryAlignment(bool align)
+        {
+            _uiAlignToBoundary = align;
+            // Also propagate to strategy runtime config so strategies can observe if needed
+            BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.AlignToBoundary = align;
         }
 
         private async Task<bool> CheckApiHealth()
@@ -1288,17 +1305,46 @@ namespace TradingAppDesktop.Services
                                             Wallet wallet, string fileName, 
                                             decimal takeProfit, 
                                             OrderManager orderManager, StrategyRunner runner,
-                                            CancellationToken cancellationToken)
+                                            CancellationToken cancellationToken,
+                                            bool boundaryAlignment = false)
         {
             var startTime = DateTime.Now;
             int cycles = 0;
+            var frame = TimeTools.GetTimeSpanFromInterval(interval);
             _logger.LogInformation($"Starting live paper trading with {symbols.Count} symbols");
 
             while (!cancellationToken.IsCancellationRequested)
             {
+                DateTime tickStart = DateTime.UtcNow; // start the frame timer
                 try
                 {
                     _logger.LogDebug($"Starting trading cycle {cycles + 1}");
+
+                    // If configured, wait until the next canonical timeframe boundary
+                    if (boundaryAlignment)
+                    {
+                        DateTime TruncateUtc(DateTime dt, TimeSpan intervalSpan)
+                        {
+                            long ticks = (dt.Ticks / intervalSpan.Ticks) * intervalSpan.Ticks;
+                            return new DateTime(ticks, DateTimeKind.Utc);
+                        }
+
+                        var now = DateTime.UtcNow;
+                        var currentBoundary = TruncateUtc(now, frame);
+                        var nextBoundary = currentBoundary.Add(frame);
+                        var waitToBoundary = nextBoundary - now;
+                        var buffer = TimeSpan.FromMilliseconds(250);
+
+                        if (waitToBoundary > TimeSpan.Zero)
+                        {
+                            _logger.LogInformation($"Boundary-alignment enabled: waiting {waitToBoundary.TotalSeconds:F1}s until {nextBoundary:O} (+{buffer.TotalMilliseconds}ms buffer)");
+                            try { await Task.Delay(waitToBoundary + buffer, cancellationToken); } catch (TaskCanceledException) { break; }
+                        }
+                        else
+                        {
+                            try { await Task.Delay(buffer, cancellationToken); } catch (TaskCanceledException) { break; }
+                        }
+                    }
                     
                     // if (Console.KeyAvailable)
                     // {
@@ -1317,6 +1363,7 @@ namespace TradingAppDesktop.Services
                     _logger.LogDebug("Running strategies...");
                     try
                     {
+                        // Use snapshot-aware runner when available in the future. For now call without snapshot
                         await runner.RunStrategiesAsync();
                     }
                     catch (StrategyExecutionException see)
@@ -1381,10 +1428,18 @@ namespace TradingAppDesktop.Services
                     _logger.LogInformation($"Updated symbols in {timer.ElapsedMilliseconds}ms");
                 }
 
-                var delay = TimeTools.GetTimeSpanFromInterval(interval);
-                _logger.LogDebug($"Waiting {delay.TotalSeconds} seconds until next cycle");
-                // IMPORTANT: pass cancellationToken so Stop() cancels the wait immediately
-                await Task.Delay(delay, cancellationToken);
+                // 3. Compute remaining wait so each cycle starts at fixed intervals from tickStart
+                var elapsed = DateTime.UtcNow - tickStart;
+                var wait = frame - elapsed;
+                if (wait > TimeSpan.Zero)
+                {
+                    _logger.LogDebug($"Cycle finished in {elapsed.TotalMilliseconds}ms; waiting {wait.TotalSeconds:F1}s until next cycle (frame={frame})");
+                    try { await Task.Delay(wait, cancellationToken); } catch (TaskCanceledException) { break; }
+                }
+                else
+                {
+                    _logger.LogWarning($"Cycle overran frame by {-wait.TotalMilliseconds}ms; running next tick immediately.");
+                }
             }
 
             _logger.LogInformation("Live paper trading terminated gracefully");
@@ -1426,14 +1481,43 @@ namespace TradingAppDesktop.Services
             int symbolRefreshEveryNCycles,
             SymbolSelectionMode selectionMode,
             int selectionCount,
-            ILogger logger)
+            ILogger logger,
+            bool boundaryAlignment = false)
         {
             var onBinance = new BinanceActivities(client);
             int cycles = 0;
             var frame = TimeTools.GetTimeSpanFromInterval(interval);
 
+            // Helper: truncate UTC time to the frame start (e.g., 15:03 -> 15:00 for 5m frame)
+            DateTime TruncateUtc(DateTime dt, TimeSpan intervalSpan)
+            {
+                long ticks = (dt.Ticks / intervalSpan.Ticks) * intervalSpan.Ticks;
+                return new DateTime(ticks, DateTimeKind.Utc);
+            }
+
             while (!cancellationToken.IsCancellationRequested)
             {
+                // If configured, wait until the next canonical timeframe boundary
+                if (boundaryAlignment)
+                {
+                    var now = DateTime.UtcNow;
+                    var currentBoundary = TruncateUtc(now, frame);
+                    var nextBoundary = currentBoundary.Add(frame);
+                    var waitToBoundary = nextBoundary - now;
+                    var buffer = TimeSpan.FromMilliseconds(250); // small buffer to allow exchange indexing
+
+                    if (waitToBoundary > TimeSpan.Zero)
+                    {
+                        logger.LogInformation($"Boundary-alignment enabled: waiting {waitToBoundary.TotalSeconds:F1}s until {nextBoundary:O} (+{buffer.TotalMilliseconds}ms buffer)");
+                        try { await Task.Delay(waitToBoundary + buffer, cancellationToken); } catch (TaskCanceledException) { break; }
+                    }
+                    else
+                    {
+                        // Already after boundary; wait a short buffer to reduce race conditions
+                        try { await Task.Delay(buffer, cancellationToken); } catch (TaskCanceledException) { break; }
+                    }
+                }
+
                 DateTime tickStart = DateTime.UtcNow; // start counting the frame from here
                 try
                 {
@@ -1486,7 +1570,7 @@ namespace TradingAppDesktop.Services
                         var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
                         try
                         {
-                            await runner.RunStrategiesAsync();
+                            await runner.RunStrategiesAsync(snapshot);
                         }
                         catch (StrategyExecutionException see)
                         {

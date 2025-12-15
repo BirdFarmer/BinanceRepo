@@ -25,6 +25,11 @@ namespace TradingAppDesktop.Services
         public decimal TrailingActivationAtrMultiplier { get; set; } = 3.0m;
         public decimal TrailingCallbackPercent { get; set; } = 1.0m;
         public bool UseClosedCandles { get; set; } = false; // Persisted UI toggle
+        // Candle mode persisted as one of: "Forming", "Closed", "Aligned"
+        // - "Forming": evaluate forming (last) candle
+        // - "Closed": evaluate last closed candle (no alignment)
+        // - "Aligned": evaluate last closed candle and align runner to timeframe boundaries
+        public string CandleMode { get; set; } = "Forming";
 
         // Harmonic detector additional settings
         public int HarmonicValidationBars { get; set; } = 3;
