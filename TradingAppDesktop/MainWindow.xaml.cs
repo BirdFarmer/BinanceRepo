@@ -196,17 +196,17 @@ namespace TradingAppDesktop
             StartStrategyInsightsWatcher();
 
             // Apply initial enable/disable state for Candle Distribution based on current operation mode
-            if (OperationModeComboBox.SelectedItem is OperationMode currentMode)
-            {
-                bool isLive = currentMode == OperationMode.LiveRealTrading;
-                StrategySelector.SetStrategyEnabled(
-                    SelectedTradingStrategy.CandleDistributionReversal,
-                    isLive,
-                    isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
-                );
+            // if (OperationModeComboBox.SelectedItem is OperationMode currentMode)
+            // {
+            //     bool isLive = currentMode == OperationMode.LiveRealTrading;
+            //     StrategySelector.SetStrategyEnabled(
+            //         SelectedTradingStrategy.CandleDistributionReversal,
+            //         isLive,
+            //         isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
+            //     );
 
-                // SMA Expansion re-enabled per user request; no tooltip restriction.
-            }
+            //     // SMA Expansion re-enabled per user request; no tooltip restriction.
+            // }
 
             TradeDirectionComboBox.ItemsSource = Enum.GetValues(typeof(SelectedTradeDirection));
             TradeDirectionComboBox.SelectedIndex = 0; // Default to first option
@@ -442,16 +442,32 @@ namespace TradingAppDesktop
                     StartDateTextBox.Text = defaultStart.ToString("yyyy-MM-dd HH:mm");
                 }
 
-                // Grey out and disable Candle Distribution when not Live
-                bool isLive = mode == OperationMode.LiveRealTrading;
-                if (StrategySelector != null)
+                // Hide candle mode controls in Backtest mode; backtests always use closed candles
+                try
                 {
-                    StrategySelector.SetStrategyEnabled(
-                        SelectedTradingStrategy.CandleDistributionReversal,
-                        isLive,
-                        isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
-                    );
+                    if (mode == OperationMode.Backtest)
+                    {
+                        if (CandleModeLabelPanel != null) CandleModeLabelPanel.Visibility = Visibility.Collapsed;
+                        if (CandleModeRadiosPanel != null) CandleModeRadiosPanel.Visibility = Visibility.Collapsed;
+                        // Force closed-candle mode for backtests
+                        if (CandleModeClosedRadio != null) CandleModeClosedRadio.IsChecked = true;
+                        _useClosedCandles = true;
+                        BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.UseClosedCandles = true;
+                    }
+                    else
+                    {
+                        if (CandleModeLabelPanel != null) CandleModeLabelPanel.Visibility = Visibility.Visible;
+                        if (CandleModeRadiosPanel != null) CandleModeRadiosPanel.Visibility = Visibility.Visible;
+                        // Restore persisted selection if available
+                        var persisted = _userSettings?.CandleMode;
+                        if (string.IsNullOrWhiteSpace(persisted))
+                            persisted = (_userSettings?.UseClosedCandles ?? _useClosedCandles) ? "Closed" : "Forming";
+                        if (CandleModeFormingRadio != null) CandleModeFormingRadio.IsChecked = string.Equals(persisted, "Forming", StringComparison.OrdinalIgnoreCase);
+                        if (CandleModeClosedRadio != null) CandleModeClosedRadio.IsChecked = string.Equals(persisted, "Closed", StringComparison.OrdinalIgnoreCase);
+                        if (CandleModeAlignedRadio != null) CandleModeAlignedRadio.IsChecked = string.Equals(persisted, "Aligned", StringComparison.OrdinalIgnoreCase);
+                    }
                 }
+                catch { /* non-fatal UI update */ }
             }
             //ValidateInputs();
         }
@@ -614,6 +630,17 @@ namespace TradingAppDesktop
 
                     Log($"Backtest period: {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}");
                 }
+
+                // Ensure trading service uses the current candle mode/alignment selected in the UI
+                try
+                {
+                    var aligned = CandleModeAlignedRadio?.IsChecked == true;
+                    var closed = CandleModeClosedRadio?.IsChecked == true;
+                    BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.UseClosedCandles = !CandleModeFormingRadio.IsChecked == true;
+                    BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.AlignToBoundary = aligned;
+                    _tradingService.SetBoundaryAlignment(aligned);
+                }
+                catch { }
 
                 _tradingService.SetRecentTradesViewModel(_recentTradesVm);        
                 // Pass the Paper Wallet VM to the service (paper mode only used)

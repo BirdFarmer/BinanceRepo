@@ -157,7 +157,16 @@ namespace TradingAppDesktop.Services
                 _isRunning = true;
             }
 
+            // Log active candle mode and alignment for clarity
+            // Refresh UI alignment from runtime config (in case UI/state changed between runs)
+            try
+            {
+                _uiAlignToBoundary = BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.AlignToBoundary;
+            }
+            catch { /* ignore if config not available */ }
+
             _logger.LogInformation("Starting trading session...");
+            _logger.LogInformation($"Candle Mode: UseClosedCandles={BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.UseClosedCandles}, AlignToBoundary={BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.AlignToBoundary} (effective _uiAlignToBoundary={_uiAlignToBoundary})");
             _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategies}, Direction: {tradeDirection}");
 
             if (selectedStrategies == null || selectedStrategies.Count == 0)
@@ -346,9 +355,11 @@ namespace TradingAppDesktop.Services
                                           _cancellationTokenSource.Token);
                         break;
                     case OperationMode.LiveRealTrading:
+                        // Ensure LiveRealTrading honors UI alignment selection
                         await RunLiveTrading(_client, symbols, interval, _wallet, "", 
                                         takeProfit, _orderManager, 
-                                        runner, _cancellationTokenSource.Token, _symbolRefreshEveryNCycles, _symbolSelectionMode, _symbolSelectionCount, logger: _logger);
+                                        runner, _cancellationTokenSource.Token, _symbolRefreshEveryNCycles, _symbolSelectionMode, _symbolSelectionCount, logger: _logger,
+                                        boundaryAlignment: _uiAlignToBoundary);
                         break;
                     default: // LivePaperTrading
                         await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
@@ -519,6 +530,7 @@ namespace TradingAppDesktop.Services
             _uiAlignToBoundary = align;
             // Also propagate to strategy runtime config so strategies can observe if needed
             BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.AlignToBoundary = align;
+            _logger.LogInformation($"SetBoundaryAlignment called: align={align}");
         }
 
         private async Task<bool> CheckApiHealth()

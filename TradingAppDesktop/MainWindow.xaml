@@ -218,10 +218,10 @@
                    Foreground="{DynamicResource SecondaryForeground}"/>
 
                     <!-- Candle Mode: Forming / Closed / Closed+Aligned -->
-                    <StackPanel Grid.Row="11" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0 8 0 0">
+                    <StackPanel x:Name="CandleModeLabelPanel" Grid.Row="11" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0 8 0 0">
                         <TextBlock VerticalAlignment="Center" Margin="0 0 8 0" Foreground="{DynamicResource SecondaryForeground}" Text="Candle Mode:"/>
                     </StackPanel>
-                    <StackPanel Grid.Row="12" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0 8 0 0">
+                    <StackPanel x:Name="CandleModeRadiosPanel" Grid.Row="12" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0 8 0 0">
                         <RadioButton x:Name="CandleModeFormingRadio" GroupName="CandleMode" Content="Forming (real-time)" Margin="0 0 8 0" Checked="CandleModeRadio_Changed" Foreground="{DynamicResource SecondaryForeground}"/>
                         <RadioButton x:Name="CandleModeClosedRadio" GroupName="CandleMode" Content="Closed" Margin="0 0 8 0" Checked="CandleModeRadio_Changed" Foreground="{DynamicResource SecondaryForeground}"/>
                         <RadioButton x:Name="CandleModeAlignedRadio" GroupName="CandleMode" Content="Align" Margin="0 0 8 0" Checked="CandleModeRadio_Changed" Foreground="{DynamicResource SecondaryForeground}"/>
