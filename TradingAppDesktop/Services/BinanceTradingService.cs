@@ -40,6 +40,8 @@ namespace TradingAppDesktop.Services
         private decimal _uiTrailingCallbackPercent = 1.0m;
         // Candle alignment config supplied by UI (call SetBoundaryAlignment before StartTrading)
         private bool _uiAlignToBoundary = false;
+        // Optional callback to report per-cycle snapshot coverage and latency back to the UI
+        private Action<int,int,long?>? _snapshotStatusCallback = null;
         // Exit mode config supplied by UI (runtime only)
         private string _uiExitMode = "TakeProfit"; // TakeProfit | TrailingStop | PnLPct
         private decimal? _uiExitPnLPct = null;
@@ -72,6 +74,10 @@ namespace TradingAppDesktop.Services
         private readonly ILoggerFactory _loggerFactory;
         private readonly object _startLock = new();
         private int _symbolRefreshEveryNCycles = 20; // configurable via appsettings
+        // Snapshot fetch tuning (can be overridden from appsettings.json)
+        private int _snapshotConcurrency = 12;
+        private int _snapshotCapLimit = 1000;
+        private int _snapshotDefaultLimit = 200;
     private enum SymbolSelectionMode { Volume, Volatility, Custom }
     private SymbolSelectionMode _symbolSelectionMode = SymbolSelectionMode.Volume;
     private int _symbolSelectionCount = 50;
@@ -123,6 +129,20 @@ namespace TradingAppDesktop.Services
             {
                 _symbolSelectionCount = selCount;
             }
+            // Load optional snapshot fetch tuning
+            try
+            {
+                var snapSection = config.GetSection("SnapshotFetch");
+                if (snapSection.Exists())
+                {
+                    var s = snapSection["Concurrency"]; if (int.TryParse(s, out var sc) && sc > 0) _snapshotConcurrency = sc;
+                    s = snapSection["CapLimit"]; if (int.TryParse(s, out var cl) && cl > 0) _snapshotCapLimit = cl;
+                    s = snapSection["DefaultLimit"]; if (int.TryParse(s, out var dl) && dl > 0) _snapshotDefaultLimit = dl;
+                }
+            }
+            catch { /* ignore and use defaults */ }
+
+            _logger.LogInformation($"SnapshotFetch: Concurrency={_snapshotConcurrency}, CapLimit={_snapshotCapLimit}, DefaultLimit={_snapshotDefaultLimit}");
             
 
             _client = new RestClient(new HttpClient()
@@ -334,7 +354,7 @@ namespace TradingAppDesktop.Services
             {
                 // Initialize StrategyRunner
                 _logger.LogDebug("Initializing StrategyRunner...");
-                var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategies);
+                var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategies, _snapshotStatusCallback);
 
                 // Paper wallet already reset above when creating a fresh Wallet
 
@@ -357,9 +377,10 @@ namespace TradingAppDesktop.Services
                     case OperationMode.LiveRealTrading:
                         // Ensure LiveRealTrading honors UI alignment selection
                         await RunLiveTrading(_client, symbols, interval, _wallet, "", 
-                                        takeProfit, _orderManager, 
-                                        runner, _cancellationTokenSource.Token, _symbolRefreshEveryNCycles, _symbolSelectionMode, _symbolSelectionCount, logger: _logger,
-                                        boundaryAlignment: _uiAlignToBoundary);
+                                takeProfit, _orderManager, 
+                                runner, _cancellationTokenSource.Token, _symbolRefreshEveryNCycles, _symbolSelectionMode, _symbolSelectionCount, _logger,
+                                _snapshotDefaultLimit, _snapshotCapLimit, _snapshotConcurrency,
+                                _uiAlignToBoundary);
                         break;
                     default: // LivePaperTrading
                         await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
@@ -442,6 +463,12 @@ namespace TradingAppDesktop.Services
         public void SetPaperWalletViewModel(PaperWalletViewModel vm)
         {
             _paperWalletVm = vm;
+        }
+
+        // UI can provide a callback to receive per-cycle snapshot coverage diagnostics
+        public void SetSnapshotStatusCallback(Action<int,int,long?>? callback)
+        {
+            _snapshotStatusCallback = callback;
         }
 
         // Compute a sample derived activation percent using ATR(14) on the given symbol and interval
@@ -1375,8 +1402,72 @@ namespace TradingAppDesktop.Services
                     _logger.LogDebug("Running strategies...");
                     try
                     {
-                        // Use snapshot-aware runner when available in the future. For now call without snapshot
-                        await runner.RunStrategiesAsync();
+                        // Fetch a per-cycle snapshot of klines so snapshot-aware strategies can reuse the data.
+                        // Use the maximum RequiredHistory across strategies (bounded) and perform bounded parallel fetches
+                        // to avoid rate-limit or local thread starvation when there are many symbols.
+                        var _snapshotSw = Stopwatch.StartNew();
+                        int defaultLimit = _snapshotDefaultLimit;
+                        int capLimit = _snapshotCapLimit; // do not request more than this in any case
+                        int concurrency = _snapshotConcurrency; // parallelism for fetches (tunable)
+
+                        int perSymbolLimit = defaultLimit;
+                        try
+                        {
+                            var desired = runner.GetMaxRequiredHistory();
+                            perSymbolLimit = Math.Min(Math.Max(desired, defaultLimit), capLimit);
+                        }
+                        catch { perSymbolLimit = defaultLimit; }
+
+                        var snapshot = new Dictionary<string, List<BinanceTestnet.Models.Kline>>(StringComparer.OrdinalIgnoreCase);
+                        var sem = new SemaphoreSlim(concurrency);
+                        var fetchTasks = new List<Task>();
+
+                        foreach (var s in symbols)
+                        {
+                            var symbol = s;
+                            await sem.WaitAsync(cancellationToken);
+                            fetchTasks.Add(Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    var req = BinanceTestnet.Strategies.Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string, string>
+                                    {
+                                        { "symbol", symbol },
+                                        { "interval", interval },
+                                        { "limit", perSymbolLimit.ToString() }
+                                    });
+                                    var resp = await client.ExecuteAsync(req);
+                                    var kl = BinanceTestnet.Strategies.Helpers.StrategyUtils.ParseKlines(resp.Content ?? string.Empty, symbol);
+                                    if (kl != null && kl.Count > 0)
+                                    {
+                                        lock (snapshot)
+                                        {
+                                            snapshot[symbol] = kl;
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogDebug(ex, $"Snapshot fetch failed for {symbol}");
+                                }
+                                finally
+                                {
+                                    sem.Release();
+                                }
+                            }, cancellationToken));
+                        }
+
+                        try
+                        {
+                            await Task.WhenAll(fetchTasks);
+                        }
+                        catch (OperationCanceledException) { /* cancellation -> exit */ }
+
+                        _snapshotSw.Stop();
+
+                        _logger.LogInformation($"Fetched snapshot for evaluationTimestamp={DateTime.UtcNow:O}, symbols={snapshot.Count}, fetchLatencyMs={_snapshotSw.ElapsedMilliseconds}, snapshotLimit={perSymbolLimit}, concurrency={concurrency}");
+
+                        await runner.RunStrategiesAsync(snapshot, _snapshotSw.ElapsedMilliseconds);
                     }
                     catch (StrategyExecutionException see)
                     {
@@ -1494,6 +1585,9 @@ namespace TradingAppDesktop.Services
             SymbolSelectionMode selectionMode,
             int selectionCount,
             ILogger logger,
+            int snapshotDefaultLimit,
+            int snapshotCapLimit,
+            int snapshotConcurrency,
             bool boundaryAlignment = false)
         {
             var onBinance = new BinanceActivities(client);
@@ -1536,12 +1630,24 @@ namespace TradingAppDesktop.Services
                     // Evaluation timestamp is the canonical tick start for this cycle
                     var evaluationTimestamp = tickStart;
 
-                    // Fetch klines for each symbol in parallel so all strategies evaluate the same data snapshot
-                    var fetchTasks = new List<Task<(string symbol, List<BinanceTestnet.Models.Kline> klines)>>();
-                    int perSymbolLimit = 200; // reasonable default; strategies may perform fallback if they need more
+                    // Fetch klines for each symbol in parallel so all strategies evaluate the same data snapshot.
+                    // Use the runner to determine required history and perform bounded parallel fetches.
+                    var _snapshotSw = Stopwatch.StartNew();
+                    int defaultLimit = snapshotDefaultLimit;
+                    int capLimit = snapshotCapLimit;
+                    int concurrency = snapshotConcurrency;
+
+                    int perSymbolLimit = defaultLimit;
+                    try { perSymbolLimit = Math.Min(Math.Max(runner.GetMaxRequiredHistory(), defaultLimit), capLimit); } catch { perSymbolLimit = defaultLimit; }
+
+                    var snapshot = new Dictionary<string, List<BinanceTestnet.Models.Kline>>(StringComparer.OrdinalIgnoreCase);
+                    var sem = new SemaphoreSlim(concurrency);
+                    var fetchTasks = new List<Task>();
+
                     foreach (var s in symbols)
                     {
-                        var symbol = s; // local capture
+                        var symbol = s;
+                        await sem.WaitAsync(cancellationToken);
                         fetchTasks.Add(Task.Run(async () =>
                         {
                             try
@@ -1554,25 +1660,28 @@ namespace TradingAppDesktop.Services
                                 });
                                 var resp = await client.ExecuteAsync(req);
                                 var kl = BinanceTestnet.Strategies.Helpers.StrategyUtils.ParseKlines(resp.Content ?? string.Empty, symbol);
-                                return (symbol, kl);
+                                if (kl != null && kl.Count > 0)
+                                {
+                                    lock (snapshot)
+                                        snapshot[symbol] = kl;
+                                }
                             }
-                            catch
+                            catch (Exception ex)
                             {
-                                return (symbol, new List<BinanceTestnet.Models.Kline>());
+                                logger.LogDebug(ex, $"Snapshot fetch failed for {symbol}");
                             }
-                        }));
+                            finally
+                            {
+                                sem.Release();
+                            }
+                        }, cancellationToken));
                     }
 
-                    var results = await Task.WhenAll(fetchTasks);
-                    var snapshot = new Dictionary<string, List<BinanceTestnet.Models.Kline>>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var r in results)
-                    {
-                        if (r.klines != null && r.klines.Count > 0)
-                            snapshot[r.symbol] = r.klines;
-                    }
+                    try { await Task.WhenAll(fetchTasks); } catch (OperationCanceledException) { }
+                    _snapshotSw.Stop();
 
                     // Instrumentation: log published snapshot timestamp and count
-                    logger.LogInformation($"Fetched snapshot for evaluationTimestamp={evaluationTimestamp:O}, symbols={snapshot.Count}");
+                    logger.LogInformation($"Fetched snapshot for evaluationTimestamp={evaluationTimestamp:O}, symbols={snapshot.Count}, fetchLatencyMs={_snapshotSw.ElapsedMilliseconds}, snapshotLimit={perSymbolLimit}, concurrency={concurrency}");
 
                     // 1. Execute trading logic FIRST (handle open orders/active trades)
                     bool handledOrders = await onBinance.HandleOpenOrdersAndActiveTrades(symbols);
@@ -1580,10 +1689,10 @@ namespace TradingAppDesktop.Services
                     if (handledOrders)
                     {
                         var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
-                        try
-                        {
-                            await runner.RunStrategiesAsync(snapshot);
-                        }
+                            try
+                            {
+                                await runner.RunStrategiesAsync(snapshot, _snapshotSw.ElapsedMilliseconds);
+                            }
                         catch (StrategyExecutionException see)
                         {
                             logger.LogError($"Strategies partially failed: {see.ErrorStats.Sum(kv => kv.Value)} errors");

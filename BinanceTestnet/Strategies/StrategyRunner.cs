@@ -19,10 +19,13 @@ namespace BinanceTestnet.Strategies
         public Wallet _wallet;
         private readonly OrderManager _orderManager;
         private readonly List<SelectedTradingStrategy> _selectedStrategies;
+        // Optional callback used by the UI/service to display snapshot coverage and latency
+        private readonly Action<int,int,long?>? _snapshotStatusCallback;
 
         public StrategyRunner(RestClient client, string apiKey, List<string> symbols, 
                             string interval, Wallet wallet, OrderManager orderManager, 
-                            List<SelectedTradingStrategy> selectedStrategies)
+                            List<SelectedTradingStrategy> selectedStrategies,
+                            Action<int,int,long?>? snapshotStatusCallback = null)
         {
             _client = client;
             _apiKey = apiKey;
@@ -31,20 +34,46 @@ namespace BinanceTestnet.Strategies
             _wallet = wallet;
             _orderManager = orderManager;
             _selectedStrategies = selectedStrategies;
+            _snapshotStatusCallback = snapshotStatusCallback;
         }
 
-        public async Task RunStrategiesAsync(Dictionary<string, List<Kline>>? snapshot = null)
+        // Allow the caller to ask the runner what the maximum RequiredHistory is
+        // across the instantiated strategies. This helps the service decide how
+        // many klines to request per symbol when building a snapshot.
+        public int GetMaxRequiredHistory()
         {
             var strategies = GetStrategies();
-            
+            if (strategies == null || strategies.Count == 0) return 150;
+            try
+            {
+                return strategies.Max(s => s.RequiredHistory);
+            }
+            catch
+            {
+                return 150;
+            }
+        }
+
+        // Single method with both parameters optional to avoid ambiguous overloads
+        public async Task RunStrategiesAsync(Dictionary<string, List<Kline>>? snapshot = null, long? snapshotFetchLatencyMs = null)
+        {
+            var strategies = GetStrategies();
+
             var tasks = new List<Task>();
+
+            int totalTaskCount = 0;
+            int snapshotAwareTaskCount = 0;
+            var snapshotAwareStrategyNames = new HashSet<string>();
 
             foreach (var symbol in _symbols)
             {
                 foreach (var strategy in strategies)
                 {
+                    totalTaskCount++;
                     if (snapshot != null && strategy is ISnapshotAwareStrategy sas)
                     {
+                        snapshotAwareTaskCount++;
+                        snapshotAwareStrategyNames.Add(strategy.GetType().Name);
                         tasks.Add(sas.RunAsyncWithSnapshot(symbol, _interval, snapshot));
                     }
                     else
@@ -53,6 +82,15 @@ namespace BinanceTestnet.Strategies
                     }
                 }
             }
+
+            // Diagnostic: report snapshot usage for this cycle
+            try
+            {
+                Console.WriteLine($"Snapshot usage this cycle: {snapshotAwareTaskCount}/{totalTaskCount} tasks used runner snapshot. Strategies: {string.Join(',', snapshotAwareStrategyNames)}. LatencyMs={(snapshotFetchLatencyMs?.ToString() ?? "-")}");
+                // Notify UI/service if callback was provided
+                _snapshotStatusCallback?.Invoke(snapshotAwareTaskCount, totalTaskCount, snapshotFetchLatencyMs);
+            }
+            catch { /* non-fatal diagnostics */ }
 
             // Ensure all strategies for all symbols complete before moving forward
             await Task.WhenAll(tasks);

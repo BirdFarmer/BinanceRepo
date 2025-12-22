@@ -7,7 +7,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class HullSMAStrategy : StrategyBase
+    public class HullSMAStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
         private const int HullShortLength = 35; // Short Hull length
@@ -78,114 +78,10 @@ namespace BinanceTestnet.Strategies
                 if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
-
                     LogDebug($"Parsed klines for {symbol}: count={(klines==null?0:klines.Count)}");
-
                     if (klines != null && klines.Count > 1)
                     {
-                        // Build indicator quotes using policy-aware helper
-                        var quotes = ToIndicatorQuotes(klines);                        
-                        
-                        var rsiResult = Indicator.GetRsi(quotes, RsiLength).LastOrDefault();
-                        var rsi = rsiResult?.Rsi ?? 50; // neutral fallback
-
-                        // Add a filter for RSI to avoid trades in a "boring" zone (between 40 and 60)
-                        bool rsiNotInBoringZone = rsi < RsiLower || rsi > RsiUpper;
-
-                        var hullShortResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullShortLength)
-                            .Select(x => new HullSuiteResult { Date = x.Date, EHMA = x.EHMA, EHMAPrev = x.EHMAPrev}).ToList();
-                        var hullLongResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullLongLength)
-                            .Select(x => new HullSuiteResult { Date = x.Date, EHMA = x.EHMA, EHMAPrev = x.EHMAPrev}).ToList();
-
-                        var (signalKline, previousKline) = SelectSignalPair(klines);
-                        LogDebug($"Selected signal pair for {symbol}: signalTime={signalKline?.CloseTime}, prevTime={previousKline?.CloseTime}");
-                        if (signalKline == null || previousKline == null) return;
-                        var currentKline = signalKline;
-                        var prevKline = previousKline;
-                        var currentHullShort = hullShortResults.LastOrDefault();
-                        var currentHullLong = hullLongResults.LastOrDefault();
-                        var prevHullShort = hullShortResults[hullShortResults.Count - 2];
-                        var prevHullLong = hullLongResults[hullLongResults.Count - 2];
-                        
-                        // NEW: Apply volume confirmation
-                        bool volumeOk = true;
-                        if (UseVolumeConfirmation)
-                        {
-                            volumeOk = HasVolumeConfirmation(klines, MinVolumeRatio);
-                        }
-
-                        LogDebug($"Filters for {symbol}: RSIok={rsiNotInBoringZone}, VolumeOk={volumeOk}");
-
-                        // NOTE: momentum confirmation is direction-specific and evaluated
-                        // only after we detect a hull crossover to avoid unnecessary work/logs.
-
-                        if (currentHullShort != null && currentHullLong != null && prevHullShort != null && prevHullLong != null)
-                        {
-                            System.Threading.Interlocked.Increment(ref _diagTotalSymbols);
-                            bool isHullCrossingUp = currentHullShort.EHMA > currentHullLong.EHMA 
-                                                    && prevHullShort.EHMA <= prevHullLong.EHMA
-                                                    && currentHullLong.EHMA > prevHullLong.EHMA;
-                            bool isHullCrossingDown = currentHullShort.EHMA < currentHullLong.EHMA 
-                                                      && prevHullShort.EHMA >= prevHullLong.EHMA
-                                                      && currentHullLong.EHMA < prevHullLong.EHMA;
-                            if (isHullCrossingUp || isHullCrossingDown)
-                            {
-                                System.Threading.Interlocked.Increment(ref _diagHullCandidates);
-                            }
-                            
-                            if (isHullCrossingUp)
-                            {
-                                // Momentum check for long direction
-                                bool momentumOkDir = true;
-                                if (UseMomentumConfirmation)
-                                {
-                                    momentumOkDir = HasMomentumConfirmation(klines, MomentumPeriod, SignalDirection.Long);
-                                }
-
-                                if (rsiNotInBoringZone) System.Threading.Interlocked.Increment(ref _diagRsiPassed);
-                                if (volumeOk) System.Threading.Interlocked.Increment(ref _diagVolumePassed);
-                                if (momentumOkDir) System.Threading.Interlocked.Increment(ref _diagMomentumPassed);
-
-                                if (!rsiNotInBoringZone || !volumeOk || !momentumOkDir)
-                                {
-                                    LogDebug($"Long signal blocked by filters: RSIok={rsiNotInBoringZone}, VolOk={volumeOk}, MomOk={momentumOkDir}");
-                                }
-                                else
-                                {
-                                    LogDebug($"Hull {HullShortLength} crossing above Hull {HullLongLength} — placing LONG");
-                                    await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, $"Hull {HullShortLength}/{HullLongLength}", currentKline.CloseTime);
-                                    System.Threading.Interlocked.Increment(ref _diagTradesPlaced);
-                                }
-                            }
-                            else if (isHullCrossingDown)
-                            {
-                                // Momentum check for short direction
-                                bool momentumOkDir = true;
-                                if (UseMomentumConfirmation)
-                                {
-                                    momentumOkDir = HasMomentumConfirmation(klines, MomentumPeriod, SignalDirection.Short);
-                                }
-
-                                if (rsiNotInBoringZone) System.Threading.Interlocked.Increment(ref _diagRsiPassed);
-                                if (volumeOk) System.Threading.Interlocked.Increment(ref _diagVolumePassed);
-                                if (momentumOkDir) System.Threading.Interlocked.Increment(ref _diagMomentumPassed);
-
-                                if (!rsiNotInBoringZone || !volumeOk || !momentumOkDir)
-                                {
-                                    LogDebug($"Short signal blocked by filters: RSIok={rsiNotInBoringZone}, VolOk={volumeOk}, MomOk={momentumOkDir}");
-                                }
-                                else
-                                {
-                                    LogDebug($"Hull {HullShortLength} crossing below Hull {HullLongLength} — placing SHORT");
-                                    await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, $"Hull {HullShortLength}/{HullLongLength}", currentKline.CloseTime);
-                                    System.Threading.Interlocked.Increment(ref _diagTradesPlaced);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            LogError($"Required indicators data is not available for {symbol}.");
-                        }
+                        await ProcessKlinesAsync(klines, symbol);
                     }
                     else
                     {
@@ -200,6 +96,125 @@ namespace BinanceTestnet.Strategies
             catch (Exception ex)
             {
                 LogError($"Error processing {symbol}: {ex.Message}");
+            }
+        }
+
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count > 0)
+            {
+                await ProcessKlinesAsync(klines, symbol);
+            }
+            else
+            {
+                await RunAsync(symbol, interval);
+            }
+        }
+
+        private async Task ProcessKlinesAsync(List<Kline> klines, string symbol)
+        {
+            // Build indicator quotes using policy-aware helper
+            var quotes = ToIndicatorQuotes(klines);
+
+            var rsiResult = Indicator.GetRsi(quotes, RsiLength).LastOrDefault();
+            var rsi = rsiResult?.Rsi ?? 50; // neutral fallback
+
+            // Add a filter for RSI to avoid trades in a "boring" zone (between 40 and 60)
+            bool rsiNotInBoringZone = rsi < RsiLower || rsi > RsiUpper;
+
+            var hullShortResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullShortLength)
+                .Select(x => new HullSuiteResult { Date = x.Date, EHMA = x.EHMA, EHMAPrev = x.EHMAPrev}).ToList();
+            var hullLongResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullLongLength)
+                .Select(x => new HullSuiteResult { Date = x.Date, EHMA = x.EHMA, EHMAPrev = x.EHMAPrev}).ToList();
+
+            var (signalKline, previousKline) = SelectSignalPair(klines);
+            LogDebug($"Selected signal pair for {symbol}: signalTime={signalKline?.CloseTime}, prevTime={previousKline?.CloseTime}");
+            if (signalKline == null || previousKline == null) return;
+            var currentKline = signalKline;
+            var prevKline = previousKline;
+            var currentHullShort = hullShortResults.LastOrDefault();
+            var currentHullLong = hullLongResults.LastOrDefault();
+            var prevHullShort = hullShortResults[hullShortResults.Count - 2];
+            var prevHullLong = hullLongResults[hullLongResults.Count - 2];
+                        
+            // NEW: Apply volume confirmation
+            bool volumeOk = true;
+            if (UseVolumeConfirmation)
+            {
+                volumeOk = HasVolumeConfirmation(klines, MinVolumeRatio);
+            }
+
+            LogDebug($"Filters for {symbol}: RSIok={rsiNotInBoringZone}, VolumeOk={volumeOk}");
+
+            // NOTE: momentum confirmation is direction-specific and evaluated
+            // only after we detect a hull crossover to avoid unnecessary work/logs.
+
+            if (currentHullShort != null && currentHullLong != null && prevHullShort != null && prevHullLong != null)
+            {
+                System.Threading.Interlocked.Increment(ref _diagTotalSymbols);
+                bool isHullCrossingUp = currentHullShort.EHMA > currentHullLong.EHMA 
+                                        && prevHullShort.EHMA <= prevHullLong.EHMA
+                                        && currentHullLong.EHMA > prevHullLong.EHMA;
+                bool isHullCrossingDown = currentHullShort.EHMA < currentHullLong.EHMA 
+                                          && prevHullShort.EHMA >= prevHullLong.EHMA
+                                          && currentHullLong.EHMA < prevHullLong.EHMA;
+                if (isHullCrossingUp || isHullCrossingDown)
+                {
+                    System.Threading.Interlocked.Increment(ref _diagHullCandidates);
+                }
+                
+                if (isHullCrossingUp)
+                {
+                    // Momentum check for long direction
+                    bool momentumOkDir = true;
+                    if (UseMomentumConfirmation)
+                    {
+                        momentumOkDir = HasMomentumConfirmation(klines, MomentumPeriod, SignalDirection.Long);
+                    }
+
+                    if (rsiNotInBoringZone) System.Threading.Interlocked.Increment(ref _diagRsiPassed);
+                    if (volumeOk) System.Threading.Interlocked.Increment(ref _diagVolumePassed);
+                    if (momentumOkDir) System.Threading.Interlocked.Increment(ref _diagMomentumPassed);
+
+                    if (!rsiNotInBoringZone || !volumeOk || !momentumOkDir)
+                    {
+                        LogDebug($"Long signal blocked by filters: RSIok={rsiNotInBoringZone}, VolOk={volumeOk}, MomOk={momentumOkDir}");
+                    }
+                    else
+                    {
+                        LogDebug($"Hull {HullShortLength} crossing above Hull {HullLongLength} — placing LONG");
+                        await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, $"Hull {HullShortLength}/{HullLongLength}", currentKline.CloseTime);
+                        System.Threading.Interlocked.Increment(ref _diagTradesPlaced);
+                    }
+                }
+                else if (isHullCrossingDown)
+                {
+                    // Momentum check for short direction
+                    bool momentumOkDir = true;
+                    if (UseMomentumConfirmation)
+                    {
+                        momentumOkDir = HasMomentumConfirmation(klines, MomentumPeriod, SignalDirection.Short);
+                    }
+
+                    if (rsiNotInBoringZone) System.Threading.Interlocked.Increment(ref _diagRsiPassed);
+                    if (volumeOk) System.Threading.Interlocked.Increment(ref _diagVolumePassed);
+                    if (momentumOkDir) System.Threading.Interlocked.Increment(ref _diagMomentumPassed);
+
+                    if (!rsiNotInBoringZone || !volumeOk || !momentumOkDir)
+                    {
+                        LogDebug($"Short signal blocked by filters: RSIok={rsiNotInBoringZone}, VolOk={volumeOk}, MomOk={momentumOkDir}");
+                    }
+                    else
+                    {
+                        LogDebug($"Hull {HullShortLength} crossing below Hull {HullLongLength} — placing SHORT");
+                        await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, $"Hull {HullShortLength}/{HullLongLength}", currentKline.CloseTime);
+                        System.Threading.Interlocked.Increment(ref _diagTradesPlaced);
+                    }
+                }
+            }
+            else
+            {
+                LogError($"Required indicators data is not available for {symbol}.");
             }
         }
 

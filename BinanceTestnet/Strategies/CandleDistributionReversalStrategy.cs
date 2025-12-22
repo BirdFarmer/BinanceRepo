@@ -11,8 +11,29 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class CandleDistributionReversalStrategy : StrategyBase
+    public class CandleDistributionReversalStrategy : StrategyBase, ISnapshotAwareStrategy
     {
+        // Support runner-provided snapshot (opt-in)
+        // This keeps backward compatibility while allowing the runner to provide
+        // a single consistent klines snapshot to all strategies.
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var klinesFromSnapshot) && klinesFromSnapshot != null)
+                {
+                    await ProcessKlinesAsync(symbol, interval, klinesFromSnapshot);
+                    return;
+                }
+
+                // Fallback to individual fetch if snapshot not available for this symbol
+                await RunAsync(symbol, interval);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Snapshot-path error processing {symbol}: {ex.Message}");
+            }
+        }
         protected override bool SupportsClosedCandles => true;
         public CandleDistributionReversalStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
             : base(client, apiKey, orderManager, wallet)
@@ -34,32 +55,9 @@ namespace BinanceTestnet.Strategies
                 if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
-
                     if (klines != null && klines.Count > 0)
                     {
-                        // Respect closed-candle policy by excluding forming candle for pattern stats
-                        var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
-                        var signal = IdentifySignal(workingKlines);
-                        var (signalKline, previousKline) = SelectSignalPair(klines);
-                        if (signalKline == null || previousKline == null) return;
-
-                        if (signal != 0)
-                        {
-                            if (signal == 1)
-                            {
-                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "CandleDistReversal", signalKline.OpenTime);
-                                LogTradeSignal("LONG", symbol, signalKline.Close);
-                            }
-                            else if (signal == -1)
-                            {
-                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "CandleDistReversal", signalKline.OpenTime);
-                                LogTradeSignal("SHORT", symbol, signalKline.Close);
-                            }
-                        }
-                        else
-                        {
-                            //Console.WriteLine($"No signal identified for {symbol}.");
-                        }
+                        await ProcessKlinesAsync(symbol, interval, klines);
                     }
                     else
                     {
@@ -166,6 +164,30 @@ namespace BinanceTestnet.Strategies
             Console.WriteLine($"******Candle Distribution Reversal Strategy******************");
             Console.WriteLine($"Go {direction} on {symbol} @ {price} at {DateTime.Now:HH:mm:ss}");
             Console.WriteLine($"***********************************************************");
+        }
+
+        // Shared processing path used by both snapshot and non-snapshot runs
+        private async Task ProcessKlinesAsync(string symbol, string interval, List<Kline> klines)
+        {
+            // Respect closed-candle policy by excluding forming candle for pattern stats
+            var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+            var signal = IdentifySignal(workingKlines);
+            var (signalKline, previousKline) = SelectSignalPair(klines);
+            if (signalKline == null || previousKline == null) return;
+
+            if (signal != 0)
+            {
+                if (signal == 1)
+                {
+                    await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "CandleDistReversal", signalKline.OpenTime);
+                    LogTradeSignal("LONG", symbol, signalKline.Close);
+                }
+                else if (signal == -1)
+                {
+                    await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "CandleDistReversal", signalKline.OpenTime);
+                    LogTradeSignal("SHORT", symbol, signalKline.Close);
+                }
+            }
         }
 
         private void HandleErrorResponse(string symbol, RestResponse response)

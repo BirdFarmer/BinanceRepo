@@ -1,5 +1,5 @@
 {
-  "Strategy": "HarmonicPattern",
+  "Strategy": "FibonacciRetracement",
   "Strategies": null,
   "Timeframes": [
     "5m"

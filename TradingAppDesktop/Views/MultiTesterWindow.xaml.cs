@@ -66,15 +66,16 @@ namespace TradingAppDesktop.Views
 
                 // Populate timeframes
                 _timeframes.Clear();
-                try
-                {
-                    // Set known checkboxes; handlers will update _timeframes
-                    Tf5mChk.IsChecked = cfg.Timeframes?.Contains("5m") ?? false;
-                    Tf15mChk.IsChecked = cfg.Timeframes?.Contains("15m") ?? false;
-                    Tf1hChk.IsChecked = cfg.Timeframes?.Contains("1h") ?? false;
-                    Tf4hChk.IsChecked = cfg.Timeframes?.Contains("4h") ?? false;
-                    Tf1dChk.IsChecked = cfg.Timeframes?.Contains("1d") ?? false;
-                }
+                    try
+                    {
+                        // Set known checkboxes; handlers will update _timeframes
+                        Tf1mChk.IsChecked = cfg.Timeframes?.Contains("1m") ?? false;
+                        Tf5mChk.IsChecked = cfg.Timeframes?.Contains("5m") ?? false;
+                        Tf15mChk.IsChecked = cfg.Timeframes?.Contains("15m") ?? false;
+                        Tf1hChk.IsChecked = cfg.Timeframes?.Contains("1h") ?? false;
+                        Tf4hChk.IsChecked = cfg.Timeframes?.Contains("4h") ?? false;
+                        Tf1dChk.IsChecked = cfg.Timeframes?.Contains("1d") ?? false;
+                    }
                 catch { }
 
                 // Populate symbol sets

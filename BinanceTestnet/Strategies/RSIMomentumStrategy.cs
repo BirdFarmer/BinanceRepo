@@ -7,7 +7,7 @@ using System.Globalization;
 
 namespace BinanceTestnet.Strategies
 {
-public class RSIMomentumStrategy : StrategyBase
+public class RSIMomentumStrategy : StrategyBase, ISnapshotAwareStrategy
 {
     protected override bool SupportsClosedCandles => true;
     private readonly int _rsiPeriod = 14;
@@ -91,6 +91,60 @@ public class RSIMomentumStrategy : StrategyBase
         catch (Exception ex)
         {
             Console.WriteLine($"[ERROR] Processing {symbol}: {ex.Message}");
+        }
+    }
+
+    public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+    {
+        try
+        {
+            List<Kline>? klines = null;
+            if (snapshot != null && snapshot.TryGetValue(symbol, out var s) && s != null)
+                klines = s;
+
+            if (klines == null)
+            {
+                await RunAsync(symbol, interval);
+                return;
+            }
+
+            if (klines == null || klines.Count <= _rsiPeriod)
+            {
+                Console.WriteLine($"[WARNING] Insufficient data for {symbol} (snapshot). ");
+                return;
+            }
+
+            var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+            if (workingKlines.Count <= _rsiPeriod) return;
+
+            var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
+            {
+                Date = DateTimeOffset.FromUnixTimeMilliseconds(k.CloseTime).UtcDateTime,
+                Open = k.Open,
+                High = k.High,
+                Low = k.Low,
+                Close = k.Close,
+                Volume = k.Volume
+            }).ToList();
+
+            var rsiResults = Indicator.GetRsi(quotes, _rsiPeriod).ToList();
+            var fastRsiResults = Indicator.GetRsi(quotes, _fastRsiPeriod).ToList();
+
+            if (rsiResults.Count == 0 || fastRsiResults.Count == 0) return;
+
+            if (rsiStateMap.ContainsKey(symbol))
+            {
+                await EvaluateRSIConditions(rsiResults, fastRsiResults, symbol, workingKlines);
+            }
+
+            if (!rsiStateMap.ContainsKey(symbol))
+            {
+                InitializeRSIState(symbol, rsiResults, workingKlines);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Processing {symbol} (snapshot): {ex.Message}");
         }
     }
 

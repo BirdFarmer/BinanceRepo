@@ -11,7 +11,7 @@ using System.Globalization;
 
 namespace BinanceTestnet.Strategies
 {
-    public class SupportResistanceStrategy : StrategyBase
+    public class SupportResistanceStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         private readonly int _lookback;
         private readonly double _volumeMultiplier;
@@ -147,6 +147,73 @@ namespace BinanceTestnet.Strategies
             catch (Exception)
             {
                 //Console.WriteLine($"Error processing {symbol}: {ex.Message}");
+            }
+        }
+
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            if (_lastProcessTime.ContainsKey(symbol) &&
+                DateTime.UtcNow - _lastProcessTime[symbol] < TimeSpan.FromMinutes(GetIntervalMinutes(interval) * 0.8))
+            {
+                return;
+            }
+
+            try
+            {
+                var klines = (snapshot != null && snapshot.TryGetValue(symbol, out var s)) ? s : null;
+                if (klines == null)
+                {
+                    await RunAsync(symbol, interval);
+                    return;
+                }
+
+                if (klines != null && klines.Count > 1)
+                {
+                    var (signalKline, previousKline) = SelectSignalPair(klines);
+                    if (signalKline == null || previousKline == null) return;
+                    var lastClosedKline = signalKline;
+                    var klineEndTime = DateTimeOffset.FromUnixTimeMilliseconds(lastClosedKline.CloseTime).UtcDateTime;
+
+                    var quotes = klines.Select(k => new Skender.Stock.Indicators.Quote
+                    {
+                        Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
+                        Open = k.Open,
+                        High = k.High,
+                        Low = k.Low,
+                        Close = k.Close,
+                        Volume = k.Volume
+                    }).ToList();
+
+                    var volumeSma = CalculateVolumeSma(quotes, 20);
+                    var (pivotHighs, pivotLows) = FindPivotsOptimized(klines, _lookback);
+
+                    if (volumeSma.Count > 1 && pivotHighs.Any() && pivotLows.Any())
+                    {
+                        var currentVolume = lastClosedKline.Volume;
+                        double? avgVolume = volumeSma[volumeSma.Count - 2].Sma ?? 0;
+                        var highVolume = (decimal)((avgVolume ?? 0) * _volumeMultiplier);
+                        var lowVolume = (decimal)(avgVolume ?? 0);
+
+                        var recentResistance = pivotHighs.LastOrDefault(p => p < lastClosedKline.Close);
+                        var recentSupport = pivotLows.LastOrDefault(p => p > lastClosedKline.Close);
+
+                        await CheckSignals(symbol, lastClosedKline, recentResistance, recentSupport, currentVolume, highVolume, lowVolume, klines);
+
+                        var lastPrice = lastClosedKline.Close;
+                        var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
+                        await OrderManager.CheckAndCloseTrades(currentPrices);
+                    }
+
+                    _lastProcessTime[symbol] = DateTime.UtcNow;
+                }
+                else
+                {
+                    // insufficient data
+                }
+            }
+            catch (Exception)
+            {
+                // swallow to match RunAsync behavior
             }
         }
                 

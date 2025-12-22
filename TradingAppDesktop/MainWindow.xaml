@@ -407,11 +407,16 @@
         <!-- Footer -->
         <Border Grid.Row="2" Background="{DynamicResource CardBackground}" >
             <Grid>
-                <TextBlock x:Name="StatusText" 
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0">
+                    <TextBlock x:Name="StatusText" 
                         Foreground="{DynamicResource SecondaryForeground}"
                         FontStyle="Italic"
                         Text="Ready"
-                        HorizontalAlignment="Left"/>
+                        VerticalAlignment="Center"/>
+                    <Border Background="Transparent" Width="12"/>
+                    <TextBlock x:Name="SnapshotCoverageText" Text="Snapshot: -/-" Foreground="{DynamicResource SecondaryForeground}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="SnapshotLatencyText" Text="Latency: - ms" Foreground="{DynamicResource SecondaryForeground}" VerticalAlignment="Center"/>
+                </StackPanel>
                 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="PreFlightButton" Content="PRE-FLIGHT MARKET CHECK" Click="PreFlightButton_Click" Background="{DynamicResource AccentColor}" Foreground="{DynamicResource PrimaryForeground}"/>

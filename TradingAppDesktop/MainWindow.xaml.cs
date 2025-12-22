@@ -645,6 +645,25 @@ namespace TradingAppDesktop
                 _tradingService.SetRecentTradesViewModel(_recentTradesVm);        
                 // Pass the Paper Wallet VM to the service (paper mode only used)
                 _tradingService.SetPaperWalletViewModel(_paperWalletVm);
+                    // Register snapshot status callback so UI indicators update during live runs
+                    try
+                    {
+                        _tradingService.SetSnapshotStatusCallback((used, total, latencyMs) =>
+                        {
+                            Application.Current?.Dispatcher?.Invoke(() =>
+                            {
+                                try
+                                {
+                                    if (SnapshotCoverageText != null)
+                                        SnapshotCoverageText.Text = $"Snapshot: {used}/{total}";
+                                    if (SnapshotLatencyText != null)
+                                        SnapshotLatencyText.Text = latencyMs.HasValue ? $"Latency: {latencyMs.Value} ms" : "Latency: - ms";
+                                }
+                                catch { }
+                            });
+                        });
+                    }
+                    catch { }
                 // Pass trailing config from UI
                 _tradingService.SetTrailingUiConfig(_useTrailing, _trailingActivationPercent, _trailingCallbackPercent);
                 // Pass exit mode config (runtime only)

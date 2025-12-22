@@ -8,7 +8,7 @@ using System.Collections.Concurrent;
 
 namespace BinanceTestnet.Strategies
 {
-    public class CDVReversalWithEMAStrategy : StrategyBase
+    public class CDVReversalWithEMAStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
 
@@ -71,11 +71,12 @@ namespace BinanceTestnet.Strategies
                     return;
                 }
 
-                // Build indicator quotes and EMA
-                var quotes = StrategyUtils.ToIndicatorQuotes(klines, useClosedCandle: true);
-                var emaSeries = quotes.GetEma(EmaLength).ToList();
-                double? emaTmp = emaSeries.Count > 0 ? emaSeries.Last().Ema : null;
-                var emaValue = emaTmp.HasValue ? (decimal)emaTmp.Value : 0m;
+                // Pre-compute EMA series here so the rest of RunAsync can reference it
+                // (ProcessKlinesAsync also computes its own series for the snapshot path).
+                var quotesForEma = StrategyUtils.ToIndicatorQuotes(klines, useClosedCandle: true);
+                var emaSeries = quotesForEma.GetEma(EmaLength).ToList();
+
+                await ProcessKlinesAsync(symbol, klines);
 
                 // Build CDV candle series using Pine-like weighted delta (_rate)
                 var cdvCandles = new List<(decimal Open, decimal High, decimal Low, decimal Close)>();
@@ -378,6 +379,295 @@ namespace BinanceTestnet.Strategies
                 LogError($"Error processing {symbol}: {ex.Message}");
             }
         }
+
+            // Shared helper so snapshot path can reuse the same logic
+            private async Task ProcessKlinesAsync(string symbol, List<Kline> klines)
+            {
+                // Build indicator quotes and EMA
+                var quotes = StrategyUtils.ToIndicatorQuotes(klines, useClosedCandle: true);
+                var emaSeries = quotes.GetEma(EmaLength).ToList();
+                double? emaTmp = emaSeries.Count > 0 ? emaSeries.Last().Ema : null;
+                var emaValue = emaTmp.HasValue ? (decimal)emaTmp.Value : 0m;
+
+                // Build CDV candle series using Pine-like weighted delta (_rate)
+                var cdvCandles = new List<(decimal Open, decimal High, decimal Low, decimal Close)>();
+                decimal cumulative = 0m;
+                decimal prevCum = 0m;
+                for (int i = 0; i < klines.Count; i++)
+                {
+                    var k = klines[i];
+
+                    // _rate(cond) implementation
+                    decimal tw = k.High - Math.Max(k.Open, k.Close);
+                    decimal bw = Math.Min(k.Open, k.Close) - k.Low;
+                    decimal body = Math.Abs(k.Close - k.Open);
+                    decimal denom = tw + bw + body;
+                    decimal rateTrue = 0.5m;
+                    if (denom != 0)
+                    {
+                        // when cond == true (open <= close) use 2*body in numerator
+                        var numTrue = 0.5m * (tw + bw + (2m * body));
+                        rateTrue = numTrue / denom;
+                    }
+                    // guard
+                    if (rateTrue == 0m) rateTrue = 0.5m;
+
+                    decimal deltaup = k.Volume * rateTrue;
+                    // delta down uses cond open > close -> the complementary weighting
+                    decimal rateFalse = 1m - rateTrue; // approximate complementary; matches behavior when body dominates
+                    decimal deltadown = k.Volume * rateFalse;
+
+                    decimal delta = k.Close >= k.Open ? deltaup : -deltadown;
+                    prevCum = cumulative;
+                    cumulative += delta;
+
+                    var open = prevCum;
+                    var close = cumulative;
+                    var high = Math.Max(prevCum, cumulative);
+                    var low = Math.Min(prevCum, cumulative);
+
+                    cdvCandles.Add((open, high, low, close));
+                }
+
+                // Optional Heikin-Ashi conversion for CDV candles (Pine option hacandle)
+                var cdvFinal = new List<(decimal Open, decimal High, decimal Low, decimal Close)>();
+                if (UseHaCandle)
+                {
+                    decimal haOpenPrev = 0m;
+                    decimal haClosePrev = 0m;
+                    for (int i = 0; i < cdvCandles.Count; i++)
+                    {
+                        var c = cdvCandles[i];
+                        var haClose = (c.Open + c.High + c.Low + c.Close) / 4m;
+                        decimal haOpen = i == 0 ? (c.Open + c.Close) / 2m : (haOpenPrev + haClosePrev) / 2m;
+                        var haHigh = Math.Max(c.High, Math.Max(haOpen, haClose));
+                        var haLow = Math.Min(c.Low, Math.Min(haOpen, haClose));
+                        cdvFinal.Add((haOpen, haHigh, haLow, haClose));
+                        haOpenPrev = haOpen;
+                        haClosePrev = haClose;
+                    }
+                }
+                else
+                {
+                    cdvFinal = cdvCandles.ToList();
+                }
+
+                // Rehydrate recent triggers by scanning back up to TriggerExpiryBars
+                var (signalKline, previousKline) = StrategyUtils.SelectSignalPair(klines, useClosedCandle: true);
+                if (signalKline == null || previousKline == null) return;
+
+                int signalIndex = klines.IndexOf(signalKline);
+                // helper to get EMA decimal for a given kline index (align EMA series to klines)
+                decimal GetEmaAt(int klineIndex)
+                {
+                    if (emaSeries == null || emaSeries.Count == 0) return 0m;
+                    int emaIndex = klineIndex - (EmaLength - 1);
+                    if (emaIndex < 0 || emaIndex >= emaSeries.Count) return 0m;
+                    var tmp = emaSeries[emaIndex].Ema;
+                    return tmp.HasValue ? (decimal)tmp.Value : 0m;
+                }
+
+                // scan backwards from signalIndex to find the most recent valid trigger
+                var lookbackStart = Math.Max(1, signalIndex - TriggerExpiryBars);
+                Trigger? found = null;
+                for (int i = signalIndex; i >= lookbackStart; i--)
+                {
+                    var k = klines[i];
+                    var prevK = klines[Math.Max(0, i - 1)];
+                    if (i < 1) continue;
+                    var kPrev = klines[i - 1];
+                    var cdv_i = cdvFinal[i];
+                    var cdvPrev_i = cdvFinal[Math.Max(0, i - 1)];
+
+                    bool priceGreen_i = k.Close > k.Open;
+                    bool priceRed_i = k.Close < k.Open;
+                    bool cdvGreen_i = cdv_i.Close > cdv_i.Open;
+                    bool cdvRed_i = cdv_i.Close < cdv_i.Open;
+                    decimal cdvBody_i = Math.Abs(cdv_i.Close - cdv_i.Open);
+                    decimal cdvUpper_i = cdv_i.High - Math.Max(cdv_i.Open, cdv_i.Close);
+                    decimal cdvLower_i = Math.Min(cdv_i.Open, cdv_i.Close) - cdv_i.Low;
+                    var emaAtI = GetEmaAt(i);
+                    bool priceHighBelowEma_i = k.High < emaAtI;
+                    bool priceLowAboveEma_i = k.Low > emaAtI;
+
+                    bool bearish_i = priceRed_i && cdvGreen_i && cdvLower_i <= WickTolerance && cdvBody_i > cdvUpper_i * MinBodyWickRatio && priceLowAboveEma_i;
+                    bool bullish_i = priceGreen_i && cdvRed_i && cdvUpper_i <= WickTolerance && cdvBody_i > cdvLower_i * MinBodyWickRatio && priceHighBelowEma_i;
+
+                    var cdv_prevbar = cdvFinal[i - 1];
+                    var kprev = klines[i - 1];
+                    bool priceGreen_prev = kprev.Close > kprev.Open;
+                    bool priceRed_prev = kprev.Close < kprev.Open;
+                    bool cdvGreen_prev = cdv_prevbar.Close > cdv_prevbar.Open;
+                    bool cdvRed_prev = cdv_prevbar.Close < cdv_prevbar.Open;
+                    decimal cdvBody_prev = Math.Abs(cdv_prevbar.Close - cdv_prevbar.Open);
+                    decimal cdvUpper_prev = cdv_prevbar.High - Math.Max(cdv_prevbar.Open, cdv_prevbar.Close);
+                    decimal cdvLower_prev = Math.Min(cdv_prevbar.Open, cdv_prevbar.Close) - cdv_prevbar.Low;
+                    var emaAtPrev_i = GetEmaAt(i - 1);
+                    bool priceHighBelowEma_prev = kprev.High < emaAtPrev_i;
+                    bool priceLowAboveEma_prev = kprev.Low > emaAtPrev_i;
+
+                    bool bearish_prev = priceRed_prev && cdvGreen_prev && cdvLower_prev <= WickTolerance && cdvBody_prev > cdvUpper_prev * MinBodyWickRatio && priceLowAboveEma_prev;
+                    bool bullish_prev = priceGreen_prev && cdvRed_prev && cdvUpper_prev <= WickTolerance && cdvBody_prev > cdvLower_prev * MinBodyWickRatio && priceHighBelowEma_prev;
+
+                    if (bullish_i && bullish_prev)
+                    {
+                        found = new Trigger { Direction = TriggerDirection.Bullish, Index = i, CloseTime = k.CloseTime, Consumed = false };
+                        break;
+                    }
+                    if (bearish_i && bearish_prev)
+                    {
+                        found = new Trigger { Direction = TriggerDirection.Bearish, Index = i, CloseTime = k.CloseTime, Consumed = false };
+                        break;
+                    }
+                }
+
+                if (found != null)
+                {
+                    var active = GetActiveTrigger(symbol);
+                    if (active != null && active.Direction != found.Direction)
+                    {
+                        LogDebug($"Rehydration: cancelling existing {active.Direction} trigger for {symbol} in favor of rehydrated {found.Direction} trigger — previous: {FormatTrigger(active)}");
+                        ClearActiveTrigger(symbol);
+                    }
+                    if (GetActiveTrigger(symbol) == null)
+                        SetActiveTrigger(symbol, found);
+                    var activeNow = GetActiveTrigger(symbol);
+                    if (activeNow != null && activeNow.Index == found.Index)
+                        LogDebug($"Rehydrated trigger for {symbol}: {FormatTrigger(activeNow)}");
+                }
+
+                var cdvSignal = cdvFinal[signalIndex];
+                var cdvPrev = cdvFinal[Math.Max(0, signalIndex - 1)];
+
+                bool priceCandleGreen = signalKline.Close > signalKline.Open;
+                bool priceCandleRed = signalKline.Close < signalKline.Open;
+
+                bool cdvCandleGreen = cdvSignal.Close > cdvSignal.Open;
+                bool cdvCandleRed = cdvSignal.Close < cdvSignal.Open;
+
+                decimal cdvBody = Math.Abs(cdvSignal.Close - cdvSignal.Open);
+                decimal cdvUpper = cdvSignal.High - Math.Max(cdvSignal.Open, cdvSignal.Close);
+                decimal cdvLower = Math.Min(cdvSignal.Open, cdvSignal.Close) - cdvSignal.Low;
+
+                bool singleBullish = priceCandleGreen && cdvCandleRed && cdvUpper <= WickTolerance && cdvBody > cdvLower * MinBodyWickRatio && (signalKline.High < GetEmaAt(signalIndex));
+                bool singleBearish = priceCandleRed && cdvCandleGreen && cdvLower <= WickTolerance && cdvBody > cdvUpper * MinBodyWickRatio && (signalKline.Low > GetEmaAt(signalIndex));
+
+                bool prevSingleBullish = false;
+                bool prevSingleBearish = false;
+                if (signalIndex - 1 >= 0)
+                {
+                    var prevCandle = klines[signalIndex - 1];
+                    var cdvPrevBar = cdvFinal[signalIndex - 1];
+                    var cdvPrevPrevBar = cdvFinal[Math.Max(0, signalIndex - 2)];
+                    bool priceGreenPrev = prevCandle.Close > prevCandle.Open;
+                    bool priceRedPrev = prevCandle.Close < prevCandle.Open;
+                    bool cdvPrevBarGreen = cdvPrevBar.Close > cdvPrevBar.Open;
+                    bool cdvPrevBarRed = cdvPrevBar.Close < cdvPrevBar.Open;
+                    decimal cdvBodyPrev = Math.Abs(cdvPrevBar.Close - cdvPrevBar.Open);
+                    decimal cdvUpperPrev = cdvPrevBar.High - Math.Max(cdvPrevBar.Open, cdvPrevBar.Close);
+                    decimal cdvLowerPrev = Math.Min(cdvPrevBar.Open, cdvPrevBar.Close) - cdvPrevBar.Low;
+                    var emaPrevBar = GetEmaAt(signalIndex - 1);
+                    prevSingleBullish = priceGreenPrev && cdvPrevBarRed && cdvUpperPrev <= WickTolerance && cdvBodyPrev > cdvLowerPrev * MinBodyWickRatio && (prevCandle.High < emaPrevBar);
+                    prevSingleBearish = priceRedPrev && cdvPrevBarGreen && cdvLowerPrev <= WickTolerance && cdvBodyPrev > cdvUpperPrev * MinBodyWickRatio && (prevCandle.Low > emaPrevBar);
+                }
+
+                if (singleBullish && prevSingleBullish)
+                {
+                    var active = GetActiveTrigger(symbol);
+                    if (active?.Direction == TriggerDirection.Bearish)
+                    {
+                        LogDebug($"Cancelling existing bearish trigger for {symbol} due to new bullish trigger — previous: {FormatTrigger(active)}");
+                        ClearActiveTrigger(symbol);
+                    }
+
+                    var newTrig = new Trigger { Direction = TriggerDirection.Bullish, Index = signalIndex, CloseTime = signalKline.CloseTime, Consumed = false };
+                    SetActiveTrigger(symbol, newTrig);
+                    var activeNow = GetActiveTrigger(symbol);
+                    LogDebug($"Set bullish trigger for {symbol} — {(activeNow != null ? FormatTrigger(activeNow) : "(none)")}");
+                    StrategyUtils.TraceSignalCandle("CDVReversalWithEMAStrategy", symbol, true, signalKline, previousKline, "DoubleBullishTrigger");
+                }
+
+                if (singleBearish && prevSingleBearish)
+                {
+                    var active = GetActiveTrigger(symbol);
+                    if (active?.Direction == TriggerDirection.Bullish)
+                    {
+                        LogDebug($"Cancelling existing bullish trigger for {symbol} due to new bearish trigger — previous: {FormatTrigger(active)}");
+                        ClearActiveTrigger(symbol);
+                    }
+
+                    var newTrig = new Trigger { Direction = TriggerDirection.Bearish, Index = signalIndex, CloseTime = signalKline.CloseTime, Consumed = false };
+                    SetActiveTrigger(symbol, newTrig);
+                    var activeNowB = GetActiveTrigger(symbol);
+                    LogDebug($"Set bearish trigger for {symbol} — {(activeNowB != null ? FormatTrigger(activeNowB) : "(none)")}");
+                    StrategyUtils.TraceSignalCandle("CDVReversalWithEMAStrategy", symbol, true, signalKline, previousKline, "DoubleBearishTrigger");
+                }
+
+                var activeCheck = GetActiveTrigger(symbol);
+                if (activeCheck != null)
+                {
+                    var age = signalIndex - activeCheck.Index;
+                    if (age > TriggerExpiryBars)
+                    {
+                        LogDebug($"Trigger expired for {symbol} (age={age}) — expired trigger: {FormatTrigger(activeCheck)}");
+                        ClearActiveTrigger(symbol);
+                    }
+                }
+
+                var prevIndex = Math.Max(0, signalIndex - 1);
+                var prevKline = klines[prevIndex];
+
+                bool crossesAboveEma = signalKline.Low > GetEmaAt(signalIndex) && prevKline.Low <= GetEmaAt(prevIndex);
+                bool crossesBelowEma = signalKline.High < GetEmaAt(signalIndex) && prevKline.High >= GetEmaAt(prevIndex);
+
+                var activeAtEntry = GetActiveTrigger(symbol);
+                if (crossesAboveEma && activeAtEntry != null && activeAtEntry.Direction == TriggerDirection.Bullish && !activeAtEntry.Consumed)
+                {
+                    var age = signalIndex - activeAtEntry.Index;
+                    if (age <= TriggerExpiryBars)
+                    {
+                        LogDebug($"Placing LONG for {symbol} — EMA crossover with active bullish trigger; trigger={FormatTrigger(activeAtEntry)}");
+                        await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "CDVReversal+EMA50", signalKline.CloseTime);
+                        TryConsumeActiveTrigger(symbol);
+                    }
+                    else
+                    {
+                        LogDebug($"Active bullish trigger expired at entry check for {symbol} — trigger={FormatTrigger(activeAtEntry)}");
+                    }
+                }
+
+                if (crossesBelowEma && activeAtEntry != null && activeAtEntry.Direction == TriggerDirection.Bearish && !activeAtEntry.Consumed)
+                {
+                    var age = signalIndex - activeAtEntry.Index;
+                    if (age <= TriggerExpiryBars)
+                    {
+                        LogDebug($"Placing SHORT for {symbol} — EMA crossover with active bearish trigger; trigger={FormatTrigger(activeAtEntry)}");
+                        await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "CDVReversal+EMA50", signalKline.CloseTime);
+                        TryConsumeActiveTrigger(symbol);
+                    }
+                    else
+                    {
+                        LogDebug($"Active bearish trigger expired at entry check for {symbol} — trigger={FormatTrigger(activeAtEntry)}");
+                    }
+                }
+
+                var currentPrices = new Dictionary<string, decimal> { { symbol, signalKline.Close } };
+                await OrderManager.CheckAndCloseTrades(currentPrices, signalKline.CloseTime);
+
+                LogInfo($"Active trigger for {symbol}: {GetActiveTriggerSummary(symbol)}");
+            }
+
+            public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+            {
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count > 0)
+                {
+                    await ProcessKlinesAsync(symbol, klines);
+                }
+                else
+                {
+                    await RunAsync(symbol, interval);
+                }
+            }
 
         public override async Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalCandles)
         {
