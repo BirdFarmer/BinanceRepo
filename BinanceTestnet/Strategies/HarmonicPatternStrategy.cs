@@ -11,7 +11,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class HarmonicPatternStrategy : StrategyBase
+    public class HarmonicPatternStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
 
@@ -357,6 +357,87 @@ namespace BinanceTestnet.Strategies
             catch (Exception ex)
             {
                 LogError($"Error processing {symbol}: {ex.Message}");
+            }
+        }
+
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count >= MinLookback)
+                {
+                    var (signalKline, previousKline) = SelectSignalPair(klines);
+                    if (signalKline == null || previousKline == null) return;
+
+                    var quotes = klines.Select(k => new BinanceTestnet.Models.Quote
+                    {
+                        Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
+                        High = k.High,
+                        Low = k.Low,
+                        Close = k.Close
+                    }).ToList();
+
+                    int validationBars = 3;
+                    bool useTrendFilter = false;
+                    try
+                    {
+                        var us = UserSettingsReader.Load();
+                        validationBars = us.HarmonicValidationBars >= 1 ? us.HarmonicValidationBars : validationBars;
+                        useTrendFilter = us.HarmonicUseTrendFilter;
+                    }
+                    catch { }
+
+                    var detection = Tools.HarmonicPatternDetector.Detect(quotes, pivotStrength: 3, validationBars: validationBars);
+                    if (detection == null || detection.Pattern == Tools.HarmonicPattern.None) return;
+
+                    try
+                    {
+                        var us = UserSettingsReader.Load();
+                        bool allowed = detection.Pattern switch
+                        {
+                            Tools.HarmonicPattern.Gartley => us.HarmonicEnableGartley,
+                            Tools.HarmonicPattern.Butterfly => us.HarmonicEnableButterfly,
+                            Tools.HarmonicPattern.Bat => us.HarmonicEnableBat,
+                            Tools.HarmonicPattern.Crab => us.HarmonicEnableCrab,
+                            Tools.HarmonicPattern.Cypher => us.HarmonicEnableCypher,
+                            Tools.HarmonicPattern.Shark => us.HarmonicEnableShark,
+                            _ => true
+                        };
+                        if (!allowed) return;
+                    }
+                    catch { }
+
+                    // reuse detection logic from RunAsync; simplified here for snapshot path
+                    decimal smaPeriod = 50;
+                    decimal sma50 = quotes.Skip(Math.Max(0, quotes.Count - (int)smaPeriod)).Select(q => q.Close).Average();
+                    bool marketIsUp = signalKline.Close > sma50;
+
+                    // basic confidence and trend filter checks
+                    if (detection.Confidence < 0.40) return;
+                    if (useTrendFilter)
+                    {
+                        if (detection.IsBearish && marketIsUp) return;
+                        if (detection.IsBullish && !marketIsUp) return;
+                    }
+
+                    // Place orders consistent with RunAsync
+                    if (detection.IsBullish)
+                    {
+                        await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, $"Harmonic:{detection.Pattern}:{detection.Confidence:F2}", signalKline.OpenTime);
+                    }
+                    else if (detection.IsBearish)
+                    {
+                        await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, $"Harmonic:{detection.Pattern}:{detection.Confidence:F2}", signalKline.OpenTime);
+                    }
+                }
+                else
+                {
+                    await RunAsync(symbol, interval);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error processing {symbol} (snapshot): {ex.Message}");
             }
         }
 

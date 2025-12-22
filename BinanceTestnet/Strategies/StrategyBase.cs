@@ -13,6 +13,11 @@ namespace BinanceTestnet.Strategies
         // Strategy capability: can this strategy operate on closed candles?
         protected virtual bool SupportsClosedCandles => false;
 
+        // How many historical candles this strategy requires to compute indicators correctly.
+        // Runner will compute the per-cycle snapshot size as the max of all selected strategies' requirements.
+        // Override in strategies that need large history (e.g. Aroon).
+        public virtual int RequiredHistory => 150;
+
         // Effective policy: closed-candle toggle only applies if the strategy supports it
         protected bool UseClosedCandles => Helpers.StrategyRuntimeConfig.UseClosedCandles && SupportsClosedCandles;
 

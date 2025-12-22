@@ -7,7 +7,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class DemaSupertrendStrategy : StrategyBase
+    public class DemaSupertrendStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         // Enable/disable debug output for this strategy
         private const bool EnableDebug = true;
@@ -42,51 +42,7 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > SupertrendLength + 1)
                     {
-                        // Build indicator quotes
-                        var quotes = ToIndicatorQuotes(klines);
-                        
-                        // Calculate DEMA Supertrend
-                        var demaSupertrendResults = CalculateDemaSupertrend(quotes, symbol);
-                        
-                        if (demaSupertrendResults.Count > 1)
-                        {
-                            var currentResult = demaSupertrendResults.Last();
-                            var previousResult = demaSupertrendResults[demaSupertrendResults.Count - 2];
-                            
-                            // Use index-based selection to mirror historical behavior (last and previous klines)
-                            var signalKline = klines.LastOrDefault();
-                            var previousKline = klines.Count >= 2 ? klines[klines.Count - 2] : null;
-                            if (signalKline == null || previousKline == null) return;
-                            
-                            // Check for trend changes
-                            bool longSignal = currentResult.Direction > 0 && previousResult.Direction <= 0; // Trend turned bullish
-                            bool shortSignal = currentResult.Direction < 0 && previousResult.Direction >= 0; // Trend turned bearish
-                            
-                            if (longSignal)
-                            {
-                                Console.WriteLine($"DEMA Supertrend turned bullish, attempting to go LONG for {symbol}");
-                                if (EnableDebug)
-                                {
-                                    Console.WriteLine($"[DEBUG][{symbol}] Signal candle (async index): Time={signalKline.CloseTime}, Open={signalKline.Open}, Close={signalKline.Close}, High={signalKline.High}, Low={signalKline.Low}");
-                                    Console.WriteLine($"[DEBUG][{symbol}] Previous candle: Time={previousKline.CloseTime}, Open={previousKline.Open}, Close={previousKline.Close}, High={previousKline.High}, Low={previousKline.Low}");
-                                    Console.WriteLine($"[DEBUG][{symbol}] Current result: Date={currentResult.Date}, Dema={currentResult.Dema}, Supertrend={currentResult.Supertrend}, Direction={currentResult.Direction}");
-                                    Console.WriteLine($"[DEBUG][{symbol}] Previous result: Date={previousResult.Date}, Dema={previousResult.Dema}, Supertrend={previousResult.Supertrend}, Direction={previousResult.Direction}");
-                                }
-                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "DEMA Supertrend", signalKline.CloseTime);
-                            }
-                            else if (shortSignal)
-                            {
-                                Console.WriteLine($"DEMA Supertrend turned bearish, attempting to go SHORT for {symbol}");
-                                if (EnableDebug)
-                                {
-                                    Console.WriteLine($"[DEBUG][{symbol}] Signal candle (async index): Time={signalKline.CloseTime}, Open={signalKline.Open}, Close={signalKline.Close}, High={signalKline.High}, Low={signalKline.Low}");
-                                    Console.WriteLine($"[DEBUG][{symbol}] Previous candle: Time={previousKline.CloseTime}, Open={previousKline.Open}, Close={previousKline.Close}, High={previousKline.High}, Low={previousKline.Low}");
-                                    Console.WriteLine($"[DEBUG][{symbol}] Current result: Date={currentResult.Date}, Dema={currentResult.Dema}, Supertrend={currentResult.Supertrend}, Direction={currentResult.Direction}");
-                                    Console.WriteLine($"[DEBUG][{symbol}] Previous result: Date={previousResult.Date}, Dema={previousResult.Dema}, Supertrend={previousResult.Supertrend}, Direction={previousResult.Direction}");
-                                }
-                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "DEMA Supertrend", signalKline.CloseTime);
-                            }
-                        }
+                        await ProcessKlinesAsync(symbol, klines);
                     }
                     else
                     {
@@ -282,6 +238,68 @@ namespace BinanceTestnet.Strategies
             LogError($"Error for {symbol}: {response.ErrorMessage}");
             LogError($"Status Code: {response.StatusCode}");
             LogError($"Content: {response.Content}");
+        }
+
+        // Shared helper so snapshot path can reuse the same logic
+        private async Task ProcessKlinesAsync(string symbol, List<Kline> klines)
+        {
+            // Build indicator quotes
+            var quotes = ToIndicatorQuotes(klines);
+
+            // Calculate DEMA Supertrend
+            var demaSupertrendResults = CalculateDemaSupertrend(quotes, symbol);
+
+            if (demaSupertrendResults.Count > 1)
+            {
+                var currentResult = demaSupertrendResults.Last();
+                var previousResult = demaSupertrendResults[demaSupertrendResults.Count - 2];
+
+                // Use index-based selection to mirror historical behavior (last and previous klines)
+                var signalKline = klines.LastOrDefault();
+                var previousKline = klines.Count >= 2 ? klines[klines.Count - 2] : null;
+                if (signalKline == null || previousKline == null) return;
+
+                // Check for trend changes
+                bool longSignal = currentResult.Direction > 0 && previousResult.Direction <= 0; // Trend turned bullish
+                bool shortSignal = currentResult.Direction < 0 && previousResult.Direction >= 0; // Trend turned bearish
+
+                if (longSignal)
+                {
+                    Console.WriteLine($"DEMA Supertrend turned bullish, attempting to go LONG for {symbol}");
+                    if (EnableDebug)
+                    {
+                        Console.WriteLine($"[DEBUG][{symbol}] Signal candle (async index): Time={signalKline.CloseTime}, Open={signalKline.Open}, Close={signalKline.Close}, High={signalKline.High}, Low={signalKline.Low}");
+                        Console.WriteLine($"[DEBUG][{symbol}] Previous candle: Time={previousKline.CloseTime}, Open={previousKline.Open}, Close={previousKline.Close}, High={previousKline.High}, Low={previousKline.Low}");
+                        Console.WriteLine($"[DEBUG][{symbol}] Current result: Date={currentResult.Date}, Dema={currentResult.Dema}, Supertrend={currentResult.Supertrend}, Direction={currentResult.Direction}");
+                        Console.WriteLine($"[DEBUG][{symbol}] Previous result: Date={previousResult.Date}, Dema={previousResult.Dema}, Supertrend={previousResult.Supertrend}, Direction={previousResult.Direction}");
+                    }
+                    await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "DEMA Supertrend", signalKline.CloseTime);
+                }
+                else if (shortSignal)
+                {
+                    Console.WriteLine($"DEMA Supertrend turned bearish, attempting to go SHORT for {symbol}");
+                    if (EnableDebug)
+                    {
+                        Console.WriteLine($"[DEBUG][{symbol}] Signal candle (async index): Time={signalKline.CloseTime}, Open={signalKline.Open}, Close={signalKline.Close}, High={signalKline.High}, Low={signalKline.Low}");
+                        Console.WriteLine($"[DEBUG][{symbol}] Previous candle: Time={previousKline.CloseTime}, Open={previousKline.Open}, Close={previousKline.Close}, High={previousKline.High}, Low={previousKline.Low}");
+                        Console.WriteLine($"[DEBUG][{symbol}] Current result: Date={currentResult.Date}, Dema={currentResult.Dema}, Supertrend={currentResult.Supertrend}, Direction={currentResult.Direction}");
+                        Console.WriteLine($"[DEBUG][{symbol}] Previous result: Date={previousResult.Date}, Dema={previousResult.Dema}, Supertrend={previousResult.Supertrend}, Direction={previousResult.Direction}");
+                    }
+                    await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "DEMA Supertrend", signalKline.CloseTime);
+                }
+            }
+        }
+
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count > 0)
+            {
+                await ProcessKlinesAsync(symbol, klines);
+            }
+            else
+            {
+                await RunAsync(symbol, interval);
+            }
         }
     }
 

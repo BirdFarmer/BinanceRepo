@@ -11,7 +11,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class IchimokuCloudStrategy : StrategyBase
+    public class IchimokuCloudStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
         public IchimokuCloudStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) : base(client, apiKey, orderManager, wallet)
@@ -88,43 +88,7 @@ namespace BinanceTestnet.Strategies
                 if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
-
-                    if (klines != null && klines.Count > 0)
-                    {
-                        var quotes = ToIndicatorQuotes(klines);
-
-                        var ichimoku = Indicator.GetIchimoku(quotes).ToList();
-
-                        if (ichimoku.Count > 1)
-                        {
-                            var (signalKline, previousKline) = SelectSignalPair(klines);
-                            if (signalKline == null || previousKline == null) return;
-                            var lastKline = signalKline; // selected by policy
-                            var lastIchimoku = ichimoku.Last(); // align with quotes
-                            var prevIchimoku = ichimoku[ichimoku.Count - 2]; // previous
-
-                            // Long Signal: Price above Kumo, Tenkan-Sen crosses above Kijun-Sen
-                            if (lastKline.Close > lastIchimoku.SenkouSpanA &&
-                                lastKline.Close > lastIchimoku.SenkouSpanB &&
-                                prevIchimoku.TenkanSen <= prevIchimoku.KijunSen && // Tenkan-Sen just crossed above Kijun-Sen
-                                lastIchimoku.TenkanSen > lastIchimoku.KijunSen)   // Tenkan-Sen is now above Kijun-Sen
-                            {
-                                await OrderManager.PlaceLongOrderAsync(symbol, lastKline.Close, "Ichimoku", lastKline.CloseTime);
-                                LogTradeSignal("LONG", symbol, lastKline.Close);
-                            }
-
-                            // Short Signal: Price below Kumo, Tenkan-Sen crosses below Kijun-Sen
-                            else if (lastKline.Close < lastIchimoku.SenkouSpanA &&
-                                    lastKline.Close < lastIchimoku.SenkouSpanB &&
-                                    prevIchimoku.TenkanSen >= prevIchimoku.KijunSen && // Tenkan-Sen just crossed below Kijun-Sen
-                                    lastIchimoku.TenkanSen < lastIchimoku.KijunSen)   // Tenkan-Sen is now below Kijun-Sen
-                            {
-                                await OrderManager.PlaceShortOrderAsync(symbol, lastKline.Close, "Ichimoku", lastKline.CloseTime);
-                                LogTradeSignal("SHORT", symbol, lastKline.Close);
-                            }
-                        }
-
-                    }
+                    await ProcessKlinesAsync(klines, symbol);
                 }
                 else
                 {
@@ -134,6 +98,63 @@ namespace BinanceTestnet.Strategies
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing {symbol}: {ex.Message}");
+            }
+        }
+
+        // Snapshot-aware entry point
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count > 0)
+                {
+                    await ProcessKlinesAsync(klines, symbol);
+                    return;
+                }
+
+                // fallback to original behavior
+                await RunAsync(symbol, interval);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing {symbol} with snapshot: {ex.Message}");
+            }
+        }
+
+        private async Task ProcessKlinesAsync(List<Kline>? klines, string symbol)
+        {
+            if (klines == null || klines.Count == 0) return;
+
+            var quotes = ToIndicatorQuotes(klines);
+            var ichimoku = Indicator.GetIchimoku(quotes).ToList();
+
+            if (ichimoku.Count > 1)
+            {
+                var (signalKline, previousKline) = SelectSignalPair(klines);
+                if (signalKline == null || previousKline == null) return;
+                var lastKline = signalKline; // selected by policy
+                var lastIchimoku = ichimoku.Last(); // align with quotes
+                var prevIchimoku = ichimoku[ichimoku.Count - 2]; // previous
+
+                // Long Signal: Price above Kumo, Tenkan-Sen crosses above Kijun-Sen
+                if (lastKline.Close > lastIchimoku.SenkouSpanA &&
+                    lastKline.Close > lastIchimoku.SenkouSpanB &&
+                    prevIchimoku.TenkanSen <= prevIchimoku.KijunSen && // Tenkan-Sen just crossed above Kijun-Sen
+                    lastIchimoku.TenkanSen > lastIchimoku.KijunSen)   // Tenkan-Sen is now above Kijun-Sen
+                {
+                    await OrderManager.PlaceLongOrderAsync(symbol, lastKline.Close, "Ichimoku", lastKline.CloseTime);
+                    LogTradeSignal("LONG", symbol, lastKline.Close);
+                }
+
+                // Short Signal: Price below Kumo, Tenkan-Sen crosses below Kijun-Sen
+                else if (lastKline.Close < lastIchimoku.SenkouSpanA &&
+                        lastKline.Close < lastIchimoku.SenkouSpanB &&
+                        prevIchimoku.TenkanSen >= prevIchimoku.KijunSen && // Tenkan-Sen just crossed below Kijun-Sen
+                        lastIchimoku.TenkanSen < lastIchimoku.KijunSen)   // Tenkan-Sen is now below Kijun-Sen
+                {
+                    await OrderManager.PlaceShortOrderAsync(symbol, lastKline.Close, "Ichimoku", lastKline.CloseTime);
+                    LogTradeSignal("SHORT", symbol, lastKline.Close);
+                }
             }
         }
         private List<IchimokuCloud> CalculateIchimoku(List<BinanceTestnet.Models.Quote> quotes)

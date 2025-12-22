@@ -73,10 +73,10 @@ The Support Resistance Breakout Strategy is a technical analysis-based trading s
 
 ## Configuration Parameters
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `_lookback` | 20 | Pivot detection period |
-| `_volumeMultiplier` | 1.5 | Volume spike multiplier |
+| Parameter           | Default              | Description              |
+|---------------------|----------------------|--------------------------|
+| `_lookback`         | 20                   | Pivot detection period   |
+| `_volumeMultiplier` | 1.5                  | Volume spike multiplier  |
 | Processing Interval | 80% of candle period | Prevents over-processing |
 
 ## Algorithm Flow

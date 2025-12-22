@@ -38,6 +38,10 @@ namespace TradingAppDesktop.Services
         private bool _uiUseTrailing = false;
         private decimal _uiTrailingActivationPercent = 1.0m;
         private decimal _uiTrailingCallbackPercent = 1.0m;
+        // Candle alignment config supplied by UI (call SetBoundaryAlignment before StartTrading)
+        private bool _uiAlignToBoundary = false;
+        // Optional callback to report per-cycle snapshot coverage and latency back to the UI
+        private Action<int,int,long?>? _snapshotStatusCallback = null;
         // Exit mode config supplied by UI (runtime only)
         private string _uiExitMode = "TakeProfit"; // TakeProfit | TrailingStop | PnLPct
         private decimal? _uiExitPnLPct = null;
@@ -70,6 +74,10 @@ namespace TradingAppDesktop.Services
         private readonly ILoggerFactory _loggerFactory;
         private readonly object _startLock = new();
         private int _symbolRefreshEveryNCycles = 20; // configurable via appsettings
+        // Snapshot fetch tuning (can be overridden from appsettings.json)
+        private int _snapshotConcurrency = 12;
+        private int _snapshotCapLimit = 1000;
+        private int _snapshotDefaultLimit = 200;
     private enum SymbolSelectionMode { Volume, Volatility, Custom }
     private SymbolSelectionMode _symbolSelectionMode = SymbolSelectionMode.Volume;
     private int _symbolSelectionCount = 50;
@@ -121,6 +129,20 @@ namespace TradingAppDesktop.Services
             {
                 _symbolSelectionCount = selCount;
             }
+            // Load optional snapshot fetch tuning
+            try
+            {
+                var snapSection = config.GetSection("SnapshotFetch");
+                if (snapSection.Exists())
+                {
+                    var s = snapSection["Concurrency"]; if (int.TryParse(s, out var sc) && sc > 0) _snapshotConcurrency = sc;
+                    s = snapSection["CapLimit"]; if (int.TryParse(s, out var cl) && cl > 0) _snapshotCapLimit = cl;
+                    s = snapSection["DefaultLimit"]; if (int.TryParse(s, out var dl) && dl > 0) _snapshotDefaultLimit = dl;
+                }
+            }
+            catch { /* ignore and use defaults */ }
+
+            _logger.LogInformation($"SnapshotFetch: Concurrency={_snapshotConcurrency}, CapLimit={_snapshotCapLimit}, DefaultLimit={_snapshotDefaultLimit}");
             
 
             _client = new RestClient(new HttpClient()
@@ -155,8 +177,23 @@ namespace TradingAppDesktop.Services
                 _isRunning = true;
             }
 
+            // Log active candle mode and alignment for clarity
+            // Refresh UI alignment from runtime config (in case UI/state changed between runs)
+            try
+            {
+                _uiAlignToBoundary = BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.AlignToBoundary;
+            }
+            catch { /* ignore if config not available */ }
+
             _logger.LogInformation("Starting trading session...");
+            _logger.LogInformation($"Candle Mode: UseClosedCandles={BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.UseClosedCandles}, AlignToBoundary={BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.AlignToBoundary} (effective _uiAlignToBoundary={_uiAlignToBoundary})");
             _logger.LogDebug($"Mode: {operationMode}, Strategy: {selectedStrategies}, Direction: {tradeDirection}");
+
+            if (selectedStrategies == null || selectedStrategies.Count == 0)
+            {
+                _logger.LogError("StartTrading called with no selected strategies");
+                throw new ArgumentException("At least one strategy must be selected");
+            }
             if (_uiUseTrailing)
             {
                 // Interpret activation as ATR multiplier and show an example derived percent using BTCUSDT (best-effort)
@@ -317,7 +354,7 @@ namespace TradingAppDesktop.Services
             {
                 // Initialize StrategyRunner
                 _logger.LogDebug("Initializing StrategyRunner...");
-                var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategies);
+                var runner = new StrategyRunner(_client, apiKey, symbols, interval, _wallet, _orderManager, selectedStrategies, _snapshotStatusCallback);
 
                 // Paper wallet already reset above when creating a fresh Wallet
 
@@ -338,14 +375,17 @@ namespace TradingAppDesktop.Services
                                           _cancellationTokenSource.Token);
                         break;
                     case OperationMode.LiveRealTrading:
+                        // Ensure LiveRealTrading honors UI alignment selection
                         await RunLiveTrading(_client, symbols, interval, _wallet, "", 
-                                        takeProfit, _orderManager, 
-                                        runner, _cancellationTokenSource.Token, _symbolRefreshEveryNCycles, _symbolSelectionMode, _symbolSelectionCount, logger: _logger);
+                                takeProfit, _orderManager, 
+                                runner, _cancellationTokenSource.Token, _symbolRefreshEveryNCycles, _symbolSelectionMode, _symbolSelectionCount, _logger,
+                                _snapshotDefaultLimit, _snapshotCapLimit, _snapshotConcurrency,
+                                _uiAlignToBoundary);
                         break;
                     default: // LivePaperTrading
                         await RunLivePaperTrading(_client, symbols, interval, _wallet, "", 
                                                 takeProfit, _orderManager, 
-                                                runner, _cancellationTokenSource.Token);
+                                                runner, _cancellationTokenSource.Token, boundaryAlignment: _uiAlignToBoundary);
                         break;
                 }
             }
@@ -425,6 +465,12 @@ namespace TradingAppDesktop.Services
             _paperWalletVm = vm;
         }
 
+        // UI can provide a callback to receive per-cycle snapshot coverage diagnostics
+        public void SetSnapshotStatusCallback(Action<int,int,long?>? callback)
+        {
+            _snapshotStatusCallback = callback;
+        }
+
         // Compute a sample derived activation percent using ATR(14) on the given symbol and interval
         private async Task<decimal?> TryComputeSampleDerivedPercent(string symbol, string interval, decimal atrMultiplier)
         {
@@ -502,6 +548,16 @@ namespace TradingAppDesktop.Services
         {
             _uiExitMode = string.IsNullOrWhiteSpace(exitModeName) ? "TakeProfit" : exitModeName;
             _uiExitPnLPct = exitPnLPct;
+        }
+
+        // Set whether the runner should align cycles to timeframe boundaries.
+        // Call this before StartTrading to have the live/paper runner honor alignment.
+        public void SetBoundaryAlignment(bool align)
+        {
+            _uiAlignToBoundary = align;
+            // Also propagate to strategy runtime config so strategies can observe if needed
+            BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.AlignToBoundary = align;
+            _logger.LogInformation($"SetBoundaryAlignment called: align={align}");
         }
 
         private async Task<bool> CheckApiHealth()
@@ -1288,17 +1344,46 @@ namespace TradingAppDesktop.Services
                                             Wallet wallet, string fileName, 
                                             decimal takeProfit, 
                                             OrderManager orderManager, StrategyRunner runner,
-                                            CancellationToken cancellationToken)
+                                            CancellationToken cancellationToken,
+                                            bool boundaryAlignment = false)
         {
             var startTime = DateTime.Now;
             int cycles = 0;
+            var frame = TimeTools.GetTimeSpanFromInterval(interval);
             _logger.LogInformation($"Starting live paper trading with {symbols.Count} symbols");
 
             while (!cancellationToken.IsCancellationRequested)
             {
+                DateTime tickStart = DateTime.UtcNow; // start the frame timer
                 try
                 {
                     _logger.LogDebug($"Starting trading cycle {cycles + 1}");
+
+                    // If configured, wait until the next canonical timeframe boundary
+                    if (boundaryAlignment)
+                    {
+                        DateTime TruncateUtc(DateTime dt, TimeSpan intervalSpan)
+                        {
+                            long ticks = (dt.Ticks / intervalSpan.Ticks) * intervalSpan.Ticks;
+                            return new DateTime(ticks, DateTimeKind.Utc);
+                        }
+
+                        var now = DateTime.UtcNow;
+                        var currentBoundary = TruncateUtc(now, frame);
+                        var nextBoundary = currentBoundary.Add(frame);
+                        var waitToBoundary = nextBoundary - now;
+                        var buffer = TimeSpan.FromMilliseconds(250);
+
+                        if (waitToBoundary > TimeSpan.Zero)
+                        {
+                            _logger.LogInformation($"Boundary-alignment enabled: waiting {waitToBoundary.TotalSeconds:F1}s until {nextBoundary:O} (+{buffer.TotalMilliseconds}ms buffer)");
+                            try { await Task.Delay(waitToBoundary + buffer, cancellationToken); } catch (TaskCanceledException) { break; }
+                        }
+                        else
+                        {
+                            try { await Task.Delay(buffer, cancellationToken); } catch (TaskCanceledException) { break; }
+                        }
+                    }
                     
                     // if (Console.KeyAvailable)
                     // {
@@ -1317,7 +1402,72 @@ namespace TradingAppDesktop.Services
                     _logger.LogDebug("Running strategies...");
                     try
                     {
-                        await runner.RunStrategiesAsync();
+                        // Fetch a per-cycle snapshot of klines so snapshot-aware strategies can reuse the data.
+                        // Use the maximum RequiredHistory across strategies (bounded) and perform bounded parallel fetches
+                        // to avoid rate-limit or local thread starvation when there are many symbols.
+                        var _snapshotSw = Stopwatch.StartNew();
+                        int defaultLimit = _snapshotDefaultLimit;
+                        int capLimit = _snapshotCapLimit; // do not request more than this in any case
+                        int concurrency = _snapshotConcurrency; // parallelism for fetches (tunable)
+
+                        int perSymbolLimit = defaultLimit;
+                        try
+                        {
+                            var desired = runner.GetMaxRequiredHistory();
+                            perSymbolLimit = Math.Min(Math.Max(desired, defaultLimit), capLimit);
+                        }
+                        catch { perSymbolLimit = defaultLimit; }
+
+                        var snapshot = new Dictionary<string, List<BinanceTestnet.Models.Kline>>(StringComparer.OrdinalIgnoreCase);
+                        var sem = new SemaphoreSlim(concurrency);
+                        var fetchTasks = new List<Task>();
+
+                        foreach (var s in symbols)
+                        {
+                            var symbol = s;
+                            await sem.WaitAsync(cancellationToken);
+                            fetchTasks.Add(Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    var req = BinanceTestnet.Strategies.Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string, string>
+                                    {
+                                        { "symbol", symbol },
+                                        { "interval", interval },
+                                        { "limit", perSymbolLimit.ToString() }
+                                    });
+                                    var resp = await client.ExecuteAsync(req);
+                                    var kl = BinanceTestnet.Strategies.Helpers.StrategyUtils.ParseKlines(resp.Content ?? string.Empty, symbol);
+                                    if (kl != null && kl.Count > 0)
+                                    {
+                                        lock (snapshot)
+                                        {
+                                            snapshot[symbol] = kl;
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogDebug(ex, $"Snapshot fetch failed for {symbol}");
+                                }
+                                finally
+                                {
+                                    sem.Release();
+                                }
+                            }, cancellationToken));
+                        }
+
+                        try
+                        {
+                            await Task.WhenAll(fetchTasks);
+                        }
+                        catch (OperationCanceledException) { /* cancellation -> exit */ }
+
+                        _snapshotSw.Stop();
+
+                        _logger.LogInformation($"Fetched snapshot for evaluationTimestamp={DateTime.UtcNow:O}, symbols={snapshot.Count}, fetchLatencyMs={_snapshotSw.ElapsedMilliseconds}, snapshotLimit={perSymbolLimit}, concurrency={concurrency}");
+
+                        await runner.RunStrategiesAsync(snapshot, _snapshotSw.ElapsedMilliseconds);
                     }
                     catch (StrategyExecutionException see)
                     {
@@ -1381,10 +1531,18 @@ namespace TradingAppDesktop.Services
                     _logger.LogInformation($"Updated symbols in {timer.ElapsedMilliseconds}ms");
                 }
 
-                var delay = TimeTools.GetTimeSpanFromInterval(interval);
-                _logger.LogDebug($"Waiting {delay.TotalSeconds} seconds until next cycle");
-                // IMPORTANT: pass cancellationToken so Stop() cancels the wait immediately
-                await Task.Delay(delay, cancellationToken);
+                // 3. Compute remaining wait so each cycle starts at fixed intervals from tickStart
+                var elapsed = DateTime.UtcNow - tickStart;
+                var wait = frame - elapsed;
+                if (wait > TimeSpan.Zero)
+                {
+                    _logger.LogDebug($"Cycle finished in {elapsed.TotalMilliseconds}ms; waiting {wait.TotalSeconds:F1}s until next cycle (frame={frame})");
+                    try { await Task.Delay(wait, cancellationToken); } catch (TaskCanceledException) { break; }
+                }
+                else
+                {
+                    _logger.LogWarning($"Cycle overran frame by {-wait.TotalMilliseconds}ms; running next tick immediately.");
+                }
             }
 
             _logger.LogInformation("Live paper trading terminated gracefully");
@@ -1426,27 +1584,115 @@ namespace TradingAppDesktop.Services
             int symbolRefreshEveryNCycles,
             SymbolSelectionMode selectionMode,
             int selectionCount,
-            ILogger logger)
+            ILogger logger,
+            int snapshotDefaultLimit,
+            int snapshotCapLimit,
+            int snapshotConcurrency,
+            bool boundaryAlignment = false)
         {
-            var startTime = DateTime.Now;
-            int cycles = 0;
             var onBinance = new BinanceActivities(client);
-            var delay = TimeSpan.Zero; // Start immediately
+            int cycles = 0;
+            var frame = TimeTools.GetTimeSpanFromInterval(interval);
+
+            // Helper: truncate UTC time to the frame start (e.g., 15:03 -> 15:00 for 5m frame)
+            DateTime TruncateUtc(DateTime dt, TimeSpan intervalSpan)
+            {
+                long ticks = (dt.Ticks / intervalSpan.Ticks) * intervalSpan.Ticks;
+                return new DateTime(ticks, DateTimeKind.Utc);
+            }
 
             while (!cancellationToken.IsCancellationRequested)
             {
+                // If configured, wait until the next canonical timeframe boundary
+                if (boundaryAlignment)
+                {
+                    var now = DateTime.UtcNow;
+                    var currentBoundary = TruncateUtc(now, frame);
+                    var nextBoundary = currentBoundary.Add(frame);
+                    var waitToBoundary = nextBoundary - now;
+                    var buffer = TimeSpan.FromMilliseconds(250); // small buffer to allow exchange indexing
+
+                    if (waitToBoundary > TimeSpan.Zero)
+                    {
+                        logger.LogInformation($"Boundary-alignment enabled: waiting {waitToBoundary.TotalSeconds:F1}s until {nextBoundary:O} (+{buffer.TotalMilliseconds}ms buffer)");
+                        try { await Task.Delay(waitToBoundary + buffer, cancellationToken); } catch (TaskCanceledException) { break; }
+                    }
+                    else
+                    {
+                        // Already after boundary; wait a short buffer to reduce race conditions
+                        try { await Task.Delay(buffer, cancellationToken); } catch (TaskCanceledException) { break; }
+                    }
+                }
+
+                DateTime tickStart = DateTime.UtcNow; // start counting the frame from here
                 try
                 {
-                    // 1. Execute trading logic FIRST
+                    // Evaluation timestamp is the canonical tick start for this cycle
+                    var evaluationTimestamp = tickStart;
+
+                    // Fetch klines for each symbol in parallel so all strategies evaluate the same data snapshot.
+                    // Use the runner to determine required history and perform bounded parallel fetches.
+                    var _snapshotSw = Stopwatch.StartNew();
+                    int defaultLimit = snapshotDefaultLimit;
+                    int capLimit = snapshotCapLimit;
+                    int concurrency = snapshotConcurrency;
+
+                    int perSymbolLimit = defaultLimit;
+                    try { perSymbolLimit = Math.Min(Math.Max(runner.GetMaxRequiredHistory(), defaultLimit), capLimit); } catch { perSymbolLimit = defaultLimit; }
+
+                    var snapshot = new Dictionary<string, List<BinanceTestnet.Models.Kline>>(StringComparer.OrdinalIgnoreCase);
+                    var sem = new SemaphoreSlim(concurrency);
+                    var fetchTasks = new List<Task>();
+
+                    foreach (var s in symbols)
+                    {
+                        var symbol = s;
+                        await sem.WaitAsync(cancellationToken);
+                        fetchTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var req = BinanceTestnet.Strategies.Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string, string>
+                                {
+                                    { "symbol", symbol },
+                                    { "interval", interval },
+                                    { "limit", perSymbolLimit.ToString() }
+                                });
+                                var resp = await client.ExecuteAsync(req);
+                                var kl = BinanceTestnet.Strategies.Helpers.StrategyUtils.ParseKlines(resp.Content ?? string.Empty, symbol);
+                                if (kl != null && kl.Count > 0)
+                                {
+                                    lock (snapshot)
+                                        snapshot[symbol] = kl;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogDebug(ex, $"Snapshot fetch failed for {symbol}");
+                            }
+                            finally
+                            {
+                                sem.Release();
+                            }
+                        }, cancellationToken));
+                    }
+
+                    try { await Task.WhenAll(fetchTasks); } catch (OperationCanceledException) { }
+                    _snapshotSw.Stop();
+
+                    // Instrumentation: log published snapshot timestamp and count
+                    logger.LogInformation($"Fetched snapshot for evaluationTimestamp={evaluationTimestamp:O}, symbols={snapshot.Count}, fetchLatencyMs={_snapshotSw.ElapsedMilliseconds}, snapshotLimit={perSymbolLimit}, concurrency={concurrency}");
+
+                    // 1. Execute trading logic FIRST (handle open orders/active trades)
                     bool handledOrders = await onBinance.HandleOpenOrdersAndActiveTrades(symbols);
-                    
+
                     if (handledOrders)
                     {
                         var currentPrices = await FetchCurrentPrices(client, symbols, GetApiKeys().apiKey, GetApiKeys().apiSecret);
-                        try
-                        {
-                            await runner.RunStrategiesAsync();
-                        }
+                            try
+                            {
+                                await runner.RunStrategiesAsync(snapshot, _snapshotSw.ElapsedMilliseconds);
+                            }
                         catch (StrategyExecutionException see)
                         {
                             logger.LogError($"Strategies partially failed: {see.ErrorStats.Sum(kv => kv.Value)} errors");
@@ -1473,9 +1719,6 @@ namespace TradingAppDesktop.Services
                                 break;
                         }
                     }
-
-                    // 3. Delay AFTER work is done
-                    delay = TimeTools.GetTimeSpanFromInterval(interval);
                 }
                 catch (TaskCanceledException)
                 {
@@ -1483,18 +1726,25 @@ namespace TradingAppDesktop.Services
                 }
                 catch (Exception ex)  // Never swallow exceptions completely
                 {
-                    Console.WriteLine($"Cycle failed: {ex.Message}");
+                    logger.LogError(ex, "Cycle failed");
                     if (cancellationToken.IsCancellationRequested)
                         break;
-                    
                     // Emergency throttle if errors persist
-                    delay = TimeSpan.FromSeconds(5); 
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 }
 
-                // 4. Controlled delay with cancellation
-                if (delay > TimeSpan.Zero)
+                // 3. Compute remaining wait so each cycle starts at fixed intervals from tickStart
+                var elapsed = DateTime.UtcNow - tickStart;
+                var wait = frame - elapsed;
+                if (wait > TimeSpan.Zero)
                 {
-                    await Task.Delay(delay, cancellationToken);
+                    logger.LogDebug($"Cycle finished in {elapsed.TotalMilliseconds}ms; waiting {wait.TotalMilliseconds}ms until next tick (frame={frame})");
+                    await Task.Delay(wait, cancellationToken);
+                }
+                else
+                {
+                    logger.LogWarning($"Cycle overran frame by {-wait.TotalMilliseconds}ms; running next tick immediately.");
+                    // no delay, run next iteration immediately
                 }
             }
         }

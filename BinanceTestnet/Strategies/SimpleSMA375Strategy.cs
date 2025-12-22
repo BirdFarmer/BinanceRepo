@@ -12,10 +12,13 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-public class SimpleSMA375Strategy : StrategyBase
+public class SimpleSMA375Strategy : StrategyBase, ISnapshotAwareStrategy
 {
     protected override bool SupportsClosedCandles => true;
     private const int SmaPeriod = 375;  // Period for the SMA
+    // This strategy needs at least SmaPeriod + 2 candles so we have current + previous SMA values
+    // (one extra to allow ExcludeForming to remove the in-progress candle in Closed/Align modes)
+    public override int RequiredHistory => SmaPeriod + 2;
     private ConcurrentDictionary<string, decimal> lastSMA375 = new ConcurrentDictionary<string, decimal>();
 
     public SimpleSMA375Strategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
@@ -30,8 +33,8 @@ public class SimpleSMA375Strategy : StrategyBase
             return;
         }
 
-        // Fetch more data points to ensure enough for SMA calculation
-        const int dataPointsRequired = 800;
+        // Fetch and process klines via helper (this keeps a single code-path for processing)
+        const int dataPointsRequired = 800; // keep a safe upper fetch when running standalone
         var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
         {
             {"symbol", symbol},
@@ -48,10 +51,31 @@ public class SimpleSMA375Strategy : StrategyBase
             return;
         }
 
+        await ProcessKlinesAsync(klines, symbol);
+    }
+
+    // Snapshot-aware entrypoint used by the runner when a pre-fetched snapshot is available
+    public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+    {
+        if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count >= SmaPeriod)
+        {
+            await ProcessKlinesAsync(klines, symbol);
+        }
+        else
+        {
+            // Fallback to the standard RunAsync which will fetch sufficient history itself
+            await RunAsync(symbol, interval);
+        }
+    }
+
+    private async Task ProcessKlinesAsync(List<Kline> klines, string symbol)
+    {
         // Build indicator history respecting candle policy (exclude forming when closed-candle mode)
         var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
         var closes = workingKlines.Select(k => k.Close).ToArray();
         var history = ConvertToQuoteList(workingKlines, closes);
+
+        // (Diagnostics removed)
 
         // Calculate SMA 375
         var sma375 = Indicator.GetSma(history, SmaPeriod)
@@ -59,9 +83,9 @@ public class SimpleSMA375Strategy : StrategyBase
             .Select(q => (decimal)q.Sma!.Value)
             .ToList();
 
-        if (sma375.Count < SmaPeriod)
+        if (sma375.Count < 2)
         {
-            Console.WriteLine($"Error: Not enough SMA values calculated. Required: {SmaPeriod}, Available: {sma375.Count}");
+            Console.WriteLine($"Error: Not enough SMA values calculated for {symbol}. Required: {SmaPeriod}, Available: {sma375.Count}");
             return;
         }
 
@@ -105,7 +129,8 @@ public class SimpleSMA375Strategy : StrategyBase
     var klines = historicalData.ToList();
         if (klines.Count < SmaPeriod)
         {
-            Console.WriteLine($"Error: Not enough historical kline data. Required: {SmaPeriod}, Available: {klines.Count}");
+            var histSymbol = klines.FirstOrDefault()?.Symbol ?? "unknown";
+            Console.WriteLine($"Error: Not enough historical kline data for {histSymbol}. Required: {SmaPeriod}, Available: {klines.Count}");
             return;
         }
 
@@ -121,7 +146,8 @@ public class SimpleSMA375Strategy : StrategyBase
         // Ensure that we have enough SMA values to work with
         if (sma375.Count < 2)
         {
-            Console.WriteLine($"Error: Not enough SMA values calculated. Required: at least 2, Available: {sma375.Count}");
+            var histSymbol = klines.FirstOrDefault()?.Symbol ?? "unknown";
+            Console.WriteLine($"Error: Not enough SMA values calculated for {histSymbol}. Required: at least 2, Available: {sma375.Count}");
             return;
         }
 
@@ -177,6 +203,7 @@ public class SimpleSMA375Strategy : StrategyBase
         {
             quotes.Add(new BinanceTestnet.Models.Quote
             {
+                Date = DateTimeOffset.FromUnixTimeMilliseconds(kline.OpenTime).UtcDateTime,
                 Open = kline.Open,
                 High = kline.High,
                 Low = kline.Low,

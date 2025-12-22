@@ -11,7 +11,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-     public class FibonacciRetracementStrategy : StrategyBase
+     public class FibonacciRetracementStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
         private int _trendBars;
@@ -26,9 +26,25 @@ namespace BinanceTestnet.Strategies
         private const decimal RsiLower = 35m;
         private const int MinTrendBars = 5;
 
+        public override int RequiredHistory => LookbackPeriod + 10;
+
         public FibonacciRetracementStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
             : base(client, apiKey, orderManager, wallet)
         {
+        }
+
+        // Snapshot-aware entrypoint used by the runner when a pre-fetched snapshot is available
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count >= RequiredHistory)
+            {
+                await ProcessKlinesAsync(klines, symbol);
+            }
+            else
+            {
+                // Fallback to the standard RunAsync which will fetch sufficient history itself
+                await RunAsync(symbol, interval);
+            }
         }
 
         public override async Task RunAsync(string symbol, string interval)
@@ -44,57 +60,66 @@ namespace BinanceTestnet.Strategies
                 });
                 var response = await Client.ExecuteGetAsync(request);
                 if (!response.IsSuccessful || response.Content == null) return;
-
                 var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
                 if (klines == null || klines.Count < LookbackPeriod) return;
 
-                // Calculate indicators
-                var emaValues = CalculateEMA(klines.Select(k => k.Close).ToList(), EmaPeriod);
-                var rsiValues = CalculateRSI(klines.Select(k => k.Close).ToList(), RsiLength);
-                
-                    // Determine signal candle respecting policy
-                    var (signalKline, previousKline) = SelectSignalPair(klines);
-                    if (signalKline == null || previousKline == null) return;
-                    var currentClose = signalKline.Close;
-                    var currentEMA = emaValues.Last();
-                    var currentRSI = rsiValues.Last();
-
-                // Update trend state
-                UpdateTrendState(currentClose, currentEMA, currentRSI);
-
-                // Get Fibonacci levels
-                var (fibHigh, fibLow) = GetFibHighLow(klines);
-                var fibLevels = GetFibonacciLevels(fibHigh, fibLow);
-
-                    var currentKline = signalKline;
-                    var prevKline = previousKline;
-
-                // Generate signals (matches PineScript exactly)
-                if (_isUptrend && 
-                    currentKline.Low <= fibLevels[61.8m] && 
-                    prevKline.Low > fibLevels[61.8m])
-                {
-                    await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, 
-                        "Fib-Long", currentKline.CloseTime);
-                    LogTradeSignal("LONG", symbol, currentKline.Close, fibHigh, fibLow);
-                }
-                else if (_isDowntrend && 
-                         currentKline.High >= fibLevels[38.2m] && 
-                         prevKline.High < fibLevels[38.2m])
-                {
-                    await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, 
-                        "Fib-Short", currentKline.CloseTime);
-                    LogTradeSignal("SHORT", symbol, currentKline.Close, fibHigh, fibLow);
-                }
-
-                // Check exits
-                await OrderManager.CheckAndCloseTrades(
-                    new Dictionary<string, decimal> { { symbol, currentKline.Close } },
-                    currentKline.CloseTime);
+                await ProcessKlinesAsync(klines, symbol);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in FibonacciRetracementStrategy: {ex.Message}");
+            }
+        }
+
+        // Shared processing for both snapshot and direct-fetch paths
+        private async Task ProcessKlinesAsync(List<Kline> klines, string symbol)
+        {
+            try
+            {
+                var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+                if (workingKlines == null || workingKlines.Count < LookbackPeriod) return;
+
+                // Calculate indicators based on working klines
+                var closes = workingKlines.Select(k => k.Close).ToList();
+                var emaValues = CalculateEMA(closes, EmaPeriod);
+                var rsiValues = CalculateRSI(closes, RsiLength);
+
+                // Determine signal candle respecting policy
+                var (signalKline, previousKline) = SelectSignalPair(workingKlines);
+                if (signalKline == null || previousKline == null) return;
+
+                var currentClose = signalKline.Close;
+                var currentEMA = emaValues.Last();
+                var currentRSI = rsiValues.Last();
+
+                // Update trend state
+                UpdateTrendState(currentClose, currentEMA, currentRSI);
+
+                // Get Fibonacci levels using the full working window
+                var (fibHigh, fibLow) = GetFibHighLow(workingKlines);
+                var fibLevels = GetFibonacciLevels(fibHigh, fibLow);
+
+                var currentKline = signalKline;
+                var prevKline = previousKline;
+
+                // Generate signals
+                if (_isUptrend && currentKline.Low <= fibLevels[61.8m] && prevKline.Low > fibLevels[61.8m])
+                {
+                    await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Fib-Long", currentKline.CloseTime);
+                    LogTradeSignal("LONG", symbol, currentKline.Close, fibHigh, fibLow);
+                }
+                else if (_isDowntrend && currentKline.High >= fibLevels[38.2m] && prevKline.High < fibLevels[38.2m])
+                {
+                    await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Fib-Short", currentKline.CloseTime);
+                    LogTradeSignal("SHORT", symbol, currentKline.Close, fibHigh, fibLow);
+                }
+
+                // Check exits
+                await OrderManager.CheckAndCloseTrades(new Dictionary<string, decimal> { { symbol, currentKline.Close } }, currentKline.CloseTime);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in Fibonacci Retracement processing: {ex.Message}");
             }
         }
         

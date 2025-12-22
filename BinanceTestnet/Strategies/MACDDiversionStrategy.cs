@@ -12,7 +12,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class MACDDivergenceStrategy : StrategyBase
+    public partial class MACDDivergenceStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
         public MACDDivergenceStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
@@ -38,41 +38,8 @@ namespace BinanceTestnet.Strategies
 
                     if (klines != null && klines.Count > 0)
                     {
-                        // Respect closed-candle policy for indicator calculations
                         var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
-                        var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
-                        {
-                            Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
-                            Close = k.Close
-                        }).ToList();
-
-                        var macdResults = Indicator.GetMacd(quotes, 25, 125, 9).ToList();
-                        var divergence = IdentifyDivergence(macdResults);                       
-
-                        // Determine which kline to use for order placement based on policy
-                        var (signalKline, previousKline) = SelectSignalPair(klines);
-                        if (signalKline == null || previousKline == null)
-                        {
-                            return;
-                        }
-
-                        if (divergence != 0)
-                        {
-                            if (divergence == 1)
-                            {
-                                await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
-                                //LogTradeSignal("LONG", symbol, klines.Last().Close);
-                            }
-                            else if (divergence == -1)
-                            {
-                                await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
-                                //LogTradeSignal("SHORT", symbol, klines.Last().Close);
-                            }
-                        }
-                        else
-                        {
-                            //Console.WriteLine($"No MACD divergence identified for {symbol}.");
-                        }
+                        await ProcessKlinesAsync(symbol, workingKlines);
                     }
                     else
                     {
@@ -164,6 +131,80 @@ namespace BinanceTestnet.Strategies
             Console.WriteLine($"Error for {symbol}: {response.ErrorMessage}");
             Console.WriteLine($"Status Code: {response.StatusCode}");
             Console.WriteLine($"Content: {response.Content}");
+        }
+    }
+
+    // Snapshot-aware partial for MACD divergence
+    public partial class MACDDivergenceStrategy
+    {
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                List<Kline>? klines = null;
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var s) && s != null && s.Count > 0)
+                {
+                    klines = s;
+                }
+
+                if (klines == null)
+                {
+                    var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                    {
+                        {"symbol", symbol},
+                        {"interval", interval},
+                        {"limit", "401"}
+                    });
+
+                    var response = await Client.ExecuteGetAsync(request);
+                    if (response.IsSuccessful && response.Content != null)
+                    {
+                        klines = Helpers.StrategyUtils.ParseKlines(response.Content);
+                    }
+                    else
+                    {
+                        HandleErrorResponse(symbol, response);
+                        return;
+                    }
+                }
+
+                if (klines != null && klines.Count > 0)
+                {
+                    var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+                    await ProcessKlinesAsync(symbol, workingKlines);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing {symbol} with snapshot: {ex.Message}");
+            }
+        }
+
+        private async Task ProcessKlinesAsync(string symbol, List<Kline> workingKlines)
+        {
+            var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
+            {
+                Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
+                Close = k.Close
+            }).ToList();
+
+            var macdResults = Indicator.GetMacd(quotes, 25, 125, 9).ToList();
+            var divergence = IdentifyDivergence(macdResults);
+
+            var (signalKline, previousKline) = SelectSignalPair(workingKlines);
+            if (signalKline == null || previousKline == null) return;
+
+            if (divergence != 0)
+            {
+                if (divergence == 1)
+                {
+                    await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
+                }
+                else if (divergence == -1)
+                {
+                    await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
+                }
+            }
         }
     }
 }

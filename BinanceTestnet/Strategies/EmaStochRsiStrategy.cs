@@ -11,7 +11,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class EmaStochRsiStrategy : StrategyBase
+    public class EmaStochRsiStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
         public EmaStochRsiStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
@@ -36,62 +36,9 @@ namespace BinanceTestnet.Strategies
                 if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
-
                     if (klines != null && klines.Count > 0)
                     {
-                        var (signalKline, previousKline) = SelectSignalPair(klines);
-                        if (signalKline == null || previousKline == null) return;
-                        var lastKline = signalKline;
-                        var quotes = ToIndicatorQuotes(klines);
-
-                        var ema8 = Indicator.GetEma(quotes, 8).ToList();
-                        var ema14 = Indicator.GetEma(quotes, 14).ToList();
-                        var ema50 = Indicator.GetEma(quotes, 50).ToList();
-                        var sma375 = Indicator.GetSma(quotes, 375).ToList();
-                        var stochRsi = Indicator.GetStochRsi(quotes, 14, 3, 3).ToList();
-
-                        if (ema8.Count > 0 && ema14.Count > 0 && ema50.Count > 0 && stochRsi.Count > 1)
-                        {
-                            var lastEma8 = ema8.Last();
-                            var lastEma14 = ema14.Last();
-                            var lastEma50 = ema50.Last();
-                            var lastStochRsi = stochRsi.Last();
-                            var prevStochRsi = stochRsi[stochRsi.Count - 2];
-                            lastPrice = lastKline.Close;
-
-                            // Guard for indicator values that may be undefined early in the series
-                            if (lastEma8.Ema != null && lastEma14.Ema != null && lastEma50.Ema != null &&
-                                lastStochRsi.StochRsi != null && lastStochRsi.Signal != null &&
-                                prevStochRsi.StochRsi != null && prevStochRsi.Signal != null)
-                            {
-                                // Long Signal
-                                if ((double)lastKline.Low > lastEma8.Ema &&
-                                    lastEma8.Ema > lastEma14.Ema &&
-                                    lastEma14.Ema > lastEma50.Ema &&
-                                    lastStochRsi.StochRsi > lastStochRsi.Signal &&
-                                    prevStochRsi.StochRsi <= prevStochRsi.Signal)
-                                {
-                                    await OrderManager.PlaceLongOrderAsync(symbol, lastKline.Close, "EMA-StochRSI", lastKline.OpenTime);
-                                    LogTradeSignal("LONG", symbol, lastKline.Close);
-                                }
-                                // Short Signal
-                                else if ((double)lastKline.High < lastEma8.Ema &&
-                                         lastEma8.Ema < lastEma14.Ema &&
-                                         lastEma14.Ema < lastEma50.Ema &&
-                                         lastStochRsi.StochRsi < lastStochRsi.Signal &&
-                                         prevStochRsi.StochRsi >= prevStochRsi.Signal)
-                                {
-                                    await OrderManager.PlaceShortOrderAsync(symbol, lastKline.Close, "EMA-StochRSI", lastKline.OpenTime);
-                                    LogTradeSignal("SHORT", symbol, lastKline.Close);
-                                }
-                            }
-                        }                        
-
-                        if(lastPrice > 0)
-                        {
-                            var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice} };
-                            await OrderManager.CheckAndCloseTrades(currentPrices);
-                        }
+                        await ProcessKlinesAsync(symbol, klines);
                     }
                     else
                     {
@@ -106,6 +53,50 @@ namespace BinanceTestnet.Strategies
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing {symbol}: {ex.Message}");
+            }
+        }
+
+        // Snapshot-aware entrypoint used by the runner when it provides a pre-fetched snapshot
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                List<Kline> klines = null;
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var s) && s != null && s.Count > 0)
+                {
+                    klines = s;
+                }
+
+                if (klines == null)
+                {
+                    // Fallback to fetch if snapshot isn't available for this symbol
+                    var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                    {
+                        {"symbol", symbol},
+                        {"interval", interval},
+                        {"limit", "400"}
+                    });
+
+                    var response = await Client.ExecuteGetAsync(request);
+                    if (response.IsSuccessful && response.Content != null)
+                    {
+                        klines = Helpers.StrategyUtils.ParseKlines(response.Content);
+                    }
+                    else
+                    {
+                        HandleErrorResponse(symbol, response);
+                        return;
+                    }
+                }
+
+                if (klines != null && klines.Count > 0)
+                {
+                    await ProcessKlinesAsync(symbol, klines);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing {symbol} with snapshot: {ex.Message}");
             }
         }
 
@@ -190,6 +181,65 @@ namespace BinanceTestnet.Strategies
             Console.WriteLine($"Content: {response.Content}");
         }
 
-        // Request/parse centralized in StrategyUtils        
+        // Request/parse centralized in StrategyUtils
+
+        private async Task ProcessKlinesAsync(string symbol, List<Kline> klines)
+        {
+            var (signalKline, previousKline) = SelectSignalPair(klines);
+            if (signalKline == null || previousKline == null) return;
+            var lastKline = signalKline;
+            var quotes = ToIndicatorQuotes(klines);
+
+            var ema8 = Indicator.GetEma(quotes, 8).ToList();
+            var ema14 = Indicator.GetEma(quotes, 14).ToList();
+            var ema50 = Indicator.GetEma(quotes, 50).ToList();
+            var sma375 = Indicator.GetSma(quotes, 375).ToList();
+            var stochRsi = Indicator.GetStochRsi(quotes, 14, 3, 3).ToList();
+
+            decimal lastPrice = 0;
+
+            if (ema8.Count > 0 && ema14.Count > 0 && ema50.Count > 0 && stochRsi.Count > 1)
+            {
+                var lastEma8 = ema8.Last();
+                var lastEma14 = ema14.Last();
+                var lastEma50 = ema50.Last();
+                var lastStochRsi = stochRsi.Last();
+                var prevStochRsi = stochRsi[stochRsi.Count - 2];
+                lastPrice = lastKline.Close;
+
+                // Guard for indicator values that may be undefined early in the series
+                if (lastEma8.Ema != null && lastEma14.Ema != null && lastEma50.Ema != null &&
+                    lastStochRsi.StochRsi != null && lastStochRsi.Signal != null &&
+                    prevStochRsi.StochRsi != null && prevStochRsi.Signal != null)
+                {
+                    // Long Signal
+                    if ((double)lastKline.Low > lastEma8.Ema &&
+                        lastEma8.Ema > lastEma14.Ema &&
+                        lastEma14.Ema > lastEma50.Ema &&
+                        lastStochRsi.StochRsi > lastStochRsi.Signal &&
+                        prevStochRsi.StochRsi <= prevStochRsi.Signal)
+                    {
+                        await OrderManager.PlaceLongOrderAsync(symbol, lastKline.Close, "EMA-StochRSI", lastKline.OpenTime);
+                        LogTradeSignal("LONG", symbol, lastKline.Close);
+                    }
+                    // Short Signal
+                    else if ((double)lastKline.High < lastEma8.Ema &&
+                             lastEma8.Ema < lastEma14.Ema &&
+                             lastEma14.Ema < lastEma50.Ema &&
+                             lastStochRsi.StochRsi < lastStochRsi.Signal &&
+                             prevStochRsi.StochRsi >= prevStochRsi.Signal)
+                    {
+                        await OrderManager.PlaceShortOrderAsync(symbol, lastKline.Close, "EMA-StochRSI", lastKline.OpenTime);
+                        LogTradeSignal("SHORT", symbol, lastKline.Close);
+                    }
+                }
+            }
+
+            if (lastPrice > 0)
+            {
+                var currentPrices = new Dictionary<string, decimal> { { symbol, lastPrice } };
+                await OrderManager.CheckAndCloseTrades(currentPrices);
+            }
+        }
     }
 }

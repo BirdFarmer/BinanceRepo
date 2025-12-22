@@ -18,6 +18,18 @@ A comprehensive C#-based cryptocurrency trading application that supports multip
 - **Leverage**: Adjustable leverage for futures trading
 - **Timeframe**: 1 minute to 4 hour candles
 
+#### Candle Modes
+
+- **Forming**: strategies evaluate the latest live candle including the in-progress (forming) bar. Use this when strategies should react to price movement before a candle closes. Note: indicators calculated on forming candles may change once the candle closes.
+- **Closed**: strategies evaluate only fully-closed candles. The runner excludes the current in-progress candle when building inputs so indicator values are stable and deterministic for the cycle.
+- **Aligned**: (boundary-aligned) the runner waits until the canonical timeframe boundary (for example, exactly on 15:00 for a 15m frame) before fetching data and running strategies. This ensures evaluations occur at canonical candle boundaries and reduces race conditions with exchange indexing.
+
+Operational notes:
+- The runner supports an opt-in snapshot mode that fetches per-cycle kline snapshots and passes them to snapshot-aware strategies so multiple strategies evaluate the exact same window of candles.
+- `Forming` is useful for strategies that must act on intrabar movement; `Closed` and `Aligned` are preferred for deterministic indicator-based strategies.
+- If `Aligned` is enabled, the runner will wait until the next timeframe boundary plus a small buffer (e.g., 250ms) to reduce timing races with the exchange's indexing.
+- Some strategies require large historical windows (declare `RequiredHistory`) — the runner uses the maximum required history to size the snapshot. When using `Closed`/`Aligned`, ensure `RequiredHistory` accounts for removing the forming bar if applicable.
+
 #### Risk Management
 - **Take Profit**: ATR-based multiplier for dynamic profit targets
 - **Stop Loss**: Risk ratio divider relative to take profit

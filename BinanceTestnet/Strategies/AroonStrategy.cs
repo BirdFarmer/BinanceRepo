@@ -11,12 +11,13 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class AroonStrategy : StrategyBase
+    public class AroonStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
         private const int AroonPeriod = 20; // Aroon Period
         private const int SmaPeriod = 200;  // SMA Period
         private const int HullLength = 70;  // Hull Length for EHMA
+        public override int RequiredHistory => 800;
         
         public AroonStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
             : base(client, apiKey, orderManager, wallet)
@@ -31,73 +32,15 @@ namespace BinanceTestnet.Strategies
                 {
                     {"symbol", symbol},
                     {"interval", interval},
-                    {"limit", "800"}
+                    {"limit", RequiredHistory.ToString()}
                 });
                 var response = await Client.ExecuteGetAsync(request);
                 if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
-
-                    if (klines != null && klines.Count > 1) // Ensure there are at least two data points
+                    if (klines != null && klines.Count > 1)
                     {
-                        // Build indicator quotes respecting policy
-                        var quotes = ToIndicatorQuotes(klines);
-
-                        var aroonResults = Indicator.GetAroon(quotes, AroonPeriod).ToList();
-                        var smaResults = Indicator.GetSma(quotes, SmaPeriod).ToList();
-                        var hullResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullLength)
-                            .Select(hr => new HullSuiteResult { Date = hr.Date, EHMA = hr.EHMA, EHMAPrev = hr.EHMAPrev })
-                            .ToList();
-
-                        var (signalKline, previousKline) = SelectSignalPair(klines);
-                        if (signalKline == null || previousKline == null) return;
-                        var currentKline = signalKline;
-                        var prevKline = previousKline;
-                        var currentSMA = smaResults.LastOrDefault();
-                        var previousSMA = smaResults.ElementAt(smaResults.Count - 2);
-                        var currentAroon = aroonResults.LastOrDefault();
-                        var currentHull = hullResults.LastOrDefault();
-                        var prevHull = hullResults.Count > 1 ? hullResults[hullResults.Count - 2] : null;
-
-                        if (previousSMA != null && previousSMA.Sma.HasValue 
-                            && currentSMA != null && currentSMA.Sma.HasValue 
-                            && currentAroon != null 
-                            && currentHull != null && prevHull != null)
-                        {
-                            bool isPriceAboveSMA = (double)currentKline.Low > currentSMA.Sma;
-                            bool isPriceBelowSMA = (double)currentKline.High < currentSMA.Sma;
-                            bool isSMAPointingUp = currentSMA.Sma.Value > previousSMA.Sma.Value;
-                            bool isSMAPointingDown = currentSMA.Sma.Value < previousSMA.Sma.Value;;
-
-                            int aroonSignal = IdentifyAroonSignal(aroonResults);
-
-                            bool isAroonUptrend = aroonSignal > 0;
-                            bool isAroonDowntrend = aroonSignal < 0;
-
-                            bool isHullCrossingUp = currentHull.EHMA > currentHull.EHMAPrev && prevHull.EHMA <= prevHull.EHMAPrev;
-                            bool isHullCrossingDown = currentHull.EHMA > currentHull.EHMAPrev && prevHull.EHMA >= prevHull.EHMAPrev;
-
-                            if (isHullCrossingUp 
-                                    && isPriceBelowSMA
-                                    && isSMAPointingUp
-                                )
-                            {
-                                await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.OpenTime);
-                            }
-                            else if (isHullCrossingDown
-                                    && isPriceAboveSMA
-                                    && isSMAPointingDown
-                                    )
-                            {
-                                await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.OpenTime);
-                            }
-                        }
-                        else
-                        {
-                            
-                            LogError($"Required indicators data is not available for {symbol}.");
-
-                        }
+                        await ProcessKlinesAsync(klines, symbol);
                     }
                     else
                     {
@@ -112,6 +55,79 @@ namespace BinanceTestnet.Strategies
             catch (Exception ex)
             {
                 LogError($"Error processing {symbol}: {ex.Message}");
+            }
+        }
+
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            if (snapshot != null && snapshot.TryGetValue(symbol, out var klines) && klines != null && klines.Count > 0)
+            {
+                await ProcessKlinesAsync(klines, symbol);
+            }
+            else
+            {
+                await RunAsync(symbol, interval);
+            }
+        }
+
+        private async Task ProcessKlinesAsync(List<Kline> klines, string symbol)
+        {
+            // Build indicator quotes respecting policy
+            var quotes = ToIndicatorQuotes(klines);
+
+            var aroonResults = Indicator.GetAroon(quotes, AroonPeriod).ToList();
+            var smaResults = Indicator.GetSma(quotes, SmaPeriod).ToList();
+            var hullResults = Helpers.StrategyUtils.CalculateEHMA(quotes, HullLength)
+                .Select(hr => new HullSuiteResult { Date = hr.Date, EHMA = hr.EHMA, EHMAPrev = hr.EHMAPrev })
+                .ToList();
+
+            var (signalKline, previousKline) = SelectSignalPair(klines);
+            if (signalKline == null || previousKline == null) return;
+            var currentKline = signalKline;
+            var prevKline = previousKline;
+            var currentSMA = smaResults.LastOrDefault();
+            var previousSMA = smaResults.ElementAt(smaResults.Count - 2);
+            var currentAroon = aroonResults.LastOrDefault();
+            var currentHull = hullResults.LastOrDefault();
+            var prevHull = hullResults.Count > 1 ? hullResults[hullResults.Count - 2] : null;
+
+            if (previousSMA != null && previousSMA.Sma.HasValue 
+                && currentSMA != null && currentSMA.Sma.HasValue 
+                && currentAroon != null 
+                && currentHull != null && prevHull != null)
+            {
+                bool isPriceAboveSMA = (double)currentKline.Low > currentSMA.Sma;
+                bool isPriceBelowSMA = (double)currentKline.High < currentSMA.Sma;
+                bool isSMAPointingUp = currentSMA.Sma.Value > previousSMA.Sma.Value;
+                bool isSMAPointingDown = currentSMA.Sma.Value < previousSMA.Sma.Value;
+
+                int aroonSignal = IdentifyAroonSignal(aroonResults);
+
+                bool isAroonUptrend = aroonSignal > 0;
+                bool isAroonDowntrend = aroonSignal < 0;
+
+                bool isHullCrossingUp = currentHull.EHMA > currentHull.EHMAPrev && prevHull.EHMA <= prevHull.EHMAPrev;
+                bool isHullCrossingDown = currentHull.EHMA < currentHull.EHMAPrev && prevHull.EHMA >= prevHull.EHMAPrev;
+
+                if (isHullCrossingUp 
+                        && isPriceBelowSMA
+                        && isSMAPointingUp
+                    )
+                {
+                    await OrderManager.PlaceLongOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.OpenTime);
+                }
+                else if (isHullCrossingDown
+                        && isPriceAboveSMA
+                        && isSMAPointingDown
+                        )
+                {
+                    await OrderManager.PlaceShortOrderAsync(symbol, currentKline.Close, "Aroon + EHMA", currentKline.OpenTime);
+                }
+            }
+            else
+            {
+                LogError($"Required indicators data is not available for {symbol}. " +
+                         $"klines={klines.Count}, aroon={aroonResults.Count}, sma={smaResults.Count}, hull={hullResults.Count}, neededSma={SmaPeriod}, neededHull={HullLength}");
             }
         }
 

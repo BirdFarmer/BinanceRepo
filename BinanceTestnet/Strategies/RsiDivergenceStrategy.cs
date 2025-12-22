@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace BinanceTestnet.Strategies
 {
-    public class RsiDivergenceStrategy : StrategyBase
+    public class RsiDivergenceStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         // Internal entry tuning (not exposed as strategy parameters)
         private const decimal SmallValue = 0.000001m;
@@ -22,6 +22,103 @@ namespace BinanceTestnet.Strategies
         public RsiDivergenceStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet)
             : base(client, apiKey, orderManager, wallet)
         {
+        }
+
+        // Snapshot-aware entry point
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                List<Kline>? klines = null;
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var s) && s != null && s.Count > 0)
+                {
+                    klines = s;
+                }
+
+                if (klines == null)
+                {
+                    var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                    {
+                        {"symbol", symbol},
+                        {"interval", interval},
+                        {"limit", "200"}
+                    });
+
+                    var response = await Client.ExecuteGetAsync(request);
+                    if (response.IsSuccessful && response.Content != null)
+                    {
+                        klines = Helpers.StrategyUtils.ParseKlines(response.Content);
+                    }
+                    else
+                    {
+                        HandleErrorResponse(symbol, response);
+                        return;
+                    }
+                }
+
+                if (klines != null && klines.Count > 0)
+                {
+                    var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+                    await ProcessKlinesAsync(symbol, workingKlines);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing {symbol} with snapshot: {ex.Message}");
+            }
+        }
+
+        private async Task ProcessKlinesAsync(string symbol, List<Kline> workingKlines)
+        {
+            var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
+            {
+                Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
+                Close = k.Close,
+                High = k.High,
+                Low = k.Low
+            }).ToList();
+
+            var rsiResults = Indicator.GetRsi(quotes, 20).ToList();
+            var stochasticResults = Indicator.GetStoch(quotes, 100, 3, 3).ToList(); // Use StochResult type consistently
+
+            if (rsiResults.Count > 2 && stochasticResults.Count > 2)
+            {
+                var (signalKline, previousKline) = SelectSignalPair(workingKlines);
+                if (signalKline == null || previousKline == null) return;
+
+                if (IsBullishDivergence(workingKlines, rsiResults, stochasticResults))
+                {
+                    var latest = signalKline;
+                    var prev = previousKline;
+                    if (latest != null && prev != null && IsGoodTurnCandle(latest, prev, workingKlines, rsiResults))
+                    {
+                        Console.WriteLine("Bullish RSI divergence + turn candle detected. Going LONG");
+                        await OrderManager.PlaceLongOrderAsync(symbol, latest.Close, "RSI Divergence", latest.CloseTime);
+                        Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, latest, prev, "Bullish divergence + turn candle");
+                        LogTradeSignal("LONG", symbol, latest.Close);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Bullish divergence detected but no qualifying turn candle yet.");
+                    }
+                }
+                else if (IsBearishDivergence(workingKlines, rsiResults, stochasticResults))
+                {
+                    var latest = signalKline;
+                    var prev = previousKline;
+                    if (latest != null && prev != null && IsGoodTurnCandle(latest, prev, workingKlines, rsiResults, isBullish: false))
+                    {
+                        Console.WriteLine("Bearish RSI divergence + turn candle detected. Going SHORT");
+                        await OrderManager.PlaceShortOrderAsync(symbol, latest.Close, "RSI Divergence", latest.CloseTime);
+                        Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, latest, prev, "Bearish divergence + turn candle");
+                        LogTradeSignal("SHORT", symbol, latest.Close);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Bearish divergence detected but no qualifying turn candle yet.");
+                    }
+                }
+            }
         }
 
         public override async Task RunAsync(string symbol, string interval)
@@ -39,71 +136,11 @@ namespace BinanceTestnet.Strategies
                 if (response.IsSuccessful && response.Content != null)
                 {
                     var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
-
                     if (klines != null && klines.Count > 0)
                     {
-                        // Respect closed-candle policy for calculations
+                        // Delegate to processor to avoid duplication with snapshot path
                         var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
-                        var quotes = workingKlines.Select(k => new BinanceTestnet.Models.Quote
-                        {
-                            Date = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime,
-                            Close = k.Close,
-                            High = k.High,
-                            Low = k.Low
-                        }).ToList();
-
-                        var rsiResults = Indicator.GetRsi(quotes, 20).ToList();
-                        var stochasticResults = Indicator.GetStoch(quotes, 100, 3, 3).ToList(); // Use StochResult type consistently
-
-                        if (rsiResults.Count > 2 && stochasticResults.Count > 2)
-                        {
-                            // If using closed candles, drop the forming indicator value
-                            var lastRsi = rsiResults.Last();
-                            var lastStochastic = stochasticResults.Last();
-
-                            // Check for bullish RSI divergence and Stochastic <= 10 for LONG
-                            var (signalKline, previousKline) = SelectSignalPair(workingKlines);
-                            if (signalKline == null || previousKline == null) return;
-
-                            // Evaluate divergence on the same candle set used for indicators (workingKlines)
-                            if (IsBullishDivergence(workingKlines, rsiResults, stochasticResults))
-                            {
-                                // Bullish divergence detected. In live runs we only have the current candles,
-                                // so require the most recent (signal) candle to be a qualifying "turn" candle.
-                                var latest = signalKline;
-                                var prev = previousKline;
-                                if (latest != null && prev != null && IsGoodTurnCandle(latest, prev, workingKlines, rsiResults))
-                                {
-                                    Console.WriteLine("Bullish RSI divergence + turn candle detected. Going LONG");
-                                    await OrderManager.PlaceLongOrderAsync(symbol, latest.Close, "RSI Divergence", latest.CloseTime);
-                                    Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, latest, prev, "Bullish divergence + turn candle");
-                                    LogTradeSignal("LONG", symbol, latest.Close);
-                                }
-                                else
-                                {
-                                    Console.WriteLine("Bullish divergence detected but no qualifying turn candle yet.");
-                                }
-                            }
-
-                            // Check for bearish RSI divergence and Stochastic >= 90 for SHORT
-                            else if (IsBearishDivergence(workingKlines, rsiResults, stochasticResults))
-                            {
-                                // Bearish divergence detected. Require the latest signal candle to be a qualifying bearish turn.
-                                var latest = signalKline;
-                                var prev = previousKline;
-                                if (latest != null && prev != null && IsGoodTurnCandle(latest, prev, workingKlines, rsiResults, isBullish: false))
-                                {
-                                    Console.WriteLine("Bearish RSI divergence + turn candle detected. Going SHORT");
-                                    await OrderManager.PlaceShortOrderAsync(symbol, latest.Close, "RSI Divergence", latest.CloseTime);
-                                    Helpers.StrategyUtils.TraceSignalCandle("RSIDivergence", symbol, UseClosedCandles, latest, prev, "Bearish divergence + turn candle");
-                                    LogTradeSignal("SHORT", symbol, latest.Close);
-                                }
-                                else
-                                {
-                                    Console.WriteLine("Bearish divergence detected but no qualifying turn candle yet.");
-                                }
-                            }
-                        }
+                        await ProcessKlinesAsync(symbol, workingKlines);                   
                     }
                     else
                     {

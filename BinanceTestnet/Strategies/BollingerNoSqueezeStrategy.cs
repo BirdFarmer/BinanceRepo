@@ -19,7 +19,7 @@ namespace BinanceTestnet.Strategies
         }
     }
 
-    public class BollingerNoSqueezeStrategy : StrategyBase
+    public partial class BollingerNoSqueezeStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
         // Read settings via BollingerSqueezeSettings so UI can edit them at runtime
@@ -115,29 +115,8 @@ namespace BinanceTestnet.Strategies
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Not enough data for {symbol}. Have {klines.Count}, need {_bbPeriod + _atrPeriod}");
                     return;
                 }
-
-                var (upperBand, lowerBand, middleBand) = CalculateBollingerBands(workingKlines);
-                var atrValues = CalculateATR(workingKlines, _atrPeriod);
-                var emaList = CalculateEMA(workingKlines, BollingerSqueezeSettings.TrendPeriod);
-
-                int lastIdx = workingKlines.Count - 1;
-                var eval = EvaluateSignalAtIndex(workingKlines, upperBand, lowerBand, middleBand, atrValues, emaList, lastIdx);
-
-                if (BollingerSqueezeSettings.DebugMode)
-                {
-                    Console.WriteLine("[DEBUG LIVE] " + eval.debug);
-                }
-
-                if (eval.longSignal && workingKlines[lastIdx].Symbol != null)
-                {
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ LONG NoSqueezeBB (delayed) {symbol} @ {FormatPrice(workingKlines[lastIdx].Close)} (bbNorm={(eval.currentATR>0? (eval.bbWidth/eval.currentATR):0):F2})");
-                    await OrderManager.PlaceLongOrderAsync(workingKlines[lastIdx].Symbol!, workingKlines[lastIdx].Close, "NoSqueeze_BB_L", workingKlines[lastIdx].CloseTime);
-                }
-                else if (eval.shortSignal && workingKlines[lastIdx].Symbol != null)
-                {
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ SHORT NoSqueezeBB (delayed) {symbol} @ {FormatPrice(workingKlines[lastIdx].Close)} (bbNorm={(eval.currentATR>0? (eval.bbWidth/eval.currentATR):0):F2})");
-                    await OrderManager.PlaceShortOrderAsync(workingKlines[lastIdx].Symbol!, workingKlines[lastIdx].Close, "NoSqueeze_BB_S", workingKlines[lastIdx].CloseTime);
-                }
+                // Delegate to a common processor so snapshot-aware flow can reuse the logic
+                await ProcessKlinesAsync(symbol, workingKlines);
 
             }
             catch (Exception ex)
@@ -520,6 +499,82 @@ namespace BinanceTestnet.Strategies
         }
 
         // Parse and request helpers centralized in StrategyUtils
+    }
+
+    // Snapshot-aware implementation
+    public partial class BollingerNoSqueezeStrategy
+    {
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                List<Kline>? klines = null;
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var s) && s != null && s.Count > 0)
+                {
+                    klines = s;
+                }
+
+                if (klines == null)
+                {
+                    var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                    {
+                        {"symbol", symbol},
+                        {"interval", interval},
+                        {"limit", (_bbPeriod + _atrPeriod + 10).ToString()}
+                    });
+
+                    var response = await Client.ExecuteGetAsync(request);
+                    klines = response.IsSuccessful && response.Content != null
+                        ? Helpers.StrategyUtils.ParseKlines(response.Content, symbol)
+                        : null;
+                }
+
+                if (klines == null)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] No klines data for {symbol}");
+                    return;
+                }
+
+                var workingKlines = UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines;
+                if (workingKlines.Count <= _bbPeriod)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Not enough data for {symbol}. Have {klines.Count}, need {_bbPeriod + _atrPeriod}");
+                    return;
+                }
+
+                await ProcessKlinesAsync(symbol, workingKlines);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERROR in snapshot run for {symbol}: {ex.Message}");
+            }
+        }
+
+        private async Task ProcessKlinesAsync(string symbol, List<Kline> workingKlines)
+        {
+            var (upperBand, lowerBand, middleBand) = CalculateBollingerBands(workingKlines);
+            var atrValues = CalculateATR(workingKlines, _atrPeriod);
+            var emaList = CalculateEMA(workingKlines, BollingerSqueezeSettings.TrendPeriod);
+
+            int lastIdx = workingKlines.Count - 1;
+            var eval = EvaluateSignalAtIndex(workingKlines, upperBand, lowerBand, middleBand, atrValues, emaList, lastIdx);
+
+            if (BollingerSqueezeSettings.DebugMode)
+            {
+                Console.WriteLine("[DEBUG LIVE] " + eval.debug);
+            }
+
+            if (eval.longSignal && workingKlines[lastIdx].Symbol != null)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ LONG NoSqueezeBB (delayed) {symbol} @ {FormatPrice(workingKlines[lastIdx].Close)} (bbNorm={(eval.currentATR>0? (eval.bbWidth/eval.currentATR):0):F2})");
+                await OrderManager.PlaceLongOrderAsync(workingKlines[lastIdx].Symbol!, workingKlines[lastIdx].Close, "NoSqueeze_BB_L", workingKlines[lastIdx].CloseTime);
+            }
+            else if (eval.shortSignal && workingKlines[lastIdx].Symbol != null)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ⚡ SHORT NoSqueezeBB (delayed) {symbol} @ {FormatPrice(workingKlines[lastIdx].Close)} (bbNorm={(eval.currentATR>0? (eval.bbWidth/eval.currentATR):0):F2})");
+                await OrderManager.PlaceShortOrderAsync(workingKlines[lastIdx].Symbol!, workingKlines[lastIdx].Close, "NoSqueeze_BB_S", workingKlines[lastIdx].CloseTime);
+            }
+        }
     }
 
 }

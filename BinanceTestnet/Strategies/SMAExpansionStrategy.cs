@@ -12,7 +12,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-public class SMAExpansionStrategy : StrategyBase
+public class SMAExpansionStrategy : StrategyBase, ISnapshotAwareStrategy
 {
     protected override bool SupportsClosedCandles => true;
     private const int ExpansionWindowSize = 1;  // Adjusted for more robust detection
@@ -116,6 +116,82 @@ public class SMAExpansionStrategy : StrategyBase
             else if (expansionResult != 0 && !cooled)
             {
                 expansionResult = 0; // suppress due to cooldown
+            }
+
+            await CheckTradingConditions(symbol, currentPrice, signal.OpenTime, sma100[sma100.Count - 1]);
+        }
+    }
+
+    public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+    {
+        if (string.IsNullOrEmpty(symbol))
+        {
+            Console.WriteLine("Error: Symbol is null or empty.");
+            return;
+        }
+
+        // Use snapshot if present
+        var klines = (snapshot != null && snapshot.TryGetValue(symbol, out var s)) ? s : null;
+        if (klines == null || klines.Count == 0)
+        {
+            await RunAsync(symbol, interval);
+            return;
+        }
+
+        var closes = klines.Select(k => k.Close).ToArray();
+        var history = ConvertToQuoteList(UseClosedCandles ? Helpers.StrategyUtils.ExcludeForming(klines) : klines, closes);
+
+        var smaTasks = new[]
+        {
+            Task.Run(() => Indicator.GetSma(history, 25).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList()),
+            Task.Run(() => Indicator.GetSma(history, 50).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList()),
+            Task.Run(() => Indicator.GetSma(history, 100).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList()),
+            Task.Run(() => Indicator.GetSma(history, 200).Where(q => q.Sma.HasValue).Select(q => q.Sma!.Value).ToList())
+        };
+
+        await Task.WhenAll(smaTasks);
+
+        var sma25 = smaTasks[0].Result;
+        var sma50 = smaTasks[1].Result;
+        var sma100 = smaTasks[2].Result;
+        var sma200 = smaTasks[3].Result;
+
+        if (sma200.Count >= 200)
+        {
+            int index = sma200.Count - 1;
+
+            int expansionResult = BinanceTestnet.Indicators.ExpandingAverages.ConfirmThe200Turn(
+                sma25.Select(d => (double)d).ToList(),
+                sma50.Select(d => (double)d).ToList(),
+                sma100.Select(d => (double)d).ToList(),
+                sma200.Select(d => (double)d).ToList(),
+                index
+            );
+
+            if (UseStackedFallback && expansionResult == 0)
+            {
+                expansionResult = EvaluateStackedTrend(sma25, sma50, sma100, sma200, index);
+                if (expansionResult == 0)
+                {
+                    expansionResult = EvaluateAccelerationFallback(sma25, sma50, sma100, sma200, index, MinSlope200, MinExpansionAcceleration, PartialStackTolerance);
+                }
+            }
+
+            decimal currentPrice = await GetCurrentPriceFromBinance(symbol);
+            TrackExpansion(symbol, currentPrice, expansionResult);
+
+            var (signal, _) = SelectSignalPair(klines);
+            if (signal == null) return;
+
+            if (!_lastSignalIndex.TryGetValue(symbol, out var lastIdx)) lastIdx = -99999;
+            bool cooled = index - lastIdx >= CooldownBars;
+            if (expansionResult != 0 && cooled)
+            {
+                _lastSignalIndex[symbol] = index;
+            }
+            else if (expansionResult != 0 && !cooled)
+            {
+                expansionResult = 0;
             }
 
             await CheckTradingConditions(symbol, currentPrice, signal.OpenTime, sma100[sma100.Count - 1]);

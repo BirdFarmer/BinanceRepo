@@ -11,7 +11,7 @@ using BinanceTestnet.Trading;
 
 namespace BinanceTestnet.Strategies
 {
-    public class MACDStandardStrategy : StrategyBase
+    public class MACDStandardStrategy : StrategyBase, ISnapshotAwareStrategy
     {
         protected override bool SupportsClosedCandles => true;
         public MACDStandardStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) 
@@ -92,6 +92,48 @@ namespace BinanceTestnet.Strategies
             }
         }
 
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                List<Kline> klines = null;
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var s) && s != null && s.Count > 0)
+                {
+                    klines = s;
+                }
+
+                if (klines == null)
+                {
+                    var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                    {
+                        {"symbol", symbol},
+                        {"interval", interval},
+                        {"limit", "401"}
+                    });
+
+                    var response = await Client.ExecuteGetAsync(request);
+                    if (response.IsSuccessful && response.Content != null)
+                    {
+                        klines = Helpers.StrategyUtils.ParseKlines(response.Content);
+                    }
+                    else
+                    {
+                        HandleErrorResponse(symbol, response);
+                        return;
+                    }
+                }
+
+                if (klines != null && klines.Count > 0)
+                {
+                    await ProcessKlinesAsync(symbol, klines);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing {symbol} with snapshot: {ex.Message}");
+            }
+        }
+
 
         // Parsing and request creation centralized in StrategyUtils
 
@@ -112,6 +154,46 @@ namespace BinanceTestnet.Strategies
             Console.WriteLine($"Error for {symbol}: {response.ErrorMessage}");
             Console.WriteLine($"Status Code: {response.StatusCode}");
             Console.WriteLine($"Content: {response.Content}");
+        }
+
+        private async Task ProcessKlinesAsync(string symbol, List<Kline> klines)
+        {
+            // Build indicator quotes respecting closed-candle policy
+            var quotes = ToIndicatorQuotes(klines)
+                .Select(q => new BinanceTestnet.Models.Quote { Date = q.Date, Close = q.Close })
+                .ToList();
+
+            // Core MACD
+            var macdResults = Indicator.GetMacd(quotes, 12, 26, 9).ToList();
+            var emaTrend = Indicator.GetEma(quotes, 50).ToList();
+
+            if (macdResults.Count > 1)
+            {
+                var lastMacd = macdResults[macdResults.Count - 1];
+                var prevMacd = macdResults[macdResults.Count - 2];
+
+                var (signalKline, previousKline) = SelectSignalPair(klines);
+                if (signalKline == null || previousKline == null) return;
+
+                // Map latest EMA value (same indexing as quotes/macd) for trend confirmation
+                var lastEma = emaTrend.Count == quotes.Count ? emaTrend[emaTrend.Count - 1].Ema : null;
+
+                bool trendFilterLong = lastEma == null || signalKline.Close > (decimal)lastEma; // allow if EMA unavailable
+                bool trendFilterShort = lastEma == null || signalKline.Close < (decimal)lastEma;
+
+                if (lastMacd.Macd > lastMacd.Signal && prevMacd.Macd <= prevMacd.Signal && trendFilterLong)
+                {
+                    await OrderManager.PlaceLongOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
+                    Helpers.StrategyUtils.TraceSignalCandle("MACDStandard", symbol, UseClosedCandles, signalKline, previousKline, "Bullish MACD cross");
+                    LogTradeSignal("LONG", symbol, signalKline.Close);
+                }
+                else if (lastMacd.Macd < lastMacd.Signal && prevMacd.Macd >= prevMacd.Signal && trendFilterShort)
+                {
+                    await OrderManager.PlaceShortOrderAsync(symbol, signalKline.Close, "MAC-D", signalKline.OpenTime);
+                    Helpers.StrategyUtils.TraceSignalCandle("MACDStandard", symbol, UseClosedCandles, signalKline, previousKline, "Bearish MACD cross");
+                    LogTradeSignal("SHORT", symbol, signalKline.Close);
+                }
+            }
         }
 
         public override async Task RunOnHistoricalDataAsync(IEnumerable<BinanceTestnet.Models.Kline> historicalData)

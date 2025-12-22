@@ -1,36 +1,57 @@
 {
-  "Strategy": "CandlePatternAnalysis",
+  "Strategy": "FibonacciRetracement",
   "Strategies": null,
   "Timeframes": [
     "5m"
   ],
   "SymbolSets": {
-    "2": [
-      "DOGEUSDT",
-      "BNBUSDT",
+    "1": [
+      "ETHUSDT",
+      "BTCUSDT",
+      "SOLUSDT",
+      "PIPPINUSDT",
+      "BEATUSDT",
+      "XRPUSDT",
+      "ZECUSDT",
       "BNXUSDT",
-      "PIEVERSEUSDT",
-      "HYPEUSDT",
-      "1000PEPEUSDT",
-      "ADAUSDT",
-      "LINKUSDT",
-      "ASTERUSDT",
-      "BOBUSDT",
-      "MONUSDT",
-      "TURBOUSDT",
-      "ALPHAUSDT"
+      "PTBUSDT",
+      "BNBUSDT"
     ],
-    "coin_manager_20251212123828": [
-      "GMXUSDT",
-      "REDUSDT",
-      "CFXUSDT",
-      "REZUSDT",
-      "NEOUSDT",
-      "FXSUSDT",
+    "2": [
+      "EOSUSDT",
+      "DASHUSDT",
+      "WLFIUSDT",
+      "ICNTUSDT",
+      "USTCUSDT",
+      "币安人生USDT",
+      "ONDOUSDT",
+      "CYSUSDT",
+      "ICPUSDT",
+      "HIFIUSDT"
+    ],
+    "3": [
+      "RENDERUSDT",
+      "AXLUSDT",
+      "0GUSDT",
+      "NULSUSDT",
+      "BATUSDT",
+      "PARTIUSDT",
+      "NEIROUSDT",
+      "LOOMUSDT",
+      "ORCAUSDT",
+      "PENDLEUSDT"
+    ],
+    "4": [
+      "BARDUSDT",
+      "HANAUSDT",
+      "SQDUSDT",
+      "XVSUSDT",
+      "MORPHOUSDT",
+      "AIOTUSDT",
+      "RECALLUSDT",
+      "REEFUSDT",
       "CLANKERUSDT",
-      "SPKUSDT",
-      "1000CATUSDT",
-      "BANANAUSDT"
+      "PORTALUSDT"
     ]
   },
   "ExitModes": [
@@ -38,9 +59,15 @@
       "Name": "fixed",
       "RiskProfiles": [
         {
-          "Name": "3",
-          "TpMultiplier": 3.0,
-          "RiskDivider": 2.0,
+          "Name": "4",
+          "TpMultiplier": 4.0,
+          "RiskDivider": 1.0,
+          "SlMultiplier": null
+        },
+        {
+          "Name": "2",
+          "TpMultiplier": 2.0,
+          "RiskDivider": 1.0,
           "SlMultiplier": null
         }
       ]
@@ -51,7 +78,7 @@
     "Format": "csv"
   },
   "Historical": {
-    "StartUtc": "2025-11-01T00:00:00Z",
+    "StartUtc": "2025-12-12T15:00:00Z",
     "BatchSize": 1500,
     "MaxCandles": 1500
   }
