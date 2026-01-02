@@ -46,6 +46,7 @@
                                 <ComboBoxItem Content="BollingerNoSqueeze" />
                                 <ComboBoxItem Content="EmaCrossoverVolume" />
                                 <ComboBoxItem Content="CandlePatternAnalysis" />
+                                    <ComboBoxItem Content="LondonSessionVolumeProfile" />
                                 <ComboBoxItem Content="OtherStrategy (disabled)" IsEnabled="False"/>
                                 <ComboBoxItem Content="OtherStrategy2 (disabled)" IsEnabled="False"/>
                             </ComboBox>
@@ -155,6 +156,43 @@
 
                                         <TextBlock Text="Debug Mode:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Enable verbose debug logging for this strategy."/>
                                         <CheckBox x:Name="ChkCandleDebugMode" IsChecked="False" VerticalAlignment="Center" ToolTip="Enable verbose debug logging for this strategy. Shows window, indecisive checks, volume and EMA evaluations."/>
+                                    </UniformGrid>
+                                </StackPanel>
+
+                                <!-- London Session Volume Profile settings panel -->
+                                <StackPanel x:Name="LondonPanel" Visibility="Collapsed" Margin="0,8,0,0">
+                                    <TextBlock Text="London Session Volume Profile" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryForeground}"/>
+                                    <UniformGrid Columns="2" Margin="0,8,0,0">
+                                        <TextBlock Text="Session Start (UTC):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Session start time in UTC (HH:mm)."/>
+                                        <TextBox x:Name="TxtLondonSessionStart" Width="120" Text="08:00" ToolTip="Session start time in UTC (HH:mm)."/>
+
+                                        <TextBlock Text="Session End (UTC):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Session end time in UTC (HH:mm)."/>
+                                        <TextBox x:Name="TxtLondonSessionEnd" Width="120" Text="14:30" ToolTip="Session end time in UTC (HH:mm)."/>
+
+                                        <TextBlock Text="Break Trigger:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Which candle field triggers a breakout check (Close=default, High or Low available)."/>
+                                        <ComboBox x:Name="CboLondonBreakCheck" Width="160" ToolTip="Which candle field triggers a breakout check (Close=default, High or Low available).">
+                                            <ComboBoxItem Content="Close" />
+                                            <ComboBoxItem Content="High" />
+                                            <ComboBoxItem Content="Low" />
+                                        </ComboBox>
+
+                                        <TextBlock Text="Scan Duration (hrs):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="How many hours after session end to scan for breaks (0.5 - 12)."/>
+                                        <TextBox x:Name="TxtLondonScanDuration" Width="120" Text="4.0" ToolTip="How many hours after session end to scan for breaks (0.5 - 12)."/>
+
+                                        <TextBlock Text="Value Area %:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Value area percentage used to compute VAH/VAL (50-90)."/>
+                                        <TextBox x:Name="TxtLondonValueArea" Width="120" Text="70" ToolTip="Value area percentage used to compute VAH/VAL (50-90)."/>
+
+                                        <TextBlock Text="Use Order-Book VAP:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="If enabled, use order-book depth to compute POC/VAH/VAL when depth is available (works in Paper/Real if feed present)."/>
+                                        <CheckBox x:Name="ChkLondonUseOrderBook" IsChecked="True" VerticalAlignment="Center" ToolTip="If enabled, use order-book depth to compute POC/VAH/VAL when depth is available (works in Paper/Real if feed present)."/>
+
+                                        <TextBlock Text="Allow Both Sides:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Allow one long and one short per session (true) or only one trade total (false)."/>
+                                        <CheckBox x:Name="ChkLondonAllowBothSides" IsChecked="False" VerticalAlignment="Center" ToolTip="Allow one long and one short per session (true) or only one trade total (false)."/>
+
+                                        <TextBlock Text="Limit Expiry (min):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Limit order expiry in minutes (0 = no expiry)."/>
+                                        <TextBox x:Name="TxtLondonLimitExpiry" Width="120" Text="60" ToolTip="Limit order expiry in minutes (0 = no expiry)."/>
+
+                                        <TextBlock Text="Enable London Debug:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Enable verbose debug logging for the London session strategy."/>
+                                        <CheckBox x:Name="ChkLondonEnableDebug" IsChecked="False" VerticalAlignment="Center" ToolTip="Enable verbose debug logging for the London session strategy."/>
                                     </UniformGrid>
                                 </StackPanel>
                                 </StackPanel>

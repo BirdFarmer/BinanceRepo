@@ -230,6 +230,11 @@ namespace BinanceTestnet.Trading
             return _leverage;
         }   
 
+        public OperationMode GetOperationMode()
+        {
+            return _operationMode;
+        }
+
         public SelectedTradingStrategy GetStrategy()
         {
             return _tradingStrategy;
@@ -287,19 +292,19 @@ namespace BinanceTestnet.Trading
             return Math.Round(price, pricePrecision);
         }
 
-        public async Task PlaceLongOrderAsync(string symbol, decimal price, string signal, long timestamp, decimal? takeProfit = null)
+        public async Task PlaceLongOrderAsync(string symbol, decimal price, string signal, long timestamp, decimal? takeProfit = null, decimal? explicitStopLoss = null)
         {
-            await PlaceOrderAsync(symbol, price, true, signal, timestamp, takeProfit);
+            await PlaceOrderAsync(symbol, price, true, signal, timestamp, takeProfit, explicitStopLoss);
 
         }
 
-        public async Task PlaceShortOrderAsync(string symbol, decimal price, string signal, long timestamp, decimal? takeProfit = null)
+        public async Task PlaceShortOrderAsync(string symbol, decimal price, string signal, long timestamp, decimal? takeProfit = null, decimal? explicitStopLoss = null)
         {
-            await PlaceOrderAsync(symbol, price, false, signal, timestamp, takeProfit);
+            await PlaceOrderAsync(symbol, price, false, signal, timestamp, takeProfit, explicitStopLoss);
         }
 
     private async Task PlaceOrderAsync(string symbol, decimal price, bool isLong, string signal, long timestampEntry, 
-                    decimal? takeProfit = null, decimal? trailingActivationPercent = null, 
+                    decimal? takeProfit = null, decimal? explicitStopLoss = null, decimal? trailingActivationPercent = null, 
                     decimal? trailingCallbackPercent = null)
         {
             lock (_activeTrades)
@@ -327,7 +332,36 @@ namespace BinanceTestnet.Trading
             decimal stopLossPrice;
             decimal riskDistance;
 
-            if (takeProfit.HasValue)
+            // If an explicit stop loss is provided (e.g., POC), use it and derive TP to satisfy 2:1 RR unless a TP is explicitly provided.
+            if (explicitStopLoss.HasValue)
+            {
+                stopLossPrice = explicitStopLoss.Value;
+                if (isLong)
+                {
+                    riskDistance = price - stopLossPrice;
+                    if (takeProfit.HasValue)
+                    {
+                        takeProfitPrice = takeProfit.Value;
+                    }
+                    else
+                    {
+                        takeProfitPrice = price + 2m * riskDistance; // 2:1 RR
+                    }
+                }
+                else
+                {
+                    riskDistance = stopLossPrice - price;
+                    if (takeProfit.HasValue)
+                    {
+                        takeProfitPrice = takeProfit.Value;
+                    }
+                    else
+                    {
+                        takeProfitPrice = price - 2m * riskDistance; // 2:1 RR for shorts
+                    }
+                }
+            }
+            else if (takeProfit.HasValue)
             {
                 takeProfitPrice = takeProfit.Value;
                 riskDistance = takeProfitPrice - price;
@@ -339,7 +373,6 @@ namespace BinanceTestnet.Trading
                 if (_exitMode == ExitMode.PnLPct && _exitPnLPct.HasValue && _exitPnLPct.Value > 0)
                 {
                     var exitPct = _exitPnLPct.Value;
-                    // Derive SL percent from Risk-Reward ratio (RR). RR is stored in _stopLoss field.
                     var rrDivider = _stopLoss > 0 ? _stopLoss : 2.0m;
                     var slPercent = exitPct / rrDivider; // e.g. TP 5% and RR 2 => SL 2.5%
 
@@ -355,7 +388,6 @@ namespace BinanceTestnet.Trading
                     }
 
                     riskDistance = isLong ? takeProfitPrice - price : price - takeProfitPrice;
-                    // Provide default heuristics; may be overridden by UI
                     trailingActivationPercent = (riskDistance / 2) / price * 100;
                     trailingCallbackPercent = (riskDistance) / price * 100;
                 }
@@ -381,7 +413,6 @@ namespace BinanceTestnet.Trading
                     }
 
                     riskDistance = isLong ? takeProfitPrice - price : price - takeProfitPrice;
-                    // Provide default heuristics; may be overridden by UI
                     trailingActivationPercent = (riskDistance / 2) / price * 100;
                     trailingCallbackPercent = (riskDistance) / price * 100;
                 }

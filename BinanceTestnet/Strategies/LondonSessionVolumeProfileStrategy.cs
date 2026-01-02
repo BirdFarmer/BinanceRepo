@@ -1,0 +1,556 @@
+using BinanceTestnet.Models;
+using BinanceTestnet.Strategies.VolumeProfile;
+using BinanceTestnet.Enums;
+using RestSharp;
+using Newtonsoft.Json.Linq;
+using System.Globalization;
+using System;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Linq;
+using System.Threading.Tasks;
+using BinanceTestnet.Trading;
+
+namespace BinanceTestnet.Strategies
+{
+    public class LondonSessionVolumeProfileStrategy : StrategyBase, ISnapshotAwareStrategy
+    {
+        protected override bool SupportsClosedCandles => true;
+        public override int RequiredHistory => 400;
+
+        // Defaults (UTC) - may be overridden by user settings
+        private TimeSpan _sessionStart = TimeSpan.FromHours(8); // 08:00
+        private TimeSpan _sessionEnd = TimeSpan.FromHours(14).Add(TimeSpan.FromMinutes(30)); // 14:30
+        private decimal _valueAreaPct = 0.70m;
+        private string _breakCheckField = "Close"; // Close | High | Low
+        private bool _useOrderBookVap = true;
+        private bool _allowBothSides = false;
+        private int _limitExpiryMinutes = 60;
+        private int _buckets = 120;
+        private decimal _pocSanityPercent = 2.0m; // percent of session range
+
+        // Per-instance state
+        private DateTime _lastSessionDate = DateTime.MinValue;
+        private bool _longPlacedForSession = false;
+        private bool _shortPlacedForSession = false;
+        // Cache computed session profiles per-symbol to avoid FRVP jitter across cycles
+        private class SessionProfileCacheEntry
+        {
+            public DateTime SessionDate { get; set; }
+            public decimal LH { get; set; }
+            public decimal LL { get; set; }
+            public decimal POC { get; set; }
+            public decimal VAH { get; set; }
+            public decimal VAL { get; set; }
+        }
+        private readonly Dictionary<string, SessionProfileCacheEntry> _sessionProfileCache = new Dictionary<string, SessionProfileCacheEntry>(StringComparer.OrdinalIgnoreCase);
+        // Watchers for touch-to-enter behavior: when a breakout is detected we mark the symbol
+        // as LookingForLong/Short with a target price and expiry; a later candle that touches
+        // the target will execute a market entry.
+        private class EntryWatcher
+        {
+            public decimal Target { get; set; }
+            public bool IsLong { get; set; }
+            public DateTime Created { get; set; }
+            public DateTime Expiry { get; set; }
+            public long SignalTimestamp { get; set; }
+        }
+        // Shared, thread-safe watchers map so watchers survive strategy instance recreation
+        private static readonly ConcurrentDictionary<string, EntryWatcher> _watchers = new ConcurrentDictionary<string, EntryWatcher>(StringComparer.OrdinalIgnoreCase);
+        private decimal _scanDurationHours = 4.0m;
+        // Debug toggle (can be set by user settings)
+        private bool _enableDebug = false;
+
+        private void D(string msg)
+        {
+            if (_enableDebug) Console.WriteLine(msg);
+        }
+
+        public LondonSessionVolumeProfileStrategy(RestClient client, string apiKey, OrderManager orderManager, Wallet wallet) : base(client, apiKey, orderManager, wallet)
+        {
+            // Load user settings (if available) to override defaults
+            try
+            {
+                var dto = BinanceTestnet.Config.UserSettingsReader.Load();
+                if (dto != null)
+                {
+                    _breakCheckField = dto.LondonBreakCheck ?? _breakCheckField;
+                    if (TimeSpan.TryParse(dto.LondonSessionStart, out var ss)) _sessionStart = ss;
+                    if (TimeSpan.TryParse(dto.LondonSessionEnd, out var se)) _sessionEnd = se;
+                    if (dto.LondonValueAreaPercent > 0) _valueAreaPct = dto.LondonValueAreaPercent / 100m;
+                    _useOrderBookVap = dto.LondonUseOrderBookVap;
+                    _allowBothSides = dto.LondonAllowBothSides;
+                    _limitExpiryMinutes = dto.LondonLimitExpiryMinutes;
+                    if (dto.LondonBuckets > 0) _buckets = dto.LondonBuckets;
+                    if (dto.LondonPocSanityPercent > 0) _pocSanityPercent = dto.LondonPocSanityPercent;
+                    if (dto.LondonScanDurationHours > 0) _scanDurationHours = dto.LondonScanDurationHours;
+                    // Enable/disable verbose strategy logging
+                    _enableDebug = dto.LondonEnableDebug;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[London VP] Failed to load user settings: {ex.Message}");
+            }
+        }
+
+        public override async Task RunAsync(string symbol, string interval)
+        {
+            try
+            {
+                var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                {
+                    {"symbol", symbol},
+                    {"interval", interval},
+                    {"limit", "800"}
+                });
+
+                var response = await Client.ExecuteGetAsync(request);
+                if (response.IsSuccessful && response.Content != null)
+                {
+                    var klines = Helpers.StrategyUtils.ParseKlines(response.Content);
+                    if (klines != null && klines.Count > 0)
+                    {
+                        await ProcessKlinesAsync(symbol, klines);
+                    }
+                }
+                else
+                {
+                    HandleErrorResponse(symbol, response);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"London VP error for {symbol}: {ex.Message}");
+            }
+        }
+
+        public async Task RunAsyncWithSnapshot(string symbol, string interval, Dictionary<string, List<Kline>> snapshot)
+        {
+            try
+            {
+                List<Kline> klines = null;
+                if (snapshot != null && snapshot.TryGetValue(symbol, out var s) && s != null && s.Count > 0)
+                {
+                    klines = s;
+                }
+
+                if (klines == null)
+                {
+                    var request = Helpers.StrategyUtils.CreateGet("/fapi/v1/klines", new Dictionary<string,string>
+                    {
+                        {"symbol", symbol},
+                        {"interval", interval},
+                        {"limit", "800"}
+                    });
+
+                    var response = await Client.ExecuteGetAsync(request);
+                    if (response.IsSuccessful && response.Content != null)
+                    {
+                        klines = Helpers.StrategyUtils.ParseKlines(response.Content);
+                    }
+                    else
+                    {
+                        HandleErrorResponse(symbol, response);
+                        return;
+                    }
+                }
+
+                if (klines != null && klines.Count > 0)
+                {
+                    await ProcessKlinesAsync(symbol, klines);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"London VP snapshot error for {symbol}: {ex.Message}");
+            }
+        }
+
+        public override Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
+        {
+            // Not implemented for now (user requested live/paper first)
+            return Task.CompletedTask;
+        }
+
+        private async Task ProcessKlinesAsync(string symbol, List<Kline> klines)
+        {
+            // Determine session window using helper (handles previous-day when reference is before session start)
+            var latest = klines.Last();
+            var latestTime = DateTimeOffset.FromUnixTimeMilliseconds(latest.CloseTime).UtcDateTime;
+            var (sessionDate, sessionStart, sessionEnd) = BinanceTestnet.Strategies.Helpers.SessionTimeHelper.GetSessionWindow(latestTime, _sessionStart, _sessionEnd);
+
+            // Reset per-session state when moving to a new session day
+            if (_lastSessionDate.Date != sessionDate.Date)
+            {
+                _lastSessionDate = sessionDate;
+                _longPlacedForSession = false;
+                _shortPlacedForSession = false;
+            }
+
+            // Collect session klines between sessionStart (inclusive) and sessionEnd (inclusive)
+            var sessionKlines = klines.Where(k => {
+                var t = DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime;
+                return t >= sessionStart && t <= sessionEnd;
+            }).ToList();
+
+            D($"[London VP] Session window for {symbol}: {sessionStart:O} - {sessionEnd:O}. Collected {sessionKlines.Count} candles.");
+
+            if (sessionKlines == null || sessionKlines.Count == 0)
+            {
+                D($"[London VP] No session candles found for {symbol} on {sessionDate:yyyy-MM-dd}.");
+                return;
+            }
+
+            // Use cached session profile when available for this symbol+sessionDate to avoid
+            // small FRVP changes across cycles caused by variable kline windows.
+            SessionProfileCacheEntry cacheEntry = null;
+
+            // Declare variables up-front to avoid C# scope shadowing issues
+            decimal LH, LL, poc, vah, val;
+
+            if (_sessionProfileCache.TryGetValue(symbol, out var existingCache) && existingCache.SessionDate.Date == sessionDate.Date)
+            {
+                cacheEntry = existingCache;
+                D($"[London VP] Using cached session profile for {symbol} date={sessionDate:yyyy-MM-dd}");
+                LH = cacheEntry.LH;
+                LL = cacheEntry.LL;
+                poc = cacheEntry.POC;
+                vah = cacheEntry.VAH;
+                val = cacheEntry.VAL;
+            }
+            else
+            {
+                LH = sessionKlines.Max(k => k.High);
+                LL = sessionKlines.Min(k => k.Low);
+
+                // Compute fixed-range volume profile (FRVP) from session klines.
+                // Using FRVP as primary source (OHLCV-distribution). Order-book based approaches were deprecated.
+                var profile = FixedRangeVolumeProfileCalculator.BuildFromKlines(sessionKlines, buckets: _buckets, valueAreaPct: _valueAreaPct);
+                poc = profile.POC;
+                vah = profile.VAH;
+                val = profile.VAL;
+
+                D($"[London VP] Using FRVP for {symbol}: POC={poc} VAH={vah} VAL={val} (buckets={_buckets})");
+                D($"[London VP] {symbol} LH={LH} LL={LL} POC={poc} VAH={vah} VAL={val} (VA%={_valueAreaPct:P0})");
+
+                cacheEntry = new SessionProfileCacheEntry
+                {
+                    SessionDate = sessionDate,
+                    LH = LH,
+                    LL = LL,
+                    POC = poc,
+                    VAH = vah,
+                    VAL = val
+                };
+                _sessionProfileCache[symbol] = cacheEntry;
+            }
+
+            // POC sanity: if POC is significantly outside the session high/low, clamp it to session range.
+            try
+            {
+                var sessionRange = LH - LL;
+                if (sessionRange > 0)
+                {
+                    var margin = sessionRange * (_pocSanityPercent / 100m);
+                    if (poc < LL - margin || poc > LH + margin)
+                    {
+                        D($"[London VP] POC {poc} outside session range [{LL},{LH}] by >{_pocSanityPercent}% margin. Clamping to session range.");
+                        poc = Math.Min(Math.Max(poc, LL), LH);
+                    }
+                }
+            }
+            catch { /* non-fatal */ }
+
+            // Log kline time range for debugging
+            try
+            {
+                var firstK = klines.First();
+                var firstOpen = DateTimeOffset.FromUnixTimeMilliseconds(firstK.OpenTime).UtcDateTime;
+                var lastK = klines.Last();
+                var lastOpen = DateTimeOffset.FromUnixTimeMilliseconds(lastK.OpenTime).UtcDateTime;
+                var lastClose = DateTimeOffset.FromUnixTimeMilliseconds(lastK.CloseTime).UtcDateTime;
+                D($"[London VP] Klines for {symbol}: total={klines.Count}, firstOpen={firstOpen:O}, lastOpen={lastOpen:O}, lastClose={lastClose:O}");
+            }
+            catch { /* ignore logging errors */ }
+
+            // Scan all post-session candles (chronological) and trigger on the first close-based breakout.
+            var postSessionKlines = klines.Where(k => DateTimeOffset.FromUnixTimeMilliseconds(k.OpenTime).UtcDateTime > sessionEnd)
+                                        .OrderBy(k => k.OpenTime)
+                                        .ToList();
+
+            if (postSessionKlines == null || postSessionKlines.Count == 0)
+            {
+                // give more detail why none found
+                try
+                {
+                    var lastK = klines.Last();
+                    var lastClose = DateTimeOffset.FromUnixTimeMilliseconds(lastK.CloseTime).UtcDateTime;
+                    D($"[London VP] No post-session candle found for {symbol}. Latest kline close={lastClose:O}, sessionEnd={sessionEnd:O}");
+                }
+                catch { }
+                D($"[London VP] No post-session candles yet for {symbol}, waiting.");
+                return;
+            }
+
+            // If not allowing both sides, and one side already placed, skip entire symbol
+            if (!_allowBothSides && (_longPlacedForSession || _shortPlacedForSession))
+            {
+                D($"[London VP] Trade already placed this session for {symbol} (one-per-session), skipping.");
+                return;
+            }
+
+            // Only evaluate the most recent post-session candle (current candle).
+            var post = postSessionKlines.OrderBy(k => k.OpenTime).Last();
+            var postOpenTs = DateTimeOffset.FromUnixTimeMilliseconds(post.OpenTime).UtcDateTime;
+            var postCloseTs = DateTimeOffset.FromUnixTimeMilliseconds(post.CloseTime).UtcDateTime;
+            D($"[London VP] Evaluating current post-session candle for {symbol}: openTs={postOpenTs:O}, closeTs={postCloseTs:O}, O={post.Open}, H={post.High}, L={post.Low}, C={post.Close}, V={post.Volume}");
+
+            // Check for existing watcher (touch-to-enter) for this symbol and expire or trigger it
+            if (_watchers.TryGetValue(symbol, out var existingWatcher))
+            {
+                // If watcher expired, remove it
+                    if (postCloseTs > existingWatcher.Expiry)
+                {
+                    D($"[London VP] Watcher for {symbol} expired (target={existingWatcher.Target}) at {existingWatcher.Expiry:O}. Removing.");
+                    _watchers.TryRemove(symbol, out _);
+                }
+                else
+                {
+                    // Always emit compact watcher state each cycle for diagnostics
+                    try
+                    {
+                        var signalTime = DateTimeOffset.FromUnixTimeMilliseconds(existingWatcher.SignalTimestamp).UtcDateTime;
+                        D($"[London VP] WatcherState for {symbol}: target={existingWatcher.Target}, isLong={existingWatcher.IsLong}, signal={signalTime:O}, expiry={existingWatcher.Expiry:O}");
+                    }
+                    catch { }
+
+                    // Only trigger if this current candle is strictly later than the signal (require subsequent candle)
+                    var signalTimeCheck = DateTimeOffset.FromUnixTimeMilliseconds(existingWatcher.SignalTimestamp).UtcDateTime;
+                    if (postCloseTs > signalTimeCheck)
+                    {
+                        // Evaluate trigger and provide granular non-trigger reasons for debugging
+                        if (existingWatcher.IsLong)
+                        {
+                            // Trigger if the current candle's range includes the target (captures wicks and bodies)
+                            bool rangeIncludes = post.High >= existingWatcher.Target && post.Low <= existingWatcher.Target;
+                            if (rangeIncludes)
+                            {
+                                D($"[London VP] Current candle (after signal) RANGE-INCLUDE LONG trigger for {symbol} (high>={existingWatcher.Target} && low<={existingWatcher.Target}). Entering market.");
+                                try
+                                {
+                                    var entryPrice = post.Close;
+                                    var risk = Math.Abs(entryPrice - poc);
+                                    if (risk <= 0m)
+                                    {
+                                        D($"[London VP] Skipping LONG touch-entry for {symbol}: computed risk ({risk}) <= 0 (entry={entryPrice}, poc={poc}).");
+                                    }
+                                    else
+                                    {
+                                        await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, null, poc);
+                                        Console.WriteLine($"[London VP] Market LONG entered for {symbol} at approx {entryPrice} SL(POC)={poc}");
+                                        _longPlacedForSession = true;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"[London VP] Touch-entry error (LONG) for {symbol}: {ex.Message}");
+                                }
+                                _watchers.TryRemove(symbol, out _);
+                            }
+                            else
+                            {
+                                D($"[London VP] LONG watcher for {symbol} did not trigger: post.H={post.High}, post.L={post.Low}, target={existingWatcher.Target}");
+                            }
+                        }
+                        else
+                        {
+                            bool rangeIncludes = post.High >= existingWatcher.Target && post.Low <= existingWatcher.Target;
+                            if (rangeIncludes)
+                            {
+                                D($"[London VP] Current candle (after signal) RANGE-INCLUDE SHORT trigger for {symbol} (high>={existingWatcher.Target} && low<={existingWatcher.Target}). Entering market.");
+                                try
+                                {
+                                    var entryPrice = post.Close;
+                                    var risk = Math.Abs(entryPrice - poc);
+                                    if (risk <= 0m)
+                                    {
+                                        D($"[London VP] Skipping SHORT touch-entry for {symbol}: computed risk ({risk}) <= 0 (entry={entryPrice}, poc={poc}).");
+                                    }
+                                    else
+                                    {
+                                        await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, null, poc);
+                                        Console.WriteLine($"[London VP] Market SHORT entered for {symbol} at approx {entryPrice} SL(POC)={poc}");
+                                        _shortPlacedForSession = true;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"[London VP] Touch-entry error (SHORT) for {symbol}: {ex.Message}");
+                                }
+                                _watchers.TryRemove(symbol, out _);
+                            }
+                            else
+                            {
+                                D($"[London VP] SHORT watcher for {symbol} did not trigger: post.H={post.High}, post.L={post.Low}, target={existingWatcher.Target}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        D($"[London VP] Existing watcher for {symbol} present but current candle is not later than signal; skipping trigger.");
+                    }
+                }
+            }
+
+            // If we are already watching this symbol (watcher present and not expired), do not attempt new breakouts.
+            // This prevents creating duplicate triggers for the same breakout across successive cycles.
+            if (_watchers.ContainsKey(symbol))
+            {
+                D($"[London VP] Already watching {symbol}, skipping breakout detection for this cycle.");
+                return;
+            }
+
+            // If already placed during scanning by another thread/cycle, stop according to allowBothSides
+            if ((!_allowBothSides && (_longPlacedForSession || _shortPlacedForSession)) || (_allowBothSides && _longPlacedForSession && _shortPlacedForSession))
+            {
+                D($"[London VP] Trade placement state reached stop condition for {symbol}, skipping current candle.");
+                return;
+            }
+
+            // Determine breakout on the current candle only according to configured break-check field
+            bool isLongBreak = false;
+            bool isShortBreak = false;
+            switch ((_breakCheckField ?? "Close").ToLowerInvariant())
+            {
+                case "high":
+                    isLongBreak = post.High > LH;
+                    isShortBreak = post.Low < LL;
+                    break;
+                case "low":
+                    isLongBreak = post.Low > LH;
+                    isShortBreak = post.High < LL;
+                    break;
+                default:
+                    isLongBreak = post.Close > LH;
+                    isShortBreak = post.Close < LL;
+                    break;
+            }
+
+            // Long breakout: evaluate only for the current candle
+            if (isLongBreak && !_longPlacedForSession)
+            {
+                decimal longEntry = (LH + vah) / 2m;
+                long timestamp = post.CloseTime;
+                try
+                {
+                    var risk = Math.Abs(longEntry - poc);
+                        if (risk <= 0m)
+                        {
+                            D($"[London VP] Skipping LONG for {symbol}: computed risk ({risk}) <= 0 (entry={longEntry}, poc={poc}).");
+                        }
+                    else
+                    {
+                        // On breakout, do NOT enter on the same candle. Always create a watcher for subsequent touches.
+                        if (!_watchers.ContainsKey(symbol))
+                        {
+                            // Dump the last few post-session candles for debugging (helps find 11:51/11:52)
+                            try
+                            {
+                                const int dumpCount = 6;
+                                var recent = postSessionKlines.OrderBy(k => k.OpenTime).Skip(Math.Max(0, postSessionKlines.Count - dumpCount)).ToList();
+                                D($"[London VP] Dumping last {recent.Count} post-session candles for {symbol} (most recent last):");
+                                foreach (var ck in recent)
+                                {
+                                    var ot = DateTimeOffset.FromUnixTimeMilliseconds(ck.OpenTime).UtcDateTime;
+                                    D($"[London VP]  Candle {ot:O} O={ck.Open}, H={ck.High}, L={ck.Low}, C={ck.Close}, V={ck.Volume}");
+                                }
+                            }
+                            catch { }
+
+                            var watcher = new EntryWatcher
+                            {
+                                Target = longEntry,
+                                IsLong = true,
+                                Created = DateTime.UtcNow,
+                                Expiry = DateTime.UtcNow.AddHours((double)_scanDurationHours),
+                                SignalTimestamp = timestamp
+                            };
+                            _watchers[symbol] = watcher;
+                            D($"[London VP] LONG breakout detected for {symbol}. Watching for touch at {longEntry} until {watcher.Expiry:O}.");
+                        }
+                            else
+                            {
+                                D($"[London VP] LONG breakout for {symbol} ignored: already watching target {_watchers[symbol].Target}.");
+                            }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[London VP] Order error (LONG) for {symbol}: {ex.Message}");
+                }
+            }
+
+            // Short breakout: evaluate only for the current candle
+            if (isShortBreak && !_shortPlacedForSession)
+            {
+                decimal shortEntry = (LL + val) / 2m;
+                long timestamp = post.CloseTime;
+                try
+                {
+                    var risk = Math.Abs(shortEntry - poc);
+                        if (risk <= 0m)
+                        {
+                            D($"[London VP] Skipping SHORT for {symbol}: computed risk ({risk}) <= 0 (entry={shortEntry}, poc={poc}).");
+                        }
+                    else
+                    {
+                        // On breakout, do NOT enter on the same candle. Always create a watcher for subsequent touches.
+                        if (!_watchers.ContainsKey(symbol))
+                        {
+                            // Dump the last few post-session candles for debugging (helps find 11:51/11:52)
+                            try
+                            {
+                                const int dumpCount = 6;
+                                var recent = postSessionKlines.OrderBy(k => k.OpenTime).Skip(Math.Max(0, postSessionKlines.Count - dumpCount)).ToList();
+                                D($"[London VP] Dumping last {recent.Count} post-session candles for {symbol} (most recent last):");
+                                foreach (var ck in recent)
+                                {
+                                    var ot = DateTimeOffset.FromUnixTimeMilliseconds(ck.OpenTime).UtcDateTime;
+                                    D($"[London VP]  Candle {ot:O} O={ck.Open}, H={ck.High}, L={ck.Low}, C={ck.Close}, V={ck.Volume}");
+                                }
+                            }
+                            catch { }
+
+                            var watcher = new EntryWatcher
+                            {
+                                Target = shortEntry,
+                                IsLong = false,
+                                Created = DateTime.UtcNow,
+                                Expiry = DateTime.UtcNow.AddHours((double)_scanDurationHours),
+                                SignalTimestamp = timestamp
+                            };
+                            _watchers[symbol] = watcher;
+                            D($"[London VP] SHORT breakout detected for {symbol}. Watching for touch at {shortEntry} until {watcher.Expiry:O}.");
+                        }
+                        else
+                        {
+                            D($"[London VP] SHORT breakout for {symbol} ignored: already watching target {_watchers[symbol].Target}.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[London VP] Order error (SHORT) for {symbol}: {ex.Message}");
+                }
+            }
+        }
+
+        private void HandleErrorResponse(string symbol, RestResponse response)
+        {
+            Console.WriteLine($"Error for {symbol}: {response.ErrorMessage}");
+            Console.WriteLine($"Status Code: {response.StatusCode}");
+            Console.WriteLine($"Content: {response.Content}");
+        }
+    }
+}

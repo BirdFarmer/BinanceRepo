@@ -12,6 +12,29 @@ namespace TradingAppDesktop.Services
         // Strategy UI: selected strategy key (e.g. "HarmonicPattern")
         public string SelectedStrategy { get; set; } = "HarmonicPattern";
 
+        // London Session Volume Profile settings
+        // Which candle field triggers a breakout check: Close | High | Low
+        public string LondonBreakCheck { get; set; } = "Close";
+        // Session start and end times (UTC) in HH:mm format
+        public string LondonSessionStart { get; set; } = "08:00";
+        public string LondonSessionEnd { get; set; } = "14:30";
+        // How many hours after session end to scan for breaks (0.5 - 12)
+        public decimal LondonScanDurationHours { get; set; } = 4.0m;
+        // Value area percent used when computing VAH/VAL (50 - 90)
+        public decimal LondonValueAreaPercent { get; set; } = 70m;
+        // Number of buckets to use when computing FRVP from klines
+        public int LondonBuckets { get; set; } = 120;
+        // POC sanity margin percent relative to session range (if POC falls outside session range by more than this percent, clamp it)
+        public decimal LondonPocSanityPercent { get; set; } = 2.0m;
+        // Enable verbose debug logging for London Session strategy (true = verbose)
+        public bool LondonEnableDebug { get; set; } = false;
+        // Use order-book VAP when depth is available (works in Real and Paper if depth feed present)
+        public bool LondonUseOrderBookVap { get; set; } = true;
+        // Allow one trade per side per session (false = only one trade overall)
+        public bool LondonAllowBothSides { get; set; } = false;
+        // Limit order expiry in minutes (0 = no expiry)
+        public int LondonLimitExpiryMinutes { get; set; } = 60;
+
         // Harmonic pattern toggles (default: enabled)
         public bool HarmonicEnableGartley { get; set; } = true;
         public bool HarmonicEnableButterfly { get; set; } = true;
