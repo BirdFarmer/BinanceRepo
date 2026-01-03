@@ -179,6 +179,7 @@ namespace TradingAppDesktop.Views
                 ChkLondonAllowBothSides.IsChecked = settings.LondonAllowBothSides;
                 ChkLondonEnableDebug.IsChecked = settings.LondonEnableDebug;
                 TxtLondonLimitExpiry.Text = settings.LondonLimitExpiryMinutes.ToString();
+                TxtLondonMaxEntries.Text = settings.LondonMaxEntriesPerSidePerSession.ToString();
             }
             catch { }
 
@@ -238,6 +239,14 @@ namespace TradingAppDesktop.Views
                     settings.LondonLimitExpiryMinutes = v; _settingsService.Save();
                 }
                 else TxtLondonLimitExpiry.Text = settings.LondonLimitExpiryMinutes.ToString();
+            };
+
+            TxtLondonMaxEntries.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtLondonMaxEntries.Text, out var v) && v >= 1 && v <= 10)
+                {
+                    settings.LondonMaxEntriesPerSidePerSession = v; _settingsService.Save();
+                }
+                else TxtLondonMaxEntries.Text = settings.LondonMaxEntriesPerSidePerSession.ToString();
             };
 
             try

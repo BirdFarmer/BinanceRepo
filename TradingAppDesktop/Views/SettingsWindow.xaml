@@ -188,8 +188,10 @@
                                         <TextBlock Text="Allow Both Sides:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Allow one long and one short per session (true) or only one trade total (false)."/>
                                         <CheckBox x:Name="ChkLondonAllowBothSides" IsChecked="False" VerticalAlignment="Center" ToolTip="Allow one long and one short per session (true) or only one trade total (false)."/>
 
-                                        <TextBlock Text="Limit Expiry (min):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Limit order expiry in minutes (0 = no expiry)."/>
-                                        <TextBox x:Name="TxtLondonLimitExpiry" Width="120" Text="60" ToolTip="Limit order expiry in minutes (0 = no expiry)."/>
+                                        <TextBlock Text="Watcher expiry (min):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="How many minutes a watcher remains active after breakout signal (0 = no expiry)."/>
+                                        <TextBox x:Name="TxtLondonLimitExpiry" Width="120" Text="60" ToolTip="How many minutes a watcher remains active after breakout signal (0 = no expiry)."/>
+                                        <TextBlock Text="Max Entries / Side (per symbol):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Maximum MARKET entries allowed per side per symbol per session (1 = default)."/>
+                                        <TextBox x:Name="TxtLondonMaxEntries" Width="120" Text="1" ToolTip="Maximum MARKET entries allowed per side per symbol per session (1 = default)."/>
 
                                         <TextBlock Text="Enable London Debug:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Enable verbose debug logging for the London session strategy."/>
                                         <CheckBox x:Name="ChkLondonEnableDebug" IsChecked="False" VerticalAlignment="Center" ToolTip="Enable verbose debug logging for the London session strategy."/>

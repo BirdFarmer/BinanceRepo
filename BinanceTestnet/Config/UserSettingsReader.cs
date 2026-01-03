@@ -32,6 +32,8 @@ namespace BinanceTestnet.Config
         public decimal LondonPocSanityPercent { get; set; } = 2.0m;
         // Enable verbose debug logging for London Session strategy (true = verbose)
         public bool LondonEnableDebug { get; set; } = false;
+        // Maximum allowed entries per side (LONG/SHORT) per session. Default=1 (single entry).
+        public int LondonMaxEntriesPerSidePerSession { get; set; } = 1;
     }
 
     public static class UserSettingsReader

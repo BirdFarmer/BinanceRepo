@@ -32,7 +32,9 @@ namespace TradingAppDesktop.Services
         public bool LondonUseOrderBookVap { get; set; } = true;
         // Allow one trade per side per session (false = only one trade overall)
         public bool LondonAllowBothSides { get; set; } = false;
-        // Limit order expiry in minutes (0 = no expiry)
+        // Maximum allowed entries per side per symbol per session (1 = default)
+        public int LondonMaxEntriesPerSidePerSession { get; set; } = 1;
+        // Watcher expiry in minutes (how long a watcher stays active after breakout signal; 0 = no expiry)
         public int LondonLimitExpiryMinutes { get; set; } = 60;
 
         // Harmonic pattern toggles (default: enabled)

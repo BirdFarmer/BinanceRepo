@@ -31,8 +31,10 @@ namespace BinanceTestnet.Strategies
 
         // Per-instance state
         private DateTime _lastSessionDate = DateTime.MinValue;
-        private bool _longPlacedForSession = false;
-        private bool _shortPlacedForSession = false;
+        // Track how many entries we've placed this session per symbol/side (allows configuring >1)
+        private readonly ConcurrentDictionary<string, int> _longPlacedPerSymbol = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _shortPlacedPerSymbol = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private int _maxEntriesPerSidePerSession = 1;
         // Cache computed session profiles per-symbol to avoid FRVP jitter across cycles
         private class SessionProfileCacheEntry
         {
@@ -84,6 +86,7 @@ namespace BinanceTestnet.Strategies
                     if (dto.LondonBuckets > 0) _buckets = dto.LondonBuckets;
                     if (dto.LondonPocSanityPercent > 0) _pocSanityPercent = dto.LondonPocSanityPercent;
                     if (dto.LondonScanDurationHours > 0) _scanDurationHours = dto.LondonScanDurationHours;
+                    if (dto.LondonMaxEntriesPerSidePerSession > 0) _maxEntriesPerSidePerSession = dto.LondonMaxEntriesPerSidePerSession;
                     // Enable/disable verbose strategy logging
                     _enableDebug = dto.LondonEnableDebug;
                 }
@@ -184,8 +187,8 @@ namespace BinanceTestnet.Strategies
             if (_lastSessionDate.Date != sessionDate.Date)
             {
                 _lastSessionDate = sessionDate;
-                _longPlacedForSession = false;
-                _shortPlacedForSession = false;
+                _longPlacedPerSymbol.Clear();
+                _shortPlacedPerSymbol.Clear();
             }
 
             // Collect session klines between sessionStart (inclusive) and sessionEnd (inclusive)
@@ -293,12 +296,9 @@ namespace BinanceTestnet.Strategies
                 return;
             }
 
-            // If not allowing both sides, and one side already placed, skip entire symbol
-            if (!_allowBothSides && (_longPlacedForSession || _shortPlacedForSession))
-            {
-                D($"[London VP] Trade already placed this session for {symbol} (one-per-session), skipping.");
-                return;
-            }
+            // If not allowing both sides, and one side already placed (global per-session), skip entire symbol
+                // Note: Per-symbol limits and allow-both-sides behavior are enforced when creating watchers below.
+                // We do not skip scanning other symbols here.
 
             // Only evaluate the most recent post-session candle (current candle).
             var post = postSessionKlines.OrderBy(k => k.OpenTime).Last();
@@ -349,7 +349,7 @@ namespace BinanceTestnet.Strategies
                                     {
                                         await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, null, poc);
                                         Console.WriteLine($"[London VP] Market LONG entered for {symbol} at approx {entryPrice} SL(POC)={poc}");
-                                        _longPlacedForSession = true;
+                                        _longPlacedPerSymbol.AddOrUpdate(symbol, 1, (_, old) => old + 1);
                                     }
                                 }
                                 catch (Exception ex)
@@ -381,7 +381,7 @@ namespace BinanceTestnet.Strategies
                                     {
                                         await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, null, poc);
                                         Console.WriteLine($"[London VP] Market SHORT entered for {symbol} at approx {entryPrice} SL(POC)={poc}");
-                                        _shortPlacedForSession = true;
+                                        _shortPlacedPerSymbol.AddOrUpdate(symbol, 1, (_, old) => old + 1);
                                     }
                                 }
                                 catch (Exception ex)
@@ -411,12 +411,7 @@ namespace BinanceTestnet.Strategies
                 return;
             }
 
-            // If already placed during scanning by another thread/cycle, stop according to allowBothSides
-            if ((!_allowBothSides && (_longPlacedForSession || _shortPlacedForSession)) || (_allowBothSides && _longPlacedForSession && _shortPlacedForSession))
-            {
-                D($"[London VP] Trade placement state reached stop condition for {symbol}, skipping current candle.");
-                return;
-            }
+            // No global stop; per-symbol limits and allow-both-sides are enforced below when creating watchers.
 
             // Determine breakout on the current candle only according to configured break-check field
             bool isLongBreak = false;
@@ -438,51 +433,64 @@ namespace BinanceTestnet.Strategies
             }
 
             // Long breakout: evaluate only for the current candle
-            if (isLongBreak && !_longPlacedForSession)
+            if (isLongBreak)
             {
                 decimal longEntry = (LH + vah) / 2m;
                 long timestamp = post.CloseTime;
                 try
                 {
                     var risk = Math.Abs(longEntry - poc);
-                        if (risk <= 0m)
-                        {
-                            D($"[London VP] Skipping LONG for {symbol}: computed risk ({risk}) <= 0 (entry={longEntry}, poc={poc}).");
-                        }
+                    if (risk <= 0m)
+                    {
+                        D($"[London VP] Skipping LONG for {symbol}: computed risk ({risk}) <= 0 (entry={longEntry}, poc={poc}).");
+                    }
                     else
                     {
-                        // On breakout, do NOT enter on the same candle. Always create a watcher for subsequent touches.
-                        if (!_watchers.ContainsKey(symbol))
+                        var currentLongs = _longPlacedPerSymbol.TryGetValue(symbol, out var lc) ? lc : 0;
+                        var currentShorts = _shortPlacedPerSymbol.TryGetValue(symbol, out var sc) ? sc : 0;
+                        if (!_allowBothSides && currentShorts > 0)
                         {
-                            // Dump the last few post-session candles for debugging (helps find 11:51/11:52)
-                            try
-                            {
-                                const int dumpCount = 6;
-                                var recent = postSessionKlines.OrderBy(k => k.OpenTime).Skip(Math.Max(0, postSessionKlines.Count - dumpCount)).ToList();
-                                D($"[London VP] Dumping last {recent.Count} post-session candles for {symbol} (most recent last):");
-                                foreach (var ck in recent)
-                                {
-                                    var ot = DateTimeOffset.FromUnixTimeMilliseconds(ck.OpenTime).UtcDateTime;
-                                    D($"[London VP]  Candle {ot:O} O={ck.Open}, H={ck.High}, L={ck.Low}, C={ck.Close}, V={ck.Volume}");
-                                }
-                            }
-                            catch { }
-
-                            var watcher = new EntryWatcher
-                            {
-                                Target = longEntry,
-                                IsLong = true,
-                                Created = DateTime.UtcNow,
-                                Expiry = DateTime.UtcNow.AddHours((double)_scanDurationHours),
-                                SignalTimestamp = timestamp
-                            };
-                            _watchers[symbol] = watcher;
-                            D($"[London VP] LONG breakout detected for {symbol}. Watching for touch at {longEntry} until {watcher.Expiry:O}.");
+                            D($"[London VP] LONG breakout ignored for {symbol}: allowBothSides=false and short already placed for this symbol.");
                         }
+                        else if (currentLongs >= _maxEntriesPerSidePerSession)
+                        {
+                            D($"[London VP] LONG breakout ignored for {symbol}: reached per-symbol long cap ({currentLongs}/{_maxEntriesPerSidePerSession}).");
+                        }
+                        else
+                        {
+                            // On breakout, do NOT enter on the same candle. Always create a watcher for subsequent touches.
+                            if (!_watchers.ContainsKey(symbol))
+                            {
+                                // Dump the last few post-session candles for debugging (helps find 11:51/11:52)
+                                try
+                                {
+                                    const int dumpCount = 6;
+                                    var recent = postSessionKlines.OrderBy(k => k.OpenTime).Skip(Math.Max(0, postSessionKlines.Count - dumpCount)).ToList();
+                                    D($"[London VP] Dumping last {recent.Count} post-session candles for {symbol} (most recent last):");
+                                    foreach (var ck in recent)
+                                    {
+                                        var ot = DateTimeOffset.FromUnixTimeMilliseconds(ck.OpenTime).UtcDateTime;
+                                        D($"[London VP]  Candle {ot:O} O={ck.Open}, H={ck.High}, L={ck.Low}, C={ck.Close}, V={ck.Volume}");
+                                    }
+                                }
+                                catch { }
+
+                                var watcher = new EntryWatcher
+                                {
+                                    Target = longEntry,
+                                    IsLong = true,
+                                    Created = DateTime.UtcNow,
+                                    Expiry = DateTime.UtcNow.AddHours((double)_scanDurationHours),
+                                    SignalTimestamp = timestamp
+                                };
+                                _watchers[symbol] = watcher;
+                                D($"[London VP] LONG breakout detected for {symbol}. Watching for touch at {longEntry} until {watcher.Expiry:O}.");
+                            }
                             else
                             {
                                 D($"[London VP] LONG breakout for {symbol} ignored: already watching target {_watchers[symbol].Target}.");
                             }
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -492,7 +500,7 @@ namespace BinanceTestnet.Strategies
             }
 
             // Short breakout: evaluate only for the current candle
-            if (isShortBreak && !_shortPlacedForSession)
+            if (isShortBreak)
             {
                 decimal shortEntry = (LL + val) / 2m;
                 long timestamp = post.CloseTime;
@@ -505,9 +513,21 @@ namespace BinanceTestnet.Strategies
                         }
                     else
                     {
+                        var currentShorts = _shortPlacedPerSymbol.TryGetValue(symbol, out var sc2) ? sc2 : 0;
+                        var currentLongs2 = _longPlacedPerSymbol.TryGetValue(symbol, out var lc2) ? lc2 : 0;
                         // On breakout, do NOT enter on the same candle. Always create a watcher for subsequent touches.
                         if (!_watchers.ContainsKey(symbol))
                         {
+                            if (!_allowBothSides && currentLongs2 > 0)
+                            {
+                                D($"[London VP] SHORT breakout ignored for {symbol}: allowBothSides=false and long already placed for this symbol.");
+                            }
+                            else if (currentShorts >= _maxEntriesPerSidePerSession)
+                            {
+                                D($"[London VP] SHORT breakout ignored for {symbol}: reached per-symbol short cap ({currentShorts}/{_maxEntriesPerSidePerSession}).");
+                            }
+                            else
+                            {
                             // Dump the last few post-session candles for debugging (helps find 11:51/11:52)
                             try
                             {
@@ -532,6 +552,7 @@ namespace BinanceTestnet.Strategies
                             };
                             _watchers[symbol] = watcher;
                             D($"[London VP] SHORT breakout detected for {symbol}. Watching for touch at {shortEntry} until {watcher.Expiry:O}.");
+                            }
                         }
                         else
                         {
