@@ -172,8 +172,188 @@ namespace BinanceTestnet.Strategies
 
         public override Task RunOnHistoricalDataAsync(IEnumerable<Kline> historicalData)
         {
-            // Not implemented for now (user requested live/paper first)
-            return Task.CompletedTask;
+            // Backtest runner (per-symbol). This mirrors live behaviour but forces FRVP
+            // as the source of POC/VAH/VAL and uses watcher expiry from settings (minutes).
+            return RunHistoricalAsyncInternal(historicalData);
+        }
+
+        private async Task RunHistoricalAsyncInternal(IEnumerable<Kline> historicalData)
+        {
+            var klines = historicalData?.OrderBy(k => k.OpenTime).ToList();
+            if (klines == null || klines.Count == 0) return;
+
+            string symbol = klines.First().Symbol ?? "";
+
+            // Local per-backtest state (do not touch static runtime watchers)
+            var localWatchers = new Dictionary<string, EntryWatcher>(StringComparer.OrdinalIgnoreCase);
+            int longPlaced = 0;
+            int shortPlaced = 0;
+
+            // Helper to get DateTime from kline
+            DateTime KlineCloseUtc(Kline k) => DateTimeOffset.FromUnixTimeMilliseconds(k.CloseTime).UtcDateTime;
+
+            // Build session windows over the date range
+            var firstDate = KlineCloseUtc(klines.First()).Date.AddDays(-1);
+            var lastDate = KlineCloseUtc(klines.Last()).Date.AddDays(1);
+
+            for (var d = firstDate; d <= lastDate; d = d.AddDays(1))
+            {
+                // compute the canonical session window for this date
+                var reference = d.Add(_sessionEnd);
+                var (sessionDate, sessionStart, sessionEnd) = BinanceTestnet.Strategies.Helpers.SessionTimeHelper.GetSessionWindow(reference, _sessionStart, _sessionEnd);
+
+                // collect session candles
+                var sessionKlines = klines.Where(k => {
+                    var t = KlineCloseUtc(k);
+                    return t >= sessionStart && t <= sessionEnd;
+                }).ToList();
+
+                if (sessionKlines == null || sessionKlines.Count == 0) continue;
+
+                // compute FRVP from session candles (force FRVP)
+                var profile = FixedRangeVolumeProfileCalculator.BuildFromKlines(sessionKlines, buckets: _buckets, valueAreaPct: _valueAreaPct);
+                var poc = profile.POC;
+                var vah = profile.VAH;
+                var val = profile.VAL;
+                var LH = sessionKlines.Max(k => k.High);
+                var LL = sessionKlines.Min(k => k.Low);
+
+                // Prepare all post-session candles (chronological) from the whole klines list
+                var postSessionKlines = klines.Where(k => KlineCloseUtc(k) > sessionEnd).OrderBy(k => k.OpenTime).ToList();
+                if (postSessionKlines == null || postSessionKlines.Count == 0) continue;
+
+                // iterate through post-session candles, creating watchers on breakout and firing on later touches
+                foreach (var post in postSessionKlines)
+                {
+                    var postClose = KlineCloseUtc(post);
+
+                    // expire existing watcher if present
+                    if (localWatchers.TryGetValue(symbol, out var existingWatcher))
+                    {
+                        if (existingWatcher.Expiry != DateTime.MaxValue && postClose > existingWatcher.Expiry)
+                        {
+                            localWatchers.Remove(symbol);
+                        }
+                        else
+                        {
+                            // Only trigger on subsequent candles (postClose > signal time)
+                            var signalTime = DateTimeOffset.FromUnixTimeMilliseconds(existingWatcher.SignalTimestamp).UtcDateTime;
+                            if (postClose > signalTime)
+                            {
+                                bool rangeIncludes = post.High >= existingWatcher.Target && post.Low <= existingWatcher.Target;
+                                if (rangeIncludes)
+                                {
+                                    // Execute market entry at this candle's Close and set SL=POC, TP=2:1 RR
+                                    var entryPrice = post.Close;
+                                    var risk = Math.Abs(entryPrice - poc);
+                                    if (risk > 0m)
+                                    {
+                                        if (existingWatcher.IsLong)
+                                        {
+                                            var tp = entryPrice + 2m * risk;
+                                            // OrderManager.PlaceLongOrderAsync(signature: symbol, price, signal, timestamp, takeProfit=null, explicitStopLoss=null)
+                                            await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
+                                            longPlaced++;
+                                        }
+                                        else
+                                        {
+                                            var tp = entryPrice - 2m * risk;
+                                            // For shorts, takeProfit is lower than entry while explicitStopLoss is POC
+                                            await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
+                                            shortPlaced++;
+                                        }
+                                    }
+
+                                    localWatchers.Remove(symbol);
+                                }
+                            }
+                        }
+                    }
+
+                    // If we're already watching this symbol, continue (don't create duplicate watcher)
+                    if (localWatchers.ContainsKey(symbol))
+                    {
+                        // still call check/close to advance any open trades
+                        var prices = new Dictionary<string, decimal> { { symbol, post.Close } };
+                        await OrderManager.CheckAndCloseTrades(prices, post.CloseTime);
+                        continue;
+                    }
+
+                    // Create new watcher on breakout condition (current post candle only)
+                    bool isLongBreak = false;
+                    bool isShortBreak = false;
+                    switch ((_breakCheckField ?? "Close").ToLowerInvariant())
+                    {
+                        case "high":
+                            isLongBreak = post.High > LH;
+                            isShortBreak = post.Low < LL;
+                            break;
+                        case "low":
+                            isLongBreak = post.Low > LH;
+                            isShortBreak = post.High < LL;
+                            break;
+                        default:
+                            isLongBreak = post.Close > LH;
+                            isShortBreak = post.Close < LL;
+                            break;
+                    }
+
+                    // Respect per-symbol caps (we're per-symbol so these are simple counters)
+                    if (isLongBreak)
+                    {
+                        if (!_allowBothSides && shortPlaced > 0)
+                        {
+                            // don't create long if a short already placed and both-sides not allowed
+                        }
+                        else if (longPlaced >= _maxEntriesPerSidePerSession)
+                        {
+                            // reached per-symbol cap
+                        }
+                        else
+                        {
+                            var longEntry = (LH + vah) / 2m;
+                            var watcher = new EntryWatcher
+                            {
+                                Target = longEntry,
+                                IsLong = true,
+                                Created = postClose,
+                                Expiry = (_limitExpiryMinutes <= 0) ? DateTime.MaxValue : postClose.AddMinutes(_limitExpiryMinutes),
+                                SignalTimestamp = post.CloseTime
+                            };
+                            localWatchers[symbol] = watcher;
+                        }
+                    }
+
+                    if (isShortBreak)
+                    {
+                        if (!_allowBothSides && longPlaced > 0)
+                        {
+                            // don't create short if a long already placed and both-sides not allowed
+                        }
+                        else if (shortPlaced >= _maxEntriesPerSidePerSession)
+                        {
+                            // reached per-symbol cap
+                        }
+                        else
+                        {
+                            var shortEntry = (LL + val) / 2m;
+                            var watcher = new EntryWatcher
+                            {
+                                Target = shortEntry,
+                                IsLong = false,
+                                Created = postClose,
+                                Expiry = (_limitExpiryMinutes <= 0) ? DateTime.MaxValue : postClose.AddMinutes(_limitExpiryMinutes),
+                                SignalTimestamp = post.CloseTime
+                            };
+                            localWatchers[symbol] = watcher;
+                        }
+                    }
+
+                    // Always advance trade checks for this candle
+                    var currentPrices = new Dictionary<string, decimal> { { symbol, post.Close } };
+                    await OrderManager.CheckAndCloseTrades(currentPrices, post.CloseTime);
+                }
+            }
         }
 
         private async Task ProcessKlinesAsync(string symbol, List<Kline> klines)

@@ -225,19 +225,7 @@ namespace TradingAppDesktop
             TimeFrameComboBox.ItemsSource = timeFrames;
             TimeFrameComboBox.SelectedIndex = 1; // Default to 5m
 
-            // Enable/disable Real-only strategies based on current operation mode selection
-            try
-            {
-                var currentMode = OperationModeComboBox.SelectedItem is OperationMode m ? m : OperationMode.LivePaperTrading;
-                // Allow LondonSessionVolumeProfile in LiveRealTrading and LivePaperTrading (FRVP-based implementation works in paper)
-                bool allowLondonInMode = currentMode == OperationMode.LiveRealTrading || currentMode == OperationMode.LivePaperTrading;
-                StrategySelector.SetStrategyEnabled(
-                    SelectedTradingStrategy.LondonSessionVolumeProfile,
-                    allowLondonInMode,
-                    allowLondonInMode ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
-                );
-            }
-            catch { }
+
         }
 
         private void LoadAndApplyStrategyInsights()
@@ -483,17 +471,7 @@ namespace TradingAppDesktop
                     }
                 }
                 catch { /* non-fatal UI update */ }
-                // Update enable/disable state for Real-only strategies when operation mode changes
-                try
-                {
-                    bool isLive = mode == OperationMode.LiveRealTrading;
-                    StrategySelector.SetStrategyEnabled(
-                        SelectedTradingStrategy.LondonSessionVolumeProfile,
-                        isLive,
-                        isLive ? null : "Real-only strategy (uses order book data). Switch to Live Real to enable."
-                    );
-                }
-                catch { }
+
             }
             //ValidateInputs();
         }
