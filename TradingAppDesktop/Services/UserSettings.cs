@@ -36,6 +36,10 @@ namespace TradingAppDesktop.Services
         public int LondonMaxEntriesPerSidePerSession { get; set; } = 1;
         // Watcher expiry in minutes (how long a watcher stays active after breakout signal; 0 = no expiry)
         public int LondonLimitExpiryMinutes { get; set; } = 60;
+        // When true, use session POC as the explicit stop-loss for London entries. If false, global/main-window risk settings are used.
+        public bool LondonUsePocAsStop { get; set; } = true;
+        // When using POC as stop, multiply the stop->entry distance by this ratio to compute TP (TP = entry +/- (entry-POC)*LondonPocRiskRatio).
+        public decimal LondonPocRiskRatio { get; set; } = 2.0m;
 
         // Harmonic pattern toggles (default: enabled)
         public bool HarmonicEnableGartley { get; set; } = true;

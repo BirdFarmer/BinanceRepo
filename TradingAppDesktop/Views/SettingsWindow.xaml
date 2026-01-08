@@ -190,6 +190,13 @@
 
                                         <TextBlock Text="Watcher expiry (min):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="How many minutes a watcher remains active after breakout signal (0 = no expiry)."/>
                                         <TextBox x:Name="TxtLondonLimitExpiry" Width="120" Text="60" ToolTip="How many minutes a watcher remains active after breakout signal (0 = no expiry)."/>
+                                        <TextBlock Text="Use POC as Stop:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="When enabled, stop is set to session POC and TP computed using the POC Risk Ratio."/>
+                                        <CheckBox x:Name="ChkLondonUsePocStop" IsChecked="True" VerticalAlignment="Center" ToolTip="When enabled, stop is set to session POC and TP computed using the POC Risk Ratio."/>
+                                        <TextBlock Text="POC Risk Ratio:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="When using POC as stop, multiply the stop->entry distance by this ratio to compute TP (0.5 - 10)."/>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Slider x:Name="SldLondonPocRiskRatio" Minimum="0.5" Maximum="10" Value="2.0" SmallChange="0.1" LargeChange="0.5" Width="160" ToolTip="POC Risk Ratio: multiplies the stop->entry distance to compute TP." />
+                                            <TextBox x:Name="TxtLondonPocRiskRatioValue" Width="64" Margin="8,0,0,0" Text="2.0" ToolTip="Numeric display for POC Risk Ratio."/>
+                                        </StackPanel>
                                         <TextBlock Text="Max Entries / Side (per symbol):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="Maximum MARKET entries allowed per side per symbol per session (1 = default)."/>
                                         <TextBox x:Name="TxtLondonMaxEntries" Width="120" Text="1" ToolTip="Maximum MARKET entries allowed per side per symbol per session (1 = default)."/>
 

@@ -180,6 +180,15 @@ namespace TradingAppDesktop.Views
                 ChkLondonEnableDebug.IsChecked = settings.LondonEnableDebug;
                 TxtLondonLimitExpiry.Text = settings.LondonLimitExpiryMinutes.ToString();
                 TxtLondonMaxEntries.Text = settings.LondonMaxEntriesPerSidePerSession.ToString();
+                // New POC stop settings
+                try
+                {
+                    ChkLondonUsePocStop.IsChecked = settings.LondonUsePocAsStop;
+                    SldLondonPocRiskRatio.Value = (double)settings.LondonPocRiskRatio;
+                    TxtLondonPocRiskRatioValue.Text = settings.LondonPocRiskRatio.ToString(CultureInfo.InvariantCulture);
+                    SldLondonPocRiskRatio.IsEnabled = settings.LondonUsePocAsStop;
+                }
+                catch { }
             }
             catch { }
 
@@ -247,6 +256,28 @@ namespace TradingAppDesktop.Views
                     settings.LondonMaxEntriesPerSidePerSession = v; _settingsService.Save();
                 }
                 else TxtLondonMaxEntries.Text = settings.LondonMaxEntriesPerSidePerSession.ToString();
+            };
+
+            // Wire POC stop checkbox + slider
+            ChkLondonUsePocStop.Checked += (s, ev) => { settings.LondonUsePocAsStop = true; SldLondonPocRiskRatio.IsEnabled = true; _settingsService.Save(); };
+            ChkLondonUsePocStop.Unchecked += (s, ev) => { settings.LondonUsePocAsStop = false; SldLondonPocRiskRatio.IsEnabled = false; _settingsService.Save(); };
+
+            SldLondonPocRiskRatio.ValueChanged += (s, ev) => {
+                try
+                {
+                    var v = (decimal)SldLondonPocRiskRatio.Value;
+                    TxtLondonPocRiskRatioValue.Text = v.ToString(CultureInfo.InvariantCulture);
+                    settings.LondonPocRiskRatio = v; _settingsService.Save();
+                }
+                catch { }
+            };
+
+            TxtLondonPocRiskRatioValue.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtLondonPocRiskRatioValue.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec >= 0.5m && dec <= 10m)
+                {
+                    settings.LondonPocRiskRatio = dec; SldLondonPocRiskRatio.Value = (double)dec; _settingsService.Save();
+                }
+                else TxtLondonPocRiskRatioValue.Text = settings.LondonPocRiskRatio.ToString(CultureInfo.InvariantCulture);
             };
 
             try

@@ -62,6 +62,9 @@ namespace BinanceTestnet.Strategies
         private decimal _scanDurationHours = 4.0m;
         // Debug toggle (can be set by user settings)
         private bool _enableDebug = false;
+        // Whether to use session POC as explicit stop, and the risk ratio used to compute TP when POC is used.
+        private bool _usePocAsStop = true;
+        private decimal _pocRiskRatio = 2.0m;
 
         private void D(string msg)
         {
@@ -87,6 +90,8 @@ namespace BinanceTestnet.Strategies
                     if (dto.LondonPocSanityPercent > 0) _pocSanityPercent = dto.LondonPocSanityPercent;
                     if (dto.LondonScanDurationHours > 0) _scanDurationHours = dto.LondonScanDurationHours;
                     if (dto.LondonMaxEntriesPerSidePerSession > 0) _maxEntriesPerSidePerSession = dto.LondonMaxEntriesPerSidePerSession;
+                    if (dto.LondonUsePocAsStop == false) _usePocAsStop = false;
+                    if (dto.LondonPocRiskRatio > 0) _pocRiskRatio = dto.LondonPocRiskRatio;
                     // Enable/disable verbose strategy logging
                     _enableDebug = dto.LondonEnableDebug;
                 }
@@ -250,16 +255,28 @@ namespace BinanceTestnet.Strategies
                                     {
                                         if (existingWatcher.IsLong)
                                         {
-                                            var tp = entryPrice + 2m * risk;
-                                            // OrderManager.PlaceLongOrderAsync(signature: symbol, price, signal, timestamp, takeProfit=null, explicitStopLoss=null)
-                                            await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
+                                            if (_usePocAsStop)
+                                            {
+                                                var tp = entryPrice + _pocRiskRatio * risk;
+                                                await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
+                                            }
+                                            else
+                                            {
+                                                await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime);
+                                            }
                                             longPlaced++;
                                         }
                                         else
                                         {
-                                            var tp = entryPrice - 2m * risk;
-                                            // For shorts, takeProfit is lower than entry while explicitStopLoss is POC
-                                            await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
+                                            if (_usePocAsStop)
+                                            {
+                                                var tp = entryPrice - _pocRiskRatio * risk;
+                                                await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
+                                            }
+                                            else
+                                            {
+                                                await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime);
+                                            }
                                             shortPlaced++;
                                         }
                                     }
@@ -527,7 +544,15 @@ namespace BinanceTestnet.Strategies
                                     }
                                     else
                                     {
-                                        await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, null, poc);
+                                        if (_usePocAsStop)
+                                        {
+                                            var tp = entryPrice + _pocRiskRatio * risk;
+                                            await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, tp, poc);
+                                        }
+                                        else
+                                        {
+                                            await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime);
+                                        }
                                         Console.WriteLine($"[London VP] Market LONG entered for {symbol} at approx {entryPrice} SL(POC)={poc}");
                                         _longPlacedPerSymbol.AddOrUpdate(symbol, 1, (_, old) => old + 1);
                                     }
@@ -559,8 +584,16 @@ namespace BinanceTestnet.Strategies
                                     }
                                     else
                                     {
-                                        await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, null, poc);
-                                        Console.WriteLine($"[London VP] Market SHORT entered for {symbol} at approx {entryPrice} SL(POC)={poc}");
+                                            if (_usePocAsStop)
+                                            {
+                                                var tp = entryPrice - _pocRiskRatio * risk;
+                                                await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, tp, poc);
+                                            }
+                                            else
+                                            {
+                                                await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime);
+                                            }
+                                            Console.WriteLine($"[London VP] Market SHORT entered for {symbol} at approx {entryPrice} SL(POC)={poc}");
                                         _shortPlacedPerSymbol.AddOrUpdate(symbol, 1, (_, old) => old + 1);
                                     }
                                 }
