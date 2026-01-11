@@ -180,6 +180,7 @@ namespace TradingAppDesktop.Views
                 ChkLondonEnableDebug.IsChecked = settings.LondonEnableDebug;
                 TxtLondonLimitExpiry.Text = settings.LondonLimitExpiryMinutes.ToString();
                 TxtLondonMaxEntries.Text = settings.LondonMaxEntriesPerSidePerSession.ToString();
+                ChkLondonAllowEntriesAfterScanWindow.IsChecked = settings.LondonAllowEntriesAfterScanWindow;
                 // New POC stop settings
                 try
                 {
@@ -241,6 +242,9 @@ namespace TradingAppDesktop.Views
 
             ChkLondonEnableDebug.Checked += (s, ev) => { settings.LondonEnableDebug = true; _settingsService.Save(); };
             ChkLondonEnableDebug.Unchecked += (s, ev) => { settings.LondonEnableDebug = false; _settingsService.Save(); };
+
+            ChkLondonAllowEntriesAfterScanWindow.Checked += (s, ev) => { settings.LondonAllowEntriesAfterScanWindow = true; _settingsService.Save(); };
+            ChkLondonAllowEntriesAfterScanWindow.Unchecked += (s, ev) => { settings.LondonAllowEntriesAfterScanWindow = false; _settingsService.Save(); };
 
             TxtLondonLimitExpiry.LostFocus += (s, ev) => {
                 if (int.TryParse(TxtLondonLimitExpiry.Text, out var v) && v >= 0 && v <= 1440)

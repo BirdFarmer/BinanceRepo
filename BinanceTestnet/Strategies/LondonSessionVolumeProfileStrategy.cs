@@ -65,6 +65,9 @@ namespace BinanceTestnet.Strategies
         // Whether to use session POC as explicit stop, and the risk ratio used to compute TP when POC is used.
         private bool _usePocAsStop = true;
         private decimal _pocRiskRatio = 2.0m;
+        // When false, do not allow entries triggered after sessionEnd + _scanDurationHours.
+        // When true (default), existing watchers may still execute after the scan window.
+        private bool _allowEntriesAfterScanWindow = true;
 
         private void D(string msg)
         {
@@ -92,6 +95,7 @@ namespace BinanceTestnet.Strategies
                     if (dto.LondonMaxEntriesPerSidePerSession > 0) _maxEntriesPerSidePerSession = dto.LondonMaxEntriesPerSidePerSession;
                     if (dto.LondonUsePocAsStop == false) _usePocAsStop = false;
                     if (dto.LondonPocRiskRatio > 0) _pocRiskRatio = dto.LondonPocRiskRatio;
+                    if (dto.LondonAllowEntriesAfterScanWindow == false) _allowEntriesAfterScanWindow = false;
                     // Enable/disable verbose strategy logging
                     _enableDebug = dto.LondonEnableDebug;
                 }
@@ -231,6 +235,8 @@ namespace BinanceTestnet.Strategies
                 foreach (var post in postSessionKlines)
                 {
                     var postClose = KlineCloseUtc(post);
+                    // compute cutoff for allowing new watchers/triggers: sessionEnd + scanDurationHours
+                    var scanCutoff = sessionEnd.AddHours((double)_scanDurationHours);
 
                     // expire existing watcher if present
                     if (localWatchers.TryGetValue(symbol, out var existingWatcher))
@@ -243,6 +249,15 @@ namespace BinanceTestnet.Strategies
                         {
                             // Only trigger on subsequent candles (postClose > signal time)
                             var signalTime = DateTimeOffset.FromUnixTimeMilliseconds(existingWatcher.SignalTimestamp).UtcDateTime;
+                            // If we are past the configured scan cutoff and entries after scan window are disabled,
+                            // stop this watcher and skip triggering.
+                            if (postClose > scanCutoff && !_allowEntriesAfterScanWindow)
+                            {
+                                D($"[London VP] Post-session time {postClose:O} is after scan cutoff {scanCutoff:O} and entries after scan window are disabled. Removing watcher for {symbol}.");
+                                localWatchers.Remove(symbol);
+                                continue;
+                            }
+
                             if (postClose > signalTime)
                             {
                                 bool rangeIncludes = post.High >= existingWatcher.Target && post.Low <= existingWatcher.Target;
@@ -293,6 +308,17 @@ namespace BinanceTestnet.Strategies
                         // still call check/close to advance any open trades
                         var prices = new Dictionary<string, decimal> { { symbol, post.Close } };
                         await OrderManager.CheckAndCloseTrades(prices, post.CloseTime);
+                        continue;
+                    }
+
+                    // If this post-session candle is past the configured scan window, skip creating new watchers
+                    var postScanCutoff = sessionEnd.AddHours((double)_scanDurationHours);
+                    if (postClose > postScanCutoff)
+                    {
+                        D($"[London VP] Post-session candle {postClose:O} is after sessionEnd+scanDuration ({postScanCutoff:O}); skipping watcher creation for {symbol}.");
+                        // still advance trade checks for this candle and move on
+                        var pricesSkip = new Dictionary<string, decimal> { { symbol, post.Close } };
+                        await OrderManager.CheckAndCloseTrades(pricesSkip, post.CloseTime);
                         continue;
                     }
 
@@ -503,6 +529,9 @@ namespace BinanceTestnet.Strategies
             var postCloseTs = DateTimeOffset.FromUnixTimeMilliseconds(post.CloseTime).UtcDateTime;
             D($"[London VP] Evaluating current post-session candle for {symbol}: openTs={postOpenTs:O}, closeTs={postCloseTs:O}, O={post.Open}, H={post.High}, L={post.Low}, C={post.Close}, V={post.Volume}");
 
+            // Compute cutoff for allowing new watchers/triggers: sessionEnd + scanDurationHours
+            var scanCutoff = sessionEnd.AddHours((double)_scanDurationHours);
+
             // Check for existing watcher (touch-to-enter) for this symbol and expire or trigger it
             if (_watchers.TryGetValue(symbol, out var existingWatcher))
             {
@@ -521,6 +550,15 @@ namespace BinanceTestnet.Strategies
                         D($"[London VP] WatcherState for {symbol}: target={existingWatcher.Target}, isLong={existingWatcher.IsLong}, signal={signalTime:O}, expiry={existingWatcher.Expiry:O}");
                     }
                     catch { }
+
+                    // If we are past the configured scan cutoff and entries after scan window are disabled,
+                    // remove the watcher and skip further processing.
+                    if (postCloseTs > scanCutoff && !_allowEntriesAfterScanWindow)
+                    {
+                        D($"[London VP] Post-session time {postCloseTs:O} is after scan cutoff {scanCutoff:O} and entries after scan window are disabled. Removing watcher for {symbol}.");
+                        _watchers.TryRemove(symbol, out _);
+                        return;
+                    }
 
                     // Only trigger if this current candle is strictly later than the signal (require subsequent candle)
                     var signalTimeCheck = DateTimeOffset.FromUnixTimeMilliseconds(existingWatcher.SignalTimestamp).UtcDateTime;
@@ -643,6 +681,13 @@ namespace BinanceTestnet.Strategies
                     isLongBreak = post.Close > LH;
                     isShortBreak = post.Close < LL;
                     break;
+            }
+
+            // If this post-session candle is past the configured scan window, skip creating new watchers
+            if (postCloseTs > scanCutoff)
+            {
+                D($"[London VP] Post-session candle {postCloseTs:O} is after sessionEnd+scanDuration ({scanCutoff:O}); skipping watcher creation for {symbol}.");
+                return;
             }
 
             // Long breakout: evaluate only for the current candle

@@ -38,6 +38,9 @@ namespace BinanceTestnet.Config
         public bool LondonUsePocAsStop { get; set; } = true;
         // When using POC as stop, multiply the stop->entry distance by this ratio to compute TP (TP = entry +/- (entry-POC)*LondonPocRiskRatio).
         public decimal LondonPocRiskRatio { get; set; } = 2.0m;
+        // When false, do not allow entries triggered after sessionEnd + LondonScanDurationHours.
+        // When true (default), existing watchers may still execute after the scan window.
+        public bool LondonAllowEntriesAfterScanWindow { get; set; } = true;
     }
 
     public static class UserSettingsReader

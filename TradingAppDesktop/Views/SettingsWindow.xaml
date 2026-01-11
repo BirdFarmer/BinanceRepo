@@ -190,10 +190,12 @@
 
                                         <TextBlock Text="Watcher expiry (min):" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="How many minutes a watcher remains active after breakout signal (0 = no expiry)."/>
                                         <TextBox x:Name="TxtLondonLimitExpiry" Width="120" Text="60" ToolTip="How many minutes a watcher remains active after breakout signal (0 = no expiry)."/>
+                                        <TextBlock Text="Allow entries after scan window:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="When unchecked, entries (including existing watchers) will be prevented after session end + Scan Duration."/>
+                                        <CheckBox x:Name="ChkLondonAllowEntriesAfterScanWindow" IsChecked="True" VerticalAlignment="Center" ToolTip="When unchecked, entries (including existing watchers) will be prevented after session end + Scan Duration."/>
                                         <TextBlock Text="Use POC as Stop:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="When enabled, stop is set to session POC and TP computed using the POC Risk Ratio."/>
                                         <CheckBox x:Name="ChkLondonUsePocStop" IsChecked="True" VerticalAlignment="Center" ToolTip="When enabled, stop is set to session POC and TP computed using the POC Risk Ratio."/>
-                                        <TextBlock Text="POC Risk Ratio:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="When using POC as stop, multiply the stop->entry distance by this ratio to compute TP (0.5 - 10)."/>
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="POC Risk Ratio:" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryForeground}" ToolTip="When using POC as stop, multiply the stop->entry distance by this ratio to compute TP (0.5 - 10)." IsEnabled="{Binding IsChecked, ElementName=ChkLondonUsePocStop}"/>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" IsEnabled="{Binding IsChecked, ElementName=ChkLondonUsePocStop}">
                                             <Slider x:Name="SldLondonPocRiskRatio" Minimum="0.5" Maximum="10" Value="2.0" SmallChange="0.1" LargeChange="0.5" Width="160" ToolTip="POC Risk Ratio: multiplies the stop->entry distance to compute TP." />
                                             <TextBox x:Name="TxtLondonPocRiskRatioValue" Width="64" Margin="8,0,0,0" Text="2.0" ToolTip="Numeric display for POC Risk Ratio."/>
                                         </StackPanel>
