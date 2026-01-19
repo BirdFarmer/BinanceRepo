@@ -216,6 +216,17 @@ namespace TradingAppDesktop.Services
             _sessionId = GenerateSessionId();
             _logger.LogInformation($"New trading session ID: {_sessionId}");
 
+            // Clear any leftover in-memory London strategy state (watchers/counters)
+            try
+            {
+                BinanceTestnet.Strategies.LondonSessionVolumeProfileStrategy.ClearInMemorySessionState();
+                _logger.LogDebug("Cleared LondonSessionVolumeProfileStrategy in-memory watchers/counters before starting session.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear LondonSessionVolumeProfileStrategy in-memory state before start");
+            }
+
             // Fetch API Keys
             var (apiKey, apiSecret) = GetApiKeys();
             if (string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(apiSecret))
@@ -405,6 +416,17 @@ namespace TradingAppDesktop.Services
                 try { _cancellationTokenSource?.Cancel(); } catch {}
                 try { _cancellationTokenSource?.Dispose(); } catch {}
                 _cancellationTokenSource = null;
+            }
+
+            // Also clear any in-memory strategy watchers/counters on stop to avoid stale state
+            try
+            {
+                BinanceTestnet.Strategies.LondonSessionVolumeProfileStrategy.ClearInMemorySessionState();
+                _logger.LogDebug("Cleared LondonSessionVolumeProfileStrategy in-memory watchers/counters after session.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear LondonSessionVolumeProfileStrategy in-memory state after stop");
             }
 
             _logger.LogInformation("Trading session completed");

@@ -32,8 +32,9 @@ namespace BinanceTestnet.Strategies
         // Per-instance state
         private DateTime _lastSessionDate = DateTime.MinValue;
         // Track how many entries we've placed this session per symbol/side (allows configuring >1)
-        private readonly ConcurrentDictionary<string, int> _longPlacedPerSymbol = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        private readonly ConcurrentDictionary<string, int> _shortPlacedPerSymbol = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        // Make these static so the counters survive strategy instance recreation (watchers are static already).
+        private static readonly ConcurrentDictionary<string, int> _longPlacedPerSymbol = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, int> _shortPlacedPerSymbol = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private int _maxEntriesPerSidePerSession = 1;
         // Cache computed session profiles per-symbol to avoid FRVP jitter across cycles
         private class SessionProfileCacheEntry
@@ -44,6 +45,29 @@ namespace BinanceTestnet.Strategies
             public decimal POC { get; set; }
             public decimal VAH { get; set; }
             public decimal VAL { get; set; }
+        }
+
+        // Public helper to clear in-memory session state (watchers and per-symbol counters).
+        // Intended to be called by external orchestration (start/stop) to ensure no stale
+        // watchers survive between runs or after runtime config changes.
+        public static void ClearInMemorySessionState()
+        {
+            try
+            {
+                // Clear watchers
+                foreach (var key in _watchers.Keys.ToList())
+                {
+                    _watchers.TryRemove(key, out _);
+                }
+
+                // Clear placement counters
+                _longPlacedPerSymbol.Clear();
+                _shortPlacedPerSymbol.Clear();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[London VP] Failed to clear in-memory session state: {ex.Message}");
+            }
         }
         private readonly Dictionary<string, SessionProfileCacheEntry> _sessionProfileCache = new Dictionary<string, SessionProfileCacheEntry>(StringComparer.OrdinalIgnoreCase);
         // Watchers for touch-to-enter behavior: when a breakout is detected we mark the symbol
@@ -364,6 +388,7 @@ namespace BinanceTestnet.Strategies
                                 SignalTimestamp = post.CloseTime
                             };
                             localWatchers[symbol] = watcher;
+                            D($"[London VP] [Backtest] LONG watcher created for {symbol}: LH={LH}, VAH={vah}, POC={poc}, target={longEntry}, expiry={watcher.Expiry:O}");
                         }
                     }
 
@@ -389,6 +414,7 @@ namespace BinanceTestnet.Strategies
                                 SignalTimestamp = post.CloseTime
                             };
                             localWatchers[symbol] = watcher;
+                            D($"[London VP] [Backtest] SHORT watcher created for {symbol}: LL={LL}, VAL={val}, POC={poc}, target={shortEntry}, expiry={watcher.Expiry:O}");
                         }
                     }
 
@@ -489,15 +515,15 @@ namespace BinanceTestnet.Strategies
             catch { /* non-fatal */ }
 
             // Log kline time range for debugging
-            try
-            {
-                var firstK = klines.First();
-                var firstOpen = DateTimeOffset.FromUnixTimeMilliseconds(firstK.OpenTime).UtcDateTime;
-                var lastK = klines.Last();
-                var lastOpen = DateTimeOffset.FromUnixTimeMilliseconds(lastK.OpenTime).UtcDateTime;
-                var lastClose = DateTimeOffset.FromUnixTimeMilliseconds(lastK.CloseTime).UtcDateTime;
-                D($"[London VP] Klines for {symbol}: total={klines.Count}, firstOpen={firstOpen:O}, lastOpen={lastOpen:O}, lastClose={lastClose:O}");
-            }
+                try
+                {
+                    var firstK = klines.First();
+                    var firstOpen = DateTimeOffset.FromUnixTimeMilliseconds(firstK.OpenTime).UtcDateTime;
+                    var lastK = klines.Last();
+                    var lastOpen = DateTimeOffset.FromUnixTimeMilliseconds(lastK.OpenTime).UtcDateTime;
+                    var lastClose = DateTimeOffset.FromUnixTimeMilliseconds(lastK.CloseTime).UtcDateTime;
+                    D($"[London VP] Klines for {symbol}: total={klines.Count}, firstOpen={firstOpen:yyyy-MM-ddTHH:mm'Z'}, lastOpen={lastOpen:yyyy-MM-ddTHH:mm'Z'}, lastClose={lastClose:yyyy-MM-ddTHH:mm'Z'}");
+                }
             catch { /* ignore logging errors */ }
 
             // Scan all post-session candles (chronological) and trigger on the first close-based breakout.
@@ -527,7 +553,7 @@ namespace BinanceTestnet.Strategies
             var post = postSessionKlines.OrderBy(k => k.OpenTime).Last();
             var postOpenTs = DateTimeOffset.FromUnixTimeMilliseconds(post.OpenTime).UtcDateTime;
             var postCloseTs = DateTimeOffset.FromUnixTimeMilliseconds(post.CloseTime).UtcDateTime;
-            D($"[London VP] Evaluating current post-session candle for {symbol}: openTs={postOpenTs:O}, closeTs={postCloseTs:O}, O={post.Open}, H={post.High}, L={post.Low}, C={post.Close}, V={post.Volume}");
+            D($"[London VP] Evaluating current post-session candle for {symbol}: openTs={postOpenTs:yyyy-MM-ddTHH:mm'Z'}, closeTs={postCloseTs:yyyy-MM-ddTHH:mm'Z'}, O={post.Open}, H={post.High}, L={post.Low}, C={post.Close}, V={post.Volume}");
 
             // Compute cutoff for allowing new watchers/triggers: sessionEnd + scanDurationHours
             var scanCutoff = sessionEnd.AddHours((double)_scanDurationHours);
@@ -544,12 +570,15 @@ namespace BinanceTestnet.Strategies
                 else
                 {
                     // Always emit compact watcher state each cycle for diagnostics
+                    DateTime signalTime;
                     try
                     {
-                        var signalTime = DateTimeOffset.FromUnixTimeMilliseconds(existingWatcher.SignalTimestamp).UtcDateTime;
-                        D($"[London VP] WatcherState for {symbol}: target={existingWatcher.Target}, isLong={existingWatcher.IsLong}, signal={signalTime:O}, expiry={existingWatcher.Expiry:O}");
+                        signalTime = DateTimeOffset.FromUnixTimeMilliseconds(existingWatcher.SignalTimestamp).UtcDateTime;
                     }
-                    catch { }
+                    catch
+                    {
+                        signalTime = DateTime.MinValue;
+                    }
 
                     // If we are past the configured scan cutoff and entries after scan window are disabled,
                     // remove the watcher and skip further processing.
@@ -603,7 +632,7 @@ namespace BinanceTestnet.Strategies
                             }
                             else
                             {
-                                D($"[London VP] LONG watcher for {symbol} did not trigger: post.H={post.High}, post.L={post.Low}, target={existingWatcher.Target}");
+                                D($"[London VP] LONG watcher for {symbol} did not trigger: post.H={post.High}, post.L={post.Low}, target={existingWatcher.Target}, created={(signalTime==DateTime.MinValue?"n/a":signalTime.ToString("yyyy-MM-ddTHH:mm'Z'"))}, expiry={existingWatcher.Expiry:yyyy-MM-ddTHH:mm'Z'}");
                             }
                         }
                         else
@@ -643,7 +672,7 @@ namespace BinanceTestnet.Strategies
                             }
                             else
                             {
-                                D($"[London VP] SHORT watcher for {symbol} did not trigger: post.H={post.High}, post.L={post.Low}, target={existingWatcher.Target}");
+                                D($"[London VP] SHORT watcher for {symbol} did not trigger: post.H={post.High}, post.L={post.Low}, target={existingWatcher.Target}, created={(signalTime==DateTime.MinValue?"n/a":signalTime.ToString("yyyy-MM-ddTHH:mm'Z'"))}, expiry={existingWatcher.Expiry:yyyy-MM-ddTHH:mm'Z'}");
                             }
                         }
                     }
@@ -742,7 +771,7 @@ namespace BinanceTestnet.Strategies
                                     SignalTimestamp = timestamp
                                 };
                                 _watchers[symbol] = watcher;
-                                D($"[London VP] LONG breakout detected for {symbol}. Watching for touch at {longEntry} until {watcher.Expiry:O}.");
+                                D($"[London VP] LONG breakout detected for {symbol}. LH={LH}, VAH={vah}, POC={poc}, target={longEntry}. Watching for touch until {watcher.Expiry:O}.");
                             }
                             else
                             {
@@ -809,7 +838,7 @@ namespace BinanceTestnet.Strategies
                                 SignalTimestamp = timestamp
                             };
                             _watchers[symbol] = watcher;
-                            D($"[London VP] SHORT breakout detected for {symbol}. Watching for touch at {shortEntry} until {watcher.Expiry:O}.");
+                            D($"[London VP] SHORT breakout detected for {symbol}. LL={LL}, VAL={val}, POC={poc}, target={shortEntry}. Watching for touch until {watcher.Expiry:O}.");
                             }
                         }
                         else
