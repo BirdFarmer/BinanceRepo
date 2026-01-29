@@ -1,8 +1,8 @@
 {
-  "Strategy": "FibonacciRetracement",
+  "Strategy": "EmaCrossoverVolume",
   "Strategies": null,
   "Timeframes": [
-    "5m"
+    "1m"
   ],
   "SymbolSets": {
     "1": [
@@ -60,13 +60,13 @@
       "RiskProfiles": [
         {
           "Name": "4",
-          "TpMultiplier": 4.0,
+          "TpMultiplier": 7.0,
           "RiskDivider": 1.0,
           "SlMultiplier": null
         },
         {
           "Name": "2",
-          "TpMultiplier": 2.0,
+          "TpMultiplier": 5.0,
           "RiskDivider": 1.0,
           "SlMultiplier": null
         }

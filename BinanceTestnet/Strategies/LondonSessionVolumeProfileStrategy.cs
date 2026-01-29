@@ -86,8 +86,7 @@ namespace BinanceTestnet.Strategies
         private decimal _scanDurationHours = 4.0m;
         // Debug toggle (can be set by user settings)
         private bool _enableDebug = false;
-        // Whether to use session POC as explicit stop, and the risk ratio used to compute TP when POC is used.
-        private bool _usePocAsStop = true;
+        // The risk ratio used to compute TP when using POC as stop.
         private decimal _pocRiskRatio = 2.0m;
         // When false, do not allow entries triggered after sessionEnd + _scanDurationHours.
         // When true (default), existing watchers may still execute after the scan window.
@@ -117,8 +116,9 @@ namespace BinanceTestnet.Strategies
                     if (dto.LondonPocSanityPercent > 0) _pocSanityPercent = dto.LondonPocSanityPercent;
                     if (dto.LondonScanDurationHours > 0) _scanDurationHours = dto.LondonScanDurationHours;
                     if (dto.LondonMaxEntriesPerSidePerSession > 0) _maxEntriesPerSidePerSession = dto.LondonMaxEntriesPerSidePerSession;
-                    if (dto.LondonUsePocAsStop == false) _usePocAsStop = false;
                     if (dto.LondonPocRiskRatio > 0) _pocRiskRatio = dto.LondonPocRiskRatio;
+                    // Seed the runtime flag so strategies running in this process will pick up the persisted value.
+                    BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop = dto.LondonUsePocAsStop;
                     if (dto.LondonAllowEntriesAfterScanWindow == false) _allowEntriesAfterScanWindow = false;
                     // Enable/disable verbose strategy logging
                     _enableDebug = dto.LondonEnableDebug;
@@ -294,20 +294,20 @@ namespace BinanceTestnet.Strategies
                                     {
                                         if (existingWatcher.IsLong)
                                         {
-                                            if (_usePocAsStop)
-                                            {
-                                                var tp = entryPrice + _pocRiskRatio * risk;
-                                                await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
-                                            }
-                                            else
-                                            {
-                                                await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime);
-                                            }
+                                                if (BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop)
+                                                {
+                                                    var tp = entryPrice + _pocRiskRatio * risk;
+                                                    await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
+                                                }
+                                                else
+                                                {
+                                                    await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime);
+                                                }
                                             longPlaced++;
                                         }
                                         else
                                         {
-                                            if (_usePocAsStop)
+                                            if (BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop)
                                             {
                                                 var tp = entryPrice - _pocRiskRatio * risk;
                                                 await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - Backtest", post.CloseTime, tp, poc);
@@ -611,7 +611,7 @@ namespace BinanceTestnet.Strategies
                                     }
                                     else
                                     {
-                                        if (_usePocAsStop)
+                                        if (BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop)
                                         {
                                             var tp = entryPrice + _pocRiskRatio * risk;
                                             await OrderManager.PlaceLongOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, tp, poc);
@@ -651,7 +651,7 @@ namespace BinanceTestnet.Strategies
                                     }
                                     else
                                     {
-                                            if (_usePocAsStop)
+                                            if (BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop)
                                             {
                                                 var tp = entryPrice - _pocRiskRatio * risk;
                                                 await OrderManager.PlaceShortOrderAsync(symbol, entryPrice, "London VP - TouchEntry", post.CloseTime, tp, poc);

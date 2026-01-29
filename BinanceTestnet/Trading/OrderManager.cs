@@ -332,6 +332,9 @@ namespace BinanceTestnet.Trading
             decimal stopLossPrice;
             decimal riskDistance;
 
+            // Track whether caller provided an explicit stop loss (e.g., London POC)
+            bool explicitSLProvided = explicitStopLoss.HasValue;
+
             // If an explicit stop loss is provided (e.g., POC), use it and derive TP to satisfy 2:1 RR unless a TP is explicitly provided.
             if (explicitStopLoss.HasValue)
             {
@@ -419,7 +422,7 @@ namespace BinanceTestnet.Trading
             }
 
             // If trailing is replacing TP, derive activation percent using ATR/Price and SL using RR divider
-            if (_replaceTakeProfitWithTrailing)
+            if (_replaceTakeProfitWithTrailing && !explicitSLProvided)
             {
                 // Compute activation percent from ATR/Price if possible
                 decimal? derivedActivationPct = null;
@@ -545,7 +548,8 @@ namespace BinanceTestnet.Trading
             );
             
             // Set trailing simulation parameters on the trade (used in paper/backtest; harmless in live)
-            if (_replaceTakeProfitWithTrailing)
+            // Do not enable trailing simulation for trades where the strategy explicitly provided an SL.
+            if (_replaceTakeProfitWithTrailing && !explicitSLProvided)
             {
                 var activationPctLocal = Math.Abs(trailingActivationPercent ?? _trailingActivationPercentOverride ?? 1.0m);
                 var callbackPctLocal = Math.Abs(_trailingCallbackPercentOverride ?? trailingCallbackPercent ?? 1.0m);
@@ -581,10 +585,7 @@ namespace BinanceTestnet.Trading
 
             if (_operationMode == OperationMode.LiveRealTrading)
             {
-                await PlaceRealOrdersAsync(trade, trailingActivationPercent, trailingCallbackPercent);
-                // Console.WriteLine($"Trade {trade.Symbol} - TP: {takeProfitPrice}, SL: {stopLossPrice}, " +
-                //                 $"Liq: {liquidationPrice}, Qty: {quantity}, " +
-                //                 $"Trailing Act%: {trailingActivationPercent}, Callback%: {trailingCallbackPercent}");
+                await PlaceRealOrdersAsync(trade, trailingActivationPercent, trailingCallbackPercent, explicitSLProvided);
             }
             else
             {
@@ -1048,7 +1049,7 @@ namespace BinanceTestnet.Trading
             _wallet = wallet;
         }
 
-        private async Task PlaceRealOrdersAsync(Trade trade, decimal? trailingActivationPercent, decimal? trailingCallbackPercent)
+        private async Task PlaceRealOrdersAsync(Trade trade, decimal? trailingActivationPercent, decimal? trailingCallbackPercent, bool explicitStopLossProvided)
         {
             string? apiKey = Environment.GetEnvironmentVariable("BINANCE_API_KEY");
             string? secretKey = Environment.GetEnvironmentVariable("BINANCE_API_SECRET");            
@@ -1161,7 +1162,7 @@ namespace BinanceTestnet.Trading
                     decimal tickSize = GetTickSize(trade.Symbol);
                     decimal roundedTakeProfitPrice = Math.Floor(trade.TakeProfit / tickSize) * tickSize;
                     string takeProfitPriceString = roundedTakeProfitPrice.ToString($"F{pricePrecision}", CultureInfo.InvariantCulture);
-                    if (_replaceTakeProfitWithTrailing)
+                    if (_replaceTakeProfitWithTrailing && !explicitStopLossProvided)
                     {
                         // IMPORTANT: activation override is an ATR multiplier, not a percent.
                         // We already derived activationPercent earlier in PlaceOrderAsync based on ATR/Price.

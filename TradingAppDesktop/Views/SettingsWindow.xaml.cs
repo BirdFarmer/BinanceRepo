@@ -263,8 +263,8 @@ namespace TradingAppDesktop.Views
             };
 
             // Wire POC stop checkbox + slider
-            ChkLondonUsePocStop.Checked += (s, ev) => { settings.LondonUsePocAsStop = true; SldLondonPocRiskRatio.IsEnabled = true; _settingsService.Save(); };
-            ChkLondonUsePocStop.Unchecked += (s, ev) => { settings.LondonUsePocAsStop = false; SldLondonPocRiskRatio.IsEnabled = false; _settingsService.Save(); };
+            ChkLondonUsePocStop.Checked += (s, ev) => { settings.LondonUsePocAsStop = true; SldLondonPocRiskRatio.IsEnabled = true; _settingsService.Save(); BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop = true; };
+            ChkLondonUsePocStop.Unchecked += (s, ev) => { settings.LondonUsePocAsStop = false; SldLondonPocRiskRatio.IsEnabled = false; _settingsService.Save(); BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop = false; };
 
             SldLondonPocRiskRatio.ValueChanged += (s, ev) => {
                 try
