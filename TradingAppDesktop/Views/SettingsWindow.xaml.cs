@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -154,6 +155,134 @@ namespace TradingAppDesktop.Views
             {
                 CandlePatternPanel.Visibility = Visibility.Visible;
             }
+
+            // Initialize London panel controls from persisted settings
+            try
+            {
+                // Break check
+                var breakValue = settings.LondonBreakCheck ?? "Close";
+                foreach (var it in CboLondonBreakCheck.Items)
+                {
+                    if (it is ComboBoxItem cbi && (cbi.Content as string) == breakValue)
+                    {
+                        CboLondonBreakCheck.SelectedItem = it; break;
+                    }
+                }
+
+                // Session start/end
+                TxtLondonSessionStart.Text = settings.LondonSessionStart ?? "08:00";
+                TxtLondonSessionEnd.Text = settings.LondonSessionEnd ?? "14:30";
+
+                TxtLondonScanDuration.Text = settings.LondonScanDurationHours.ToString(CultureInfo.InvariantCulture);
+                TxtLondonValueArea.Text = settings.LondonValueAreaPercent.ToString(CultureInfo.InvariantCulture);
+                ChkLondonUseOrderBook.IsChecked = settings.LondonUseOrderBookVap;
+                ChkLondonAllowBothSides.IsChecked = settings.LondonAllowBothSides;
+                ChkLondonEnableDebug.IsChecked = settings.LondonEnableDebug;
+                TxtLondonLimitExpiry.Text = settings.LondonLimitExpiryMinutes.ToString();
+                TxtLondonMaxEntries.Text = settings.LondonMaxEntriesPerSidePerSession.ToString();
+                ChkLondonAllowEntriesAfterScanWindow.IsChecked = settings.LondonAllowEntriesAfterScanWindow;
+                // New POC stop settings
+                try
+                {
+                    ChkLondonUsePocStop.IsChecked = settings.LondonUsePocAsStop;
+                    SldLondonPocRiskRatio.Value = (double)settings.LondonPocRiskRatio;
+                    TxtLondonPocRiskRatioValue.Text = settings.LondonPocRiskRatio.ToString(CultureInfo.InvariantCulture);
+                    SldLondonPocRiskRatio.IsEnabled = settings.LondonUsePocAsStop;
+                }
+                catch { }
+            }
+            catch { }
+
+            // Wire London controls to persist
+            CboLondonBreakCheck.SelectionChanged += (s, ev) => {
+                if (CboLondonBreakCheck.SelectedItem is ComboBoxItem cbi)
+                {
+                    settings.LondonBreakCheck = cbi.Content as string ?? settings.LondonBreakCheck;
+                    _settingsService.Save();
+                }
+            };
+
+            TxtLondonScanDuration.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtLondonScanDuration.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec >= 0.5m && dec <= 12m)
+                {
+                    settings.LondonScanDurationHours = dec; _settingsService.Save();
+                }
+                else TxtLondonScanDuration.Text = settings.LondonScanDurationHours.ToString(CultureInfo.InvariantCulture);
+            };
+
+            TxtLondonSessionStart.LostFocus += (s, ev) => {
+                if (TimeSpan.TryParse(TxtLondonSessionStart.Text, CultureInfo.InvariantCulture, out var t))
+                {
+                    settings.LondonSessionStart = t.ToString("hh\\:mm"); _settingsService.Save();
+                }
+                else TxtLondonSessionStart.Text = settings.LondonSessionStart;
+            };
+
+            TxtLondonSessionEnd.LostFocus += (s, ev) => {
+                if (TimeSpan.TryParse(TxtLondonSessionEnd.Text, CultureInfo.InvariantCulture, out var t))
+                {
+                    settings.LondonSessionEnd = t.ToString("hh\\:mm"); _settingsService.Save();
+                }
+                else TxtLondonSessionEnd.Text = settings.LondonSessionEnd;
+            };
+
+            TxtLondonValueArea.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtLondonValueArea.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec >= 50m && dec <= 90m)
+                {
+                    settings.LondonValueAreaPercent = dec; _settingsService.Save();
+                }
+                else TxtLondonValueArea.Text = settings.LondonValueAreaPercent.ToString(CultureInfo.InvariantCulture);
+            };
+
+            ChkLondonUseOrderBook.Checked += (s, ev) => { settings.LondonUseOrderBookVap = true; _settingsService.Save(); };
+            ChkLondonUseOrderBook.Unchecked += (s, ev) => { settings.LondonUseOrderBookVap = false; _settingsService.Save(); };
+
+            ChkLondonAllowBothSides.Checked += (s, ev) => { settings.LondonAllowBothSides = true; _settingsService.Save(); };
+            ChkLondonAllowBothSides.Unchecked += (s, ev) => { settings.LondonAllowBothSides = false; _settingsService.Save(); };
+
+            ChkLondonEnableDebug.Checked += (s, ev) => { settings.LondonEnableDebug = true; _settingsService.Save(); };
+            ChkLondonEnableDebug.Unchecked += (s, ev) => { settings.LondonEnableDebug = false; _settingsService.Save(); };
+
+            ChkLondonAllowEntriesAfterScanWindow.Checked += (s, ev) => { settings.LondonAllowEntriesAfterScanWindow = true; _settingsService.Save(); };
+            ChkLondonAllowEntriesAfterScanWindow.Unchecked += (s, ev) => { settings.LondonAllowEntriesAfterScanWindow = false; _settingsService.Save(); };
+
+            TxtLondonLimitExpiry.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtLondonLimitExpiry.Text, out var v) && v >= 0 && v <= 1440)
+                {
+                    settings.LondonLimitExpiryMinutes = v; _settingsService.Save();
+                }
+                else TxtLondonLimitExpiry.Text = settings.LondonLimitExpiryMinutes.ToString();
+            };
+
+            TxtLondonMaxEntries.LostFocus += (s, ev) => {
+                if (int.TryParse(TxtLondonMaxEntries.Text, out var v) && v >= 1 && v <= 10)
+                {
+                    settings.LondonMaxEntriesPerSidePerSession = v; _settingsService.Save();
+                }
+                else TxtLondonMaxEntries.Text = settings.LondonMaxEntriesPerSidePerSession.ToString();
+            };
+
+            // Wire POC stop checkbox + slider
+            ChkLondonUsePocStop.Checked += (s, ev) => { settings.LondonUsePocAsStop = true; SldLondonPocRiskRatio.IsEnabled = true; _settingsService.Save(); BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop = true; };
+            ChkLondonUsePocStop.Unchecked += (s, ev) => { settings.LondonUsePocAsStop = false; SldLondonPocRiskRatio.IsEnabled = false; _settingsService.Save(); BinanceTestnet.Strategies.Helpers.StrategyRuntimeConfig.LondonUsePocAsStop = false; };
+
+            SldLondonPocRiskRatio.ValueChanged += (s, ev) => {
+                try
+                {
+                    var v = (decimal)SldLondonPocRiskRatio.Value;
+                    TxtLondonPocRiskRatioValue.Text = v.ToString(CultureInfo.InvariantCulture);
+                    settings.LondonPocRiskRatio = v; _settingsService.Save();
+                }
+                catch { }
+            };
+
+            TxtLondonPocRiskRatioValue.LostFocus += (s, ev) => {
+                if (decimal.TryParse(TxtLondonPocRiskRatioValue.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec) && dec >= 0.5m && dec <= 10m)
+                {
+                    settings.LondonPocRiskRatio = dec; SldLondonPocRiskRatio.Value = (double)dec; _settingsService.Save();
+                }
+                else TxtLondonPocRiskRatioValue.Text = settings.LondonPocRiskRatio.ToString(CultureInfo.InvariantCulture);
+            };
 
             try
             {
@@ -421,7 +550,9 @@ namespace TradingAppDesktop.Views
                 _settingsService.Save();
                 HarmonicPanel.Visibility = (settings.SelectedStrategy == "HarmonicPattern") ? Visibility.Visible : Visibility.Collapsed;
                 BollingerPanel.Visibility = (settings.SelectedStrategy == "BollingerNoSqueeze") ? Visibility.Visible : Visibility.Collapsed;
-                    EmaCrossoverPanel.Visibility = (settings.SelectedStrategy == "EmaCrossoverVolume") ? Visibility.Visible : Visibility.Collapsed;
+                EmaCrossoverPanel.Visibility = (settings.SelectedStrategy == "EmaCrossoverVolume") ? Visibility.Visible : Visibility.Collapsed;
+                CandlePatternPanel.Visibility = (settings.SelectedStrategy == "CandlePatternAnalysis") ? Visibility.Visible : Visibility.Collapsed;
+                LondonPanel.Visibility = (settings.SelectedStrategy == "LondonSessionVolumeProfile") ? Visibility.Visible : Visibility.Collapsed;
 
                 // When Bollinger panel becomes visible, (re)load controls
                 if (settings.SelectedStrategy == "BollingerNoSqueeze")

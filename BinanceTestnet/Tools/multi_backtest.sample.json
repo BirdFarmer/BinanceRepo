@@ -1,8 +1,8 @@
 {
-  "Strategy": "FibonacciRetracement",
+  "Strategy": "LondonSessionVolumeProfile",
   "Strategies": null,
   "Timeframes": [
-    "5m"
+    "1m"
   ],
   "SymbolSets": {
     "1": [
@@ -60,13 +60,13 @@
       "RiskProfiles": [
         {
           "Name": "4",
-          "TpMultiplier": 4.0,
+          "TpMultiplier": 5.0,
           "RiskDivider": 1.0,
           "SlMultiplier": null
         },
         {
           "Name": "2",
-          "TpMultiplier": 2.0,
+          "TpMultiplier": 6.0,
           "RiskDivider": 1.0,
           "SlMultiplier": null
         }
@@ -78,7 +78,7 @@
     "Format": "csv"
   },
   "Historical": {
-    "StartUtc": "2025-12-12T15:00:00Z",
+    "StartUtc": "2026-01-28T07:00:00Z",
     "BatchSize": 1500,
     "MaxCandles": 1500
   }

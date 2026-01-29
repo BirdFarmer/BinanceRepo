@@ -22,4 +22,6 @@ public enum SelectedTradingStrategy
     ,
     EmaCrossoverVolume = 19,
     CandlePatternAnalysis = 20
+    ,
+    LondonSessionVolumeProfile = 21
 }

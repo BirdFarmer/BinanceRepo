@@ -74,6 +74,7 @@
                                         <ComboBoxItem Content="EmaCrossoverVolume" />
                                         <ComboBoxItem Content="CandlePatternAnalysis" />
                                         <ComboBoxItem Content="HarmonicPattern" />
+                                        <ComboBoxItem Content="LondonSessionVolumeProfile" />
                                     </ComboBox>
                                 </Grid>
                                 <Grid Grid.Row="1" Margin="0,6,0,0">
